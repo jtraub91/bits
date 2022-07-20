@@ -1,0 +1,4 @@
+cryptography==37.0.4
+hdwallet==2.1.1
+jupyter==1.0.0
+pip-chill==1.0.1
