@@ -1,5 +1,35 @@
 ### `bits`
 
+bits & tricks
+
+
+_Recommended usage_
+
+Generate keys in an offline, airgapped computer (e.g. raspberry pi)
+
+```
+# ./scripts/airgap.sh
+```
+write pubkey (only) to paper
+
+load pubkey via bits
+
+```
+from bits.btypes import pubkey_hash, bitcoin_address
+from bits.keys import load_pubkey
+
+pk_1 = load_pubkey(b"\x04\x...\x...")
+pkh_1 = pubkey_hash(pk_1)
+baddr_1 = bitcoin_address(pkh_1)
+```
+
+identify utxos (bitcoin rpc)
+
+create raw tx
+send tx, via RPC to bitcoin core full node
+
+
+
 _Goals_
 
   1. Learn crypto protocols
@@ -10,49 +40,15 @@ _Objectives_
 
   1. Generate and manage crypto identities
   2. Form transactions, and sign transactions
-  3. Use a local / remote RPC node to relay transactions
-  4. Check balances
-  5. Perform P2P consensus?
-  6. Broadcast peer to peer transactions?
-  7. Mine?
-
+  3. Use a local / remote RPC node to relay transactions and check balances (SPV)
+  4. Perform P2P consensus?
+  5. Broadcast peer to peer transactions?
+  6. Mine?
 
 ## Install Bitcoin core
 
 Install Bitcoin core and run a Full Node
 
-## Offline
-
-Generate crypto identity
-Sign transactions
-
-## Online
-
-Broadcast transactions to network (via rpc to your full node)
-
-
-### Demo
-
->>> from bits.identity import generate_keypair
->>> privkey, pubkey = generate_keypair()
-
->>> from bits.wallet import HD
->>> new_hd_wallet = HD()
->>> new_hd_wallet.mnemonic
->>> 
-
->>> from bits.tx import Tx
->>> transaction = Tx(inputs, outputs)
-
-### Description
-
-This library was developed for educational purposes and as a way to self document the Bitcoin protocol.
-It intends to provide a python equivalent of the spec, as closely as possible,
-avoiding excessive use of covenience shorthands, unless where appropriate.
-
-### Set up bitcoin core full node
-
-TODO
 
 ### Set up lightning node
 
@@ -75,3 +71,22 @@ openssl ecparam -name secp256k1 -genkey -noout -out <filename>.pem
 - use openssl for key and signing operations
 - use local Bitcoin core full node for source of truth blockchain info, etc.
 - functional before object oriented
+
+#### Examples
+
+_CLI_
+
+```
+$ bits to_bitcoin_address 02ee784d05304ca4e5595ea8bc17c8dd6d613079000f3ee0c2292a57370bafc066
+1MXHGHdhGRdZo551ibWMtb7D53LT3GdqtC
+```
+
+_unofficial_
+
+```
+$ bits createrawtx --help
+```
+
+```
+echo $(openssl ec -in public.pem -pubin -text | grep -E "[a-f0-9][a-f0-9]:" | tr -d ' ' | tr -d ':' | tr -d "\n")
+```

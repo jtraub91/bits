@@ -5,77 +5,34 @@ https://developer.bitcoin.org/reference/transactions.html
 """
 from hashlib import sha256
 
-from bits.btypes import compact_size_uint, Bytes
-from bits.script import Script
+from bits.btypes import compact_size_uint
 
 
-class OutPoint(Bytes):
-    def __init__(self, txid: bytes, index: int):
-        self.txid = txid  # internal byte order ?
-        self.index = index
-
-    def raw(self) -> bytes:
-        return self.txid + self.index.to_bytes(4, "little")
-
-class TxIn(Bytes):
-    def __init__(
-        self,
-        prev_outpoint: OutPoint,
-        script_sig: Script,
-        sequence: bytes = b"\xff\xff\xff\xff",
-    ):
-        self.prev_outpoint = prev_outpoint
-        self.script_sig = script_sig
-        self.sequence = sequence
-
-    def raw(self) -> bytes:
-        raw_txin = (
-            self.prev_outpoint.raw()
-            + compact_size_uint(len(self.script_sig))
-            + self.script_sig.raw()
-            + self.sequence
-        )
-        return raw_txin
+def outpoint(txid: bytes, index: int) -> bytes:
+    return txid + index.to_bytes(4, "little")
 
 
-class TxOut(Bytes):
-    def __init__(self, value: int, script_pubkey: Script):
-        self.value = value
-        self.script_pubkey = script_pubkey
-
-    def raw(self) -> bytes:
-        raw_txout = (
-            self.value.to_bytes(8, "little", signed=True)
-            + compact_size_uint(len(self.script_pubkey))
-            + self.script_pubkey.raw()
-        )
-        return raw_txout
+def txin(
+    prev_outpoint: bytes, script_sig: bytes, sequence: bytes = b"\xff\xff\xff\xff"
+) -> bytes:
+    return prev_outpoint + compact_size_uint(len(script_sig)) + script_sig + sequence
 
 
-class Tx(Bytes):
-    """
-    Bitcoin transaction
-    """
+def txout(value: int, script_pubkey: bytes) -> bytes:
+    return (
+        value.to_bytes(8, "little", signed=True)
+        + compact_size_uint(len(script_pubkey))
+        + script_pubkey
+    )
 
+
+def tx(txins: list[bytes], txouts: list[bytes], locktime: int = 0) -> bytes:
     version = 1
-
-    def __init__(self, inputs: list[TxIn], outputs: list[TxOut], locktime=0):
-        self.inputs: list[TxIn] = inputs
-        self.outputs: list[TxOut] = outputs
-        self.locktime: bytes = locktime.to_bytes(4, "little")
-
-
-    def raw(self) -> bytes:
-        """
-        Serialized transaction in raw bytes format
-        """
-        raw_tx = self.version.to_bytes(4, "little", signed=True) + compact_size_uint(
-            len(self.inputs)
-        )
-        for txin in self.inputs:
-            raw_tx += txin.raw()
-        raw_tx += compact_size_uint(len(self.outputs))
-        for txout in self.outputs:
-            raw_tx += txout.raw()
-        raw_tx += self.locktime
-        return raw_tx
+    return (
+        version.to_bytes(4, "little", signed=True)
+        + compact_size_uint(len(inputs))
+        + b"".join(txins)
+        + compact_size_uint(len(outputs))
+        + b"".join(txouts)
+        + locktime.to_bytes(4, "little")
+    )

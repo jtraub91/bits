@@ -5,7 +5,9 @@ import ecdsa
 
 def generate_keypair(save_as=""):
     """
+    UNSAFE ¯\_(ツ)_/¯
     Return new privkey, (pubkey_x, pubkey_y)
+    Optionally, save as pem file
     """
     sk = ecdsa.SigningKey.generate(curve=ecdsa.SECP256k1)
     vk = sk.verifying_key
@@ -15,6 +17,7 @@ def generate_keypair(save_as=""):
             pem_file.write(pem)
     return sk.privkey.secret_multiplier, (vk.pubkey.point.x(), vk.pubkey.point.y())
 
-def genkey_openssl(filename):
-    with Popen(f"openssl ecparam -name secp256k1 -genkey -noout -out {filename}".split()) as proc:
-        ret = proc.communicate()
+
+def load_pubkey(filename: str, format: str = "pem") -> bytes:
+    """Not implemented"""
+    return

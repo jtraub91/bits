@@ -1,6 +1,7 @@
 import hashlib
 from base58 import b58encode, b58decode
 
+
 def pubkey(x: int, y: int, compressed=False) -> bytes:
     """
     Returns pubkey from point (x, y) as hex bytes, optionally compressed
@@ -9,8 +10,9 @@ def pubkey(x: int, y: int, compressed=False) -> bytes:
         prefix = b"\x02" if y % 2 == 0 else b"\x03"
         return prefix + x.to_bytes(32, "big")
     else:
-        prefix = b"\x04" 
+        prefix = b"\x04"
         return prefix + x.to_bytes(32, "big") + y.to_bytes(32, "big")
+
 
 def pubkey_hash(pubkey_: bytes) -> bytes:
     """
@@ -21,7 +23,8 @@ def pubkey_hash(pubkey_: bytes) -> bytes:
     ripe_hash = hashlib.new("ripemd160", hash_256).digest()
     return ripe_hash
 
-def bitcoin_address(pk_hash: bytes, network: str="mainnet") -> bytes:
+
+def bitcoin_address(pk_hash: bytes, network: str = "mainnet") -> bytes:
     """
     Returns bitcoin address from public key hash
     """
@@ -35,6 +38,7 @@ def bitcoin_address(pk_hash: bytes, network: str="mainnet") -> bytes:
     version_pkh = version + pk_hash
     checksum = hashlib.sha256(hashlib.sha256(version_pkh).digest()).digest()[:4]
     return b58encode(version_pkh + checksum)
+
 
 def compact_size_uint(integer: int) -> bytes:
     """
@@ -50,26 +54,3 @@ def compact_size_uint(integer: int) -> bytes:
         return b"\xfe" + integer.to_bytes(4, "little")
     elif integer >= 0x100000000 and integer <= 0xFFFFFFFFFFFFFFFF:
         return b"\xff" + integer.to_bytes(8, "little")
-
-
-class Bytes:
-    """
-    Generic class for most (if not all) data objects to subclass
-    """
-    def raw(self) -> bytes:
-        """
-        Returns bytes formatted according to spec for subclasses to implement
-        """
-        raise NotImplementedError()
-
-    def __len__(self) -> int:
-        """
-        Length in bytes
-        """
-        return len(self.raw())
-
-    def __repr__(self) -> str:
-        """
-        Bytes object represented as hex encoding
-        """
-        return self.raw().hex()
