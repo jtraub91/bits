@@ -1,5 +1,4 @@
 from subprocess import Popen, PIPE
-
 import ecdsa
 
 
@@ -20,4 +19,4 @@ def generate_keypair(save_as=""):
 
 def load_pubkey(filename: str, format: str = "pem") -> bytes:
     """Not implemented"""
-    return
+    raise NotImplementedError

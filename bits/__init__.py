@@ -1,3 +1,4 @@
+"""
 # https://en.bitcoin.it/wiki/Protocol_documentation
 # https://karpathy.github.io/2021/06/21/blockchain/
 # https://en.bitcoin.it/w/images/en/9/9b/PubKeyToAddr.png
@@ -15,3 +16,13 @@
 # https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki
 # https://en.bitcoin.it/wiki/OP_CHECKSIG
 # http://www.righto.com/2014/02/bitcoins-hard-way-using-raw-bitcoin.html
+# SegWit
+# https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki
+# https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki
+# https://github.com/bitcoin/bips/blob/master/bip-0144.mediawiki
+# https://github.com/bitcoin/bips/blob/master/bip-0145.mediawiki
+# https://github.com/bitcoin/bips/blob/master/bip-0147.mediawiki
+# https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki
+# TapRoot
+# https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki
+"""

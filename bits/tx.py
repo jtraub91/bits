@@ -6,6 +6,7 @@ https://developer.bitcoin.org/reference/transactions.html
 from hashlib import sha256
 
 from bits.btypes import compact_size_uint
+from bits.utils import d_hash
 
 
 def outpoint(txid: bytes, index: int) -> bytes:
@@ -36,3 +37,19 @@ def tx(txins: list[bytes], txouts: list[bytes], locktime: int = 0) -> bytes:
         + b"".join(txouts)
         + locktime.to_bytes(4, "little")
     )
+
+
+def txid(tx_: bytes) -> bytes:
+    return d_hash(tx_)
+
+
+# SegWit
+def wtxid(
+    tx_: bytes, witness: bytes, marker: bytes = b"\x00", flag: bytes = b"\x01"
+) -> bytes:
+    # https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki
+    # if all txins are non-witness program, wxtid == txid
+    # returns:
+    #   d_hash([nVersion][marker][flag][txins][txouts][witness][nLockTime])
+
+    return

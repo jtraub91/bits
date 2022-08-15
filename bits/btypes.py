@@ -24,17 +24,13 @@ def pubkey_hash(pubkey_: bytes) -> bytes:
     return ripe_hash
 
 
-def bitcoin_address(pk_hash: bytes, network: str = "mainnet") -> bytes:
+def bitcoin_address(pk_hash: bytes, version: bytes = b"\x00") -> bytes:
     """
     Returns bitcoin address from public key hash
-    """
-    if network == "mainnet":
-        version = b"\x00"
-    elif network == "testnet":
-        version = b"\x6f"
-    else:
-        raise ValueError("network must be 'mainnet' or 'testnet'")
 
+    Args:
+        version: 0x00 for mainnet, 0x6f for testnet
+    """
     version_pkh = version + pk_hash
     checksum = hashlib.sha256(hashlib.sha256(version_pkh).digest()).digest()[:4]
     return b58encode(version_pkh + checksum)

@@ -1,18 +1,12 @@
 ### `bits`
 
-bits & tricks
+bits & tricks for Bitcoin
 
+### Recommended usage
 
-_Recommended usage_
+Generate keys in an offline, airgapped computer (e.g. raspberry pi), write pubkey (only) to paper
 
-Generate keys in an offline, airgapped computer (e.g. raspberry pi)
-
-```
-# ./scripts/airgap.sh
-```
-write pubkey (only) to paper
-
-load pubkey via bits
+_load pubkey bits_
 
 ```
 from bits.btypes import pubkey_hash, bitcoin_address
@@ -24,7 +18,6 @@ baddr_1 = bitcoin_address(pkh_1)
 ```
 
 identify utxos (bitcoin rpc)
-
 create raw tx
 send tx, via RPC to bitcoin core full node
 
@@ -81,12 +74,14 @@ $ bits to_bitcoin_address 02ee784d05304ca4e5595ea8bc17c8dd6d613079000f3ee0c2292a
 1MXHGHdhGRdZo551ibWMtb7D53LT3GdqtC
 ```
 
-_unofficial_
+_createrawtx_ (TODO)
 
 ```
 $ bits createrawtx --help
 ```
 
+_get hex string from public pem file_
+
 ```
-echo $(openssl ec -in public.pem -pubin -text | grep -E "[a-f0-9][a-f0-9]:" | tr -d ' ' | tr -d ':' | tr -d "\n")
+echo $(openssl ec -in public.pem -pubin -text | grep -E "[a-f0-9][a-f0-9]:" | tr -d ' ' | tr -d ':' | tr -d '\n')
 ```

@@ -1,5 +1,12 @@
 import hashlib
+
 from base58 import b58decode
+from ecdsa import SigningKey, SECP256k1
+
+
+def pub_point(priv_: int) -> tuple:
+    sk = SigningKey.from_secret_exponent(priv_, curve=SECP256k1)
+    return sk.verifying_key.pubkey.point.x(), sk.verifying_key.pubkey.point.y()
 
 
 def d_hash(msg: bytes) -> bytes:

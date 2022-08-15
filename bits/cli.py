@@ -3,13 +3,13 @@ import argparse
 from bits.btypes import pubkey_hash, bitcoin_address
 
 
-def to_bitcoin_address(pubkey_hex: bytes, network: str = None) -> bytes:
+def to_bitcoin_address(pubkey_: bytes, network: str = None) -> bytes:
     """
     Convert pubkey to bitcoin address
     Args:
         pubkey_: bytes, pubkey in hex
     """
-    pkh = pubkey_hash(pubkey_hex)
+    pkh = pubkey_hash(pubkey_)
     return bitcoin_address(pkh, network=network).decode("ascii")
 
 
