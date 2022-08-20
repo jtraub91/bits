@@ -1,6 +1,7 @@
 import argparse
 
 from bits.utils import pubkey_hash, base58check
+from bits.wallet.hd import HD
 from bits.wallet.hd.bip32 import to_master_key, parse_256, point, ser_p
 from bits.wallet.hd.bip39 import generate_mnemonic_phrase, to_seed
 
@@ -48,32 +49,9 @@ def main():
             print(generate_mnemonic_phrase())
         elif args.hd_command == "generate_master_keys":
             phrase = generate_mnemonic_phrase()
-            seed = to_seed(phrase)
-            master_key, master_chain_code = to_master_key(seed)
-
-            # https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#serialization-format
-            version = b"\x04\x88\xAD\xE4"  # private mainnet
-            xprv = base58check(
-                version,
-                b"\x00"  # depth, 0x00 for master key
-                + b"\x00\x00\x00\x00"  # parent key fingerprint, 0x00000000 for master key
-                + b"\x00\x00\x00\x00"  # child number, 0x00000000 for master key
-                + master_chain_code
-                + b"\x00"
-                + master_key,
-            ).decode("ascii")
+            hd = HD.from_mnemonic(phrase)
+            xprv, xpub = hd.get_root_keys()
             print(xprv)
-
-            pubpoint_ = point(parse_256(master_key))
-            version = b"\x04\x88\xB2\x1E"  # public mainnet
-            xpub = base58check(
-                version,
-                b"\x00"
-                + b"\x00\x00\x00\x00"
-                + b"\x00\x00\x00\x00"
-                + master_chain_code
-                + ser_p(pubpoint_),
-            ).decode("ascii")
             print(xpub)
         else:
             raise ValueError("hd command not found")

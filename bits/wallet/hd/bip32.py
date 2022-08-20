@@ -155,7 +155,7 @@ def serialized_extended_key(
 
     payload = depth + parent_key_fingerprint + child_no + chaincode
     if public:
-        payload += pubkey(*key)
+        payload += ser_p(key)  # or, pubkey(*key, compressed=True)
     else:
         payload += b"\x00" + ser_256(key)
 
