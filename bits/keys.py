@@ -14,7 +14,10 @@ def generate_keypair(save_as=""):
         with open(save_as, "wb") as pem_file:
             pem = sk.to_pem()
             pem_file.write(pem)
-    return sk.privkey.secret_multiplier, (vk.pubkey.point.x(), vk.pubkey.point.y())
+    return sk.privkey.secret_multiplier, (
+        vk.pubkey.point.x(),
+        vk.pubkey.point.y(),
+    )
 
 
 def load_pubkey(filename: str, format: str = "pem") -> bytes:

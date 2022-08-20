@@ -1,148 +1,179 @@
+"""
+BIP32
+https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki
+"""
 import hashlib
 import hmac
+from typing import Union
 
-from bits.btypes import pubkey
-from bits.utils import pub_point
+from bits.ecmath import add_mod_n
+from bits.utils import pub_point, pubkey, base58check
 
-### conventions
-## https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#conventions
+# https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#conventions
 def point(p: int) -> tuple:
+    """
+    Returns the coordinate pair resulting from EC point multiplication
+    of the secp256k1 base point with the integer p
+    """
     return pub_point(p)
 
 
 def ser_32(i: int) -> bytes:
+    """
+    Serialize i as 32 bits big endian
+    """
     return i.to_bytes(4, "big")
 
 
 def ser_256(p: int) -> bytes:
+    """
+    Serialize p as a 256 bits big-endian
+    """
     return p.to_bytes(32, "big")
 
 
 def ser_p(P: tuple) -> bytes:
+    """
+    Serialize P = (x, y) in SEC1 compressed form
+    """
     x, y = P
     return pubkey(x, y, compressed=True)
 
 
 def parse_256(p: bytes) -> int:
+    """
+    Parse 256 bit, big endian number, p, as integer
+    """
     return int.from_bytes(p, "big")
-
-
-##
-###
-### extended keys
-## https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#extended-keys
-
-
-def extended_private_key(k: int, c: int):
-    return
-
-
-def extended_public_key(K, c):
-    return
 
 
 ### child key derivation (ckd) functions
 ##
-
-
-def private_parent_to_private_child(k_parent, c_parent, i) -> tuple:
+def CKDpriv(k_parent: int, c_parent: bytes, i: int) -> tuple[int, bytes]:
+    """
+    private parent to private child
+    https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#private-parent-key--private-child-key
+    e.g. CKDpriv
+    CKDpriv(CKDpriv(CKDpriv(m, 3'), 2), 5) == m/3'/2/5
+    """
     if i >= 2**31:
         # hardened child
         msg = b"\x00" + ser_256(k_parent) + ser_32(i)
-        l = hmac.new(c_parent, msg, digestmod=hashlib.sha512)
+        I = hmac.new(c_parent, msg, digestmod=hashlib.sha512).digest()
     else:
         # normal child
-        l = hmac.new(c_parent, digestmod=hashlib.sha512)
-    return
+        msg = ser_p(point(k)) + ser_32(i)
+        I = hmac.new(c_parent, msg, digestmod=hashlib.sha512).digest()
+
+    I_L = I[:32]
+    I_R = I[32:]
+
+    key_i = add_mod_n(parse_256(I_L), k_parent)
+    chain_code_i = I_R
+
+    assert parse_256(I_L) < n
+    assert key != 0
+
+    return (key_i, chain_code_i)
 
 
-def public_parent_to_public_child(K_parent: tuple, c_parent) -> tuple:
-    return
-
-
-def private_parent_to_public_child() -> tuple:
-    return
-
-
-def public_parent_to_private_child():
-    raise NotImplementedError("This is not possible")
-
-
-##
-###
-
-### The key Tree
-##
-##
-###
-
-### Key identifiers
-## https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#key-identifiers
-# ??
-##
-###
-
-### Serialization format
-##
-
-
-def serialize(
-    key: bytes,
-    chain_code: bytes,
-    depth: bytes = b"\x00",
-    parent_key_fingerprint: bytes = None,
-    child_number: bytes = None,
-    master: bool = False,
-    public: bool = False,
-    network: str = "mainnet",
-) -> bytes:
-    if public and network == "mainnet":
-        version = b"\x04\x88\xB2\x1E"
-    elif not public and network == "mainnet":
-        version = b"\x04\x88\xAD\xE4"
-    elif public and network == "testnet":
-        version = b"\x04\x35\x87\xCF"
-    elif not public and network == "testnet":
-        version = b"\x04\x35\x83\x94"
+def CKDpub(
+    K_parent: tuple[int], c_parent: bytes, i: int
+) -> tuple[tuple[int], bytes]:
+    """
+    WIP
+    public parent to public child
+    """
+    if i >= 2**31:
+        raise ValueError(f"This function is not defined for hardened children")
     else:
-        raise ValueError(f"network not recognized: {network}")
+        # normal child
+        msg = ser_p(K_parent) + ser_32(i)
+        I = hmac.new(c_parent, msg, digestmod=hashlib.sha512)
+    I_L = I[:32]
+    I_R = I[32:]
+    K_i = (
+        point(parse_256(I_L)) + K_parent
+    )  # + is point addition ! TODO implement
+    c_i = I_R
 
-    if master:
-        parent_key_fingerint = b"\x00\x00\x00\x00"
-
-    if master:
-        child_number = b"\x00\x00\x00\x00"  # ser_32(i) for i in x_i = x_par / i ?? , 0x00000000 if master key
-
-    return version + depth + parent_key_fingerint + child_number + chain_code + key
-
-
-##
-###
-
-### Master key generation
-## https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#master-key-generation
+    assert parse_256(I_L) < n
+    # and assert K_i is not point at infinity
+    return
 
 
-def to_master_key(S: bytes) -> tuple[bytes]:
+def N(k_parent, c_parent) -> tuple[tuple, bytes]:
+    """
+    private parent to public child
+    """
+    return point(k_parent), c_parent
+
+
+def to_master_key(seed: bytes) -> tuple[int, bytes]:
     """
     Defined in BIP32
     https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#master-key-generation
 
     Args:
-        S: seed of chosen length (between 128 and 512 bits)
+        seed: seed of chosen length (between 128 and 512 bits)
     """
-    l = hmac.new(b"Bitcoin seed", S, digestmod=hashlib.sha512).digest()
-    master_secret_key = l[:32]
-    master_chain_code = l[32:]
+    I = hmac.new(b"Bitcoin seed", seed, digestmod=hashlib.sha512).digest()
+    master_secret_key = int.from_bytes(I[:32], "big")
+    master_chain_code = I[32:]
 
-    assert int.from_bytes(master_secret_key, "big") != 0
+    assert master_secret_key != 0
 
     # n for secp256k1, http://www.secg.org/sec2-v2.pdf
     n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-    assert int.from_bytes(master_secret_key, "big") < n
+    assert master_secret_key < n
 
     return (master_secret_key, master_chain_code)
 
 
-##
-###
+def serialized_extended_key(
+    key: Union[int, tuple[int]],
+    chaincode: bytes,
+    depth: bytes,
+    parent_key_fingerprint: bytes,
+    child_no: bytes,
+    testnet: bool = False,
+    public: bool = False,
+) -> bytes:
+    """
+    Return serialized base58 encoded extended key
+    Args:
+        key: private or public key
+    """
+    if public and not testnet:
+        version = b"\x04\x88\xb2\x1e"  # public mainnet
+    elif not public and not testnet:
+        version = b"\x04\x88\xAD\xE4"  # private mainnet
+    elif public and testnet:
+        version = b"\x04\x35\x87\xCF"  # public testnet
+    elif not public and testnet:
+        version = b"\x04\x35\x83\x94"  # private testnet
+
+    payload = depth + parent_key_fingerprint + child_no + chaincode
+    if public:
+        payload += pubkey(*key)
+    else:
+        payload += b"\x00" + ser_256(key)
+
+    return base58check(version, payload)
+
+
+def root_serialized_extended_key(
+    master_key: Union[int, tuple[int]],
+    master_chain_code: bytes,
+    public: bool = False,
+    testnet: bool = False,
+) -> bytes:
+    return serialized_extended_key(
+        master_key,
+        master_chain_code,
+        depth=b"\x00",
+        parent_key_fingerprint=b"\x00\x00\x00\x00",
+        child_no=b"\x00\x00\x00\x00",
+        public=public,
+        testnet=testnet,
+    )

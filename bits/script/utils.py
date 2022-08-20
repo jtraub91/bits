@@ -1,4 +1,9 @@
-from bits.script.constants import OP_DUP, OP_HASH160, OP_EQUALVERIFY, OP_CHECKSIG
+from bits.script.constants import (
+    OP_DUP,
+    OP_HASH160,
+    OP_EQUALVERIFY,
+    OP_CHECKSIG,
+)
 
 
 def p2pkh_script_pubkey(pk_hash: bytes) -> bytes:

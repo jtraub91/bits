@@ -1,6 +1,3 @@
-"""
-HD wallets: BIP32, BIP39, BIP43, BIP44
-"""
+from bits.wallet.hd.utils import HD
 
-
-#### From scratch implementations based on BIP specs
+__all__ = ["HD"]

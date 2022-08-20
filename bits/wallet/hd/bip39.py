@@ -2,29 +2,30 @@ import hashlib
 import secrets
 import unicodedata
 
-from mnemonic import Mnemonic
+from mnemonic import Mnemonic  # TODO: remove this dependency
 
 
-### python-mnemonic BIP39 ref (with slight overlap of BIP32) implementation wrappers
-def generate_mnemonic_phrase(strength: int = 256, language: str = "english") -> str:
+def generate_mnemonic_phrase(
+    strength: int = 256, language: str = "english"
+) -> str:
     return Mnemonic(language).to_mnemonic(secrets.token_bytes(strength // 8))
 
 
-def get_seed(mnemonic, passphrase: str = "", language: str = "english") -> bytes:
-    return Mnemonic(language).to_seed(mnemonic, passphrase=passphrase)
+# def get_seed(
+#     mnemonic, passphrase: str = "", language: str = "english"
+# ) -> bytes:
+#     return Mnemonic(language).to_seed(mnemonic, passphrase=passphrase)
 
 
-def get_master_key(
-    seed: bytes, language: str = "english", testnet: bool = False
-) -> bytes:
-    """
-    Arguably defined in BIP32 yet included for master key in python-mnemonic
-    """
-    return Mnemonic(language).to_hd_master_key(seed, testnet=testnet)
-
-
-##
-###
+# def get_master_key(
+#     seed: bytes, language: str = "english", testnet: bool = False
+# ) -> bytes:
+#     """
+#     Arguably defined in BIP32 yet included for master key in python-mnemonic
+#     """
+#     return Mnemonic(language).to_hd_master_key(seed, testnet=testnet)
+# ##
+# ###
 
 ### From Scratch implementations
 ##

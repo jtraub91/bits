@@ -1,10 +1,67 @@
 import hashlib
 
-from base58 import b58decode
-from ecdsa import SigningKey, SECP256k1
+from base58 import b58encode, b58decode  # TODO: remove this dependency
+from ecdsa import SigningKey, SECP256k1  # TODO: remove this dependency
 
 
-def pub_point(priv_: int) -> tuple:
+def pubkey(x: int, y: int, compressed=False) -> bytes:
+    """
+    Returns pubkey from point (x, y) as hex bytes, optionally compressed
+    SEC1 format, I believe
+    """
+    if compressed:
+        prefix = b"\x02" if y % 2 == 0 else b"\x03"
+        return prefix + x.to_bytes(32, "big")
+    else:
+        prefix = b"\x04"
+        return prefix + x.to_bytes(32, "big") + y.to_bytes(32, "big")
+
+
+def pubkey_hash(pubkey_: bytes) -> bytes:
+    """
+    Returns pubkeyhash as used in P2PKH scriptPubKey
+    e.g. RIPEMD160(SHA256(pubkey_))
+    """
+    hash_256 = hashlib.sha256(pubkey_).digest()
+    ripe_hash = hashlib.new("ripemd160", hash_256).digest()
+    return ripe_hash
+
+
+def base58check(version: bytes, payload: bytes) -> bytes:
+    """
+    Base58 check encoding used for bitcoin addresses
+
+    Args:
+        version: 0x00 for mainnet, 0x6f for testnet, etc.
+        payload
+    """
+    version_payload = version + payload
+    checksum = hashlib.sha256(
+        hashlib.sha256(version_payload).digest()
+    ).digest()[:4]
+    return b58encode(version_payload + checksum)
+
+
+def compact_size_uint(integer: int) -> bytes:
+    """
+    https://developer.bitcoin.org/reference/transactions.html#compactsize-unsigned-integers
+    """
+    if integer < 0:
+        raise ValueError("signed integer")
+    elif integer >= 0 and integer <= 252:
+        return integer.to_bytes(1, "little")
+    elif integer >= 253 and integer <= 0xFFFF:
+        return b"\xfd" + integer.to_bytes(2, "little")
+    elif integer >= 0x10000 and integer <= 0xFFFFFFFF:
+        return b"\xfe" + integer.to_bytes(4, "little")
+    elif integer >= 0x100000000 and integer <= 0xFFFFFFFFFFFFFFFF:
+        return b"\xff" + integer.to_bytes(8, "little")
+
+
+def pub_point(priv_: int) -> tuple[int]:
+    """
+    Return (x, y) from priv_ key int on SECP256k1 curve
+    """
     sk = SigningKey.from_secret_exponent(priv_, curve=SECP256k1)
     return sk.verifying_key.pubkey.point.x(), sk.verifying_key.pubkey.point.y()
 
@@ -16,13 +73,15 @@ def d_hash(msg: bytes) -> bytes:
     return hashlib.sha256(hashlib.sha256(msg).digest()).digest()
 
 
-def pubkey_hash_from_bitcoin_address(baddr: bytes) -> bytes:
+def pubkey_hash_from_p2pkh(baddr: bytes) -> bytes:
     """
     Return pubkeyhash from bitcoin address, with checksum verification
     """
     decoded_addr = b58decode(baddr)
     checksum = decoded_addr[-4:]
-    checksum_check = hashlib.sha256(hashlib.sha256(decoded_addr[:-4]).digest()).digest()
+    checksum_check = hashlib.sha256(
+        hashlib.sha256(decoded_addr[:-4]).digest()
+    ).digest()
     assert checksum == checksum_check[:4]
     return decoded_addr[1:-4]  # remove version byte and checksum
 
