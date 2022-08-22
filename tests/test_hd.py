@@ -21,7 +21,7 @@ def test_root_keys():
     hd_wallet.from_mnemonic(TEST_MNEMONIC)
     hd_wallet_data = hd_wallet.dumps()
 
-    hd = HD.from_mnemonic(mnemonic)
+    hd = HD.from_mnemonic(TEST_MNEMONIC)
     xprv, xpub = hd.get_root_keys()
 
     assert hd_wallet_data["root_xprivate_key"] == xprv
@@ -30,6 +30,9 @@ def test_root_keys():
 
 def test_paths():
     __paths = [
+        "m/0",
+        "m/0/0",
+        "m/0/0/0",
         "m/44'/0'/0'/0/0",
         "m/44'/0'/0'/0/1",
         "m/44'/0'/0'/0/0",
@@ -39,7 +42,8 @@ def test_paths():
 
     hd = HD.from_mnemonic(TEST_MNEMONIC)
     for path in __paths:
+        xprv, xpub = hd.get_xkeys_from_path(path)
+        hd_wallet.clean_derivation()
         hd_wallet.from_path(path)
-        xprv, xpub = hd.get_xkeys_from_path(path) 
-        assert xprv == hd_wallet.dumps()["xprivate_key"]
-        assert xpub == hd_wallet.dumps()["xpublic_key"]
+        assert xprv == hd_wallet.xprivate_key()
+        assert xpub == hd_wallet.xpublic_key()

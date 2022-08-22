@@ -8,6 +8,10 @@ setup(
         "mnemonic",
         "ecdsa",
     ],
+    extras_require={
+        "dev": [],
+        "test": [],
+    },
     entry_points={
         "console_scripts": ["bits = bits.cli:main"],
     },

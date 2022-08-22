@@ -1,13 +1,15 @@
 import hashlib
 
-from base58 import b58encode, b58decode  # TODO: remove this dependency
-from ecdsa import SigningKey, SECP256k1  # TODO: remove this dependency
+from base58 import b58decode
+from base58 import b58encode
+from ecdsa import SECP256k1
+from ecdsa import SigningKey
 
 
 def pubkey(x: int, y: int, compressed=False) -> bytes:
     """
-    Returns pubkey from point (x, y) as hex bytes, optionally compressed
-    SEC1 format, I believe
+    Returns pubkey in hex from point (x, y),
+    optionally SEC1 compressed
     """
     if compressed:
         prefix = b"\x02" if y % 2 == 0 else b"\x03"
@@ -77,6 +79,7 @@ def pubkey_hash_from_p2pkh(baddr: bytes) -> bytes:
     """
     Return pubkeyhash from bitcoin address, with checksum verification
     """
+
     decoded_addr = b58decode(baddr)
     checksum = decoded_addr[-4:]
     checksum_check = hashlib.sha256(

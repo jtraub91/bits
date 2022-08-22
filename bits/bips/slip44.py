@@ -1,6 +1,5 @@
 # reference: slip-44
 # https://github.com/satoshilabs/slips/blob/master/slip-0044.md
-
 ## the following is a port of bitcoinjs/bip44-constants
 ## https://github.com/bitcoinjs/bip44-constants/blob/v149.0.0/index.js
 # Format for each row:

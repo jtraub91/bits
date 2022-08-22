@@ -9,23 +9,23 @@ always use mainnet version magic from BIP32
 """
 from typing import Union
 
-import bits.wallet.hd.bip32 as bip32
+import bits.bips.bip32 as bip32
 
 
 def serialized_extended_key(
     key: Union[int, tuple[int]],
     chaincode: bytes,
     depth: bytes,
-    child_no: bytes,
     parent_key_fingerprint: bytes,
+    child_no: bytes,
     public: bool = False,
 ) -> bytes:
     return bip32.serialized_extended_key(
         key,
         chaincode,
         depth,
-        child_no,
         parent_key_fingerprint,
+        child_no,
         testnet=False,  # testnet always False for BIP43
         public=public,
     )

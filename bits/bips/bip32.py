@@ -6,8 +6,11 @@ import hashlib
 import hmac
 from typing import Union
 
-from bits.ecmath import add_mod_n
-from bits.utils import pub_point, pubkey, base58check
+from bits.ecmath import add_mod_p
+from bits.ecmath import SECP256K1_N
+from bits.utils import base58check
+from bits.utils import pub_point
+from bits.utils import pubkey
 
 # https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#conventions
 def point(p: int) -> tuple:
@@ -62,17 +65,17 @@ def CKDpriv(k_parent: int, c_parent: bytes, i: int) -> tuple[int, bytes]:
         I = hmac.new(c_parent, msg, digestmod=hashlib.sha512).digest()
     else:
         # normal child
-        msg = ser_p(point(k)) + ser_32(i)
+        msg = ser_p(point(k_parent)) + ser_32(i)
         I = hmac.new(c_parent, msg, digestmod=hashlib.sha512).digest()
 
     I_L = I[:32]
     I_R = I[32:]
 
-    key_i = add_mod_n(parse_256(I_L), k_parent)
+    key_i = add_mod_p(parse_256(I_L), k_parent)
     chain_code_i = I_R
 
-    assert parse_256(I_L) < n
-    assert key != 0
+    assert parse_256(I_L) < SECP256K1_N
+    assert key_i != 0
 
     return (key_i, chain_code_i)
 
@@ -105,6 +108,10 @@ def CKDpub(
 def N(k_parent, c_parent) -> tuple[tuple, bytes]:
     """
     private parent to public child
+
+    somewhat pointless function,
+    would this mean that the xpub corresponding to a given xprv is its child
+    in this context?
     """
     return point(k_parent), c_parent
 
