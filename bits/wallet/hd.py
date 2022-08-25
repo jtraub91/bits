@@ -1,3 +1,6 @@
+"""
+BIP32, BIP39, BIP43, BIP44
+"""
 import hashlib
 import json
 from typing import Union
@@ -12,6 +15,10 @@ from bits.bips.bip32 import CKDpub
 from bits.bips.bip32 import point
 from bits.bips.bip32 import ser_p
 from bits.bips.bip32 import to_master_key
+from bits.bips.bip32 import VERSION_PRIVATE_MAINNET
+from bits.bips.bip32 import VERSION_PRIVATE_TESTNET
+from bits.bips.bip32 import VERSION_PUBLIC_MAINNET
+from bits.bips.bip32 import VERSION_PUBLIC_TESTNET
 from bits.bips.bip39 import generate_mnemonic_phrase
 from bits.bips.bip39 import to_seed
 from bits.utils import base58check
@@ -21,78 +28,52 @@ from bits.utils import pubkey_hash
 HARDENED_OFFSET = 0x80000000
 
 
-class DPath(dict):
-    """
-    Is this possible
-    dpath["m/0/0/0"]
-
-    hd_tree = { # BIP44 example
-        44': {  # purpose
-            0': {   # coin_type
-                0': {   # account
-                    0: {    #
-                        0: {},
-                        1: {},
-                        2: {},
-                        ...
-                        n: {}
-                    },
-                    1: {    # change adresses
-                        0: {},
-                        1: {},
-                        ...
-                        m: {}
-                    }
-                }
-            }
-        }
-    }
-    dpath = {
-        1: {
-            0: (),
-            1: (),
-            2: ()
-
-        },
-        2: {
-
-        },
-        ...: {},
-        max_depth: {
-
-        }
-    }
-
-    """
-
-    pass
-
-
-def derive_child_key(xkey: str) -> str:
+def derive_child(xkey: str, index: int) -> str:
     """
     WIP
     Derives child xpub from parent xpub OR child xprv from parent xprv
     Args:
         xkey: str, parent xpub or xprv
     """
+    if not xkey.startswith("xprv") and not xkey.startswith("xpub"):
+        raise ValueError(f"must be xprv or xpub: {xkey}")
     decoded_ = b58decode_check(xkey)
     version = decoded_[:4]
-    depth = decoded_[4:5]
-    parent_key_fingerprint = decoded_[5:9]
-    child_no = decoded_[9:13]
-    chain_code = decoded_[13:45]
-    key = decoded_[45:]
-    # 78 bytes total
+    if version not in [
+        VERSION_PRIVATE_MAINNET,
+        VERSION_PRIVATE_TESTNET,
+        VERSION_PUBLIC_MAINNET,
+        VERSION_PUBLIC_TESTNET,
+    ]:
+        raise ValueError(f"Unrecognized version: {version}")
 
-    return b58encode_check(version + depth + parent_key_fingerprint + child_no)
+    # parent_key_fingerprint = decoded_[5:9]
+    # child_no = decoded_[9:13]
+    chain_code_parent = decoded_[13:45]
+    key_parent = decoded_[45:]
+    depth_parent = int.from_bytes(decoded_[4:5], "big")
 
-    if xkey.startswith("xpub"):
-        pass
-    elif xkey.startswith("xprv"):
-        pass
+    if key_parent.startswith(b"\x00"):
+        # private
+        k_p = int.from_bytes(key_parent[1:], "big")
+        parent_key_fingerprint = pubkey_hash(ser_p(point(k_p)))[:4]
+        key, chain_code = CKDpriv(k_p, chain_code_parent, index)
+    elif key.startswith(b"\x02") or key.startswith(b"\x03"):
+        raise NotImplementedError("public derivation not implemted")
     else:
-        raise ValueError("extended key must start with xpub or xprv")
-    return
+        raise ValueError(f"key version byte: {key[0]}")
+
+    depth = (depth_parent + 1).to_bytes(1, "big")
+    child_no = int.to_bytes(index, 4, "big")
+    return base58check(
+        version,
+        depth
+        + parent_key_fingerprint
+        + child_no
+        + chain_code
+        + b"\x00"
+        + int.to_bytes(key, 32, "big"),
+    ).decode("ascii")
 
 
 def derive_from_path(
@@ -190,6 +171,7 @@ class HD:
     BIP44, BIP43, BIP39, BIP32 compatible wallet
     """
 
+    root_xkey: str = ""
     mnemonic: str = ""
 
     def __init__(
@@ -198,17 +180,37 @@ class HD:
         strength: int = 256,
         language: str = "english",
     ):
-        if not self.mnemonic:
+        self.passphrase = passphrase
+        if self.root_xkey:
+            if self.root_xkey.startswith("xprv"):
+                self.root_xprv = self.root_xkey
+                self.root_xpub = 0  # TODO
+            elif self.root_xkey.startswith("xpub"):
+                self.root_xprv = None
+                self.root_xpub = self.root_xkey
+            else:
+                raise ValueError(f"extended key prefix - {self.root_xkey[:4]}")
+        elif not self.mnemonic:
             self.mnemonic = generate_mnemonic_phrase(
                 strength=strength, language=language
             )
-        self.seed = to_seed(self.mnemonic, passphrase=passphrase)
-        self.extended_master_key = to_master_key(self.seed)
+            self.seed = to_seed(self.mnemonic, passphrase=self.passphrase)
+            self.extended_master_key = to_master_key(self.seed)
+            self.root_xprv, self.root_xpub = self.get_root_keys()
+        self.__tree = {}
 
     @classmethod
     def from_mnemonic(cls, mnemonic, passphrase: str = ""):
         cls.mnemonic = mnemonic
         return cls(passphrase=passphrase)
+
+    def from_xkey(cls, xkey: str):
+        return cls()
+
+    @classmethod
+    def from_xkey(cls, xkey):
+
+        return cls()
 
     def get_root_keys(self) -> tuple[str]:
         """
@@ -276,5 +278,13 @@ class HD:
         """
         Scan blockchain for utxo owned by this wallet
         https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#address-gap-limit
+        """
+        return
+
+    def print_tree(self, all: bool = False):
+        """
+        Return cached tree of se
+        Args:
+            all: bool, print keys and balances of all cached derivation paths
         """
         return

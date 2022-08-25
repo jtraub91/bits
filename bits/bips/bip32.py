@@ -12,6 +12,12 @@ from bits.utils import base58check
 from bits.utils import pub_point
 from bits.utils import pubkey
 
+VERSION_PUBLIC_MAINNET = b"\x04\x88\xb2\x1e"
+VERSION_PRIVATE_MAINNET = b"\x04\x88\xAD\xE4"
+VERSION_PUBLIC_TESTNET = b"\x04\x35\x87\xCF"
+VERSION_PRIVATE_TESTNET = b"\x04\x35\x83\x94"
+
+
 # https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#conventions
 def point(p: int) -> tuple:
     """
@@ -152,13 +158,13 @@ def serialized_extended_key(
         key: private or public key
     """
     if public and not testnet:
-        version = b"\x04\x88\xb2\x1e"  # public mainnet
+        version = VERSION_PUBLIC_MAINNET
     elif not public and not testnet:
-        version = b"\x04\x88\xAD\xE4"  # private mainnet
+        version = VERSION_PRIVATE_MAINNET
     elif public and testnet:
-        version = b"\x04\x35\x87\xCF"  # public testnet
+        version = VERSION_PUBLIC_TESTNET
     elif not public and testnet:
-        version = b"\x04\x35\x83\x94"  # private testnet
+        version = VERSION_PRIVATE_TESTNET
 
     payload = depth + parent_key_fingerprint + child_no + chaincode
     if public:

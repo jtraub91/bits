@@ -50,6 +50,8 @@ Elliptic curve math
 SECP256K1_N = (
     0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 )
+SECP256K1_A = 0
+SECP256K1_B = 7
 
 
 def add_mod_p(
@@ -116,3 +118,14 @@ def div_mod_p(x: int, y: int, p: int = SECP256K1_N) -> int:
     if y < 0 or y >= p:
         raise ValueError(f"{y} not in integer set of order {p}")
     return mul_mod_p(x, pow_mod_p(y, p - 2, p), p)
+
+
+# ch2
+
+
+def point_is_on_curve(
+    x: int, y: int, a: int = SECP256K1_A, b: int = SECP256K1_B
+) -> bool:
+    if y**2 == x**3 + a * x + b:
+        return True
+    return False

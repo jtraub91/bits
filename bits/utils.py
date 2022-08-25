@@ -19,6 +19,24 @@ def pubkey(x: int, y: int, compressed=False) -> bytes:
         return prefix + x.to_bytes(32, "big") + y.to_bytes(32, "big")
 
 
+def point_from_pubkey(pubkey_: bytes) -> tuple[int]:
+    """
+    WIP
+    """
+    if pubkey_[0] not in [b"\x02", b"\x03", b"\x04"]:
+        raise ValueError(f"unrecognized version byte: {pubkey_[0]}")
+    x = int.from_bytes(pubkey_[1:33], "big")
+    if pubkey_[0] == b"\x02":
+        pass
+    elif pubkey_[0] == b"\x03":
+        pass
+    else:
+        # uncompressed
+        x = (int.from_bytes(pubkey_[1:33], "big"),)
+        y = (int.from_bytes(pubkey_[33:], "big"),)
+    return (x, y)
+
+
 def pubkey_hash(pubkey_: bytes) -> bytes:
     """
     Returns pubkeyhash as used in P2PKH scriptPubKey
