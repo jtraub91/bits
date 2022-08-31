@@ -86,11 +86,8 @@ def CKDpriv(k_parent: int, c_parent: bytes, i: int) -> tuple[int, bytes]:
     return (key_i, chain_code_i)
 
 
-def CKDpub(
-    K_parent: tuple[int], c_parent: bytes, i: int
-) -> tuple[tuple[int], bytes]:
+def CKDpub(K_parent: tuple[int], c_parent: bytes, i: int) -> tuple[tuple[int], bytes]:
     """
-    WIP
     public parent to public child
     """
     if i >= 2**31:
@@ -98,17 +95,15 @@ def CKDpub(
     else:
         # normal child
         msg = ser_p(K_parent) + ser_32(i)
-        I = hmac.new(c_parent, msg, digestmod=hashlib.sha512)
+        I = hmac.new(c_parent, msg, digestmod=hashlib.sha512).digest()
     I_L = I[:32]
     I_R = I[32:]
-    K_i = (
-        point(parse_256(I_L)) + K_parent
-    )  # + is point addition ! TODO implement
+    K_i = point(parse_256(I_L)) + K_parent  # + is point addition ! TODO implement
     c_i = I_R
 
     assert parse_256(I_L) < n
     # and assert K_i is not point at infinity
-    return
+    return K_i, c_i
 
 
 def N(k_parent, c_parent) -> tuple[tuple, bytes]:

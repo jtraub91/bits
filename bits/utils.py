@@ -4,6 +4,7 @@ from base58 import b58decode
 from base58 import b58encode
 from ecdsa import SECP256k1
 from ecdsa import SigningKey
+from ecdsa import VerifyingKey
 
 
 def pubkey(x: int, y: int, compressed=False) -> bytes:
@@ -19,6 +20,14 @@ def pubkey(x: int, y: int, compressed=False) -> bytes:
         return prefix + x.to_bytes(32, "big") + y.to_bytes(32, "big")
 
 
+def point(pubkey_: bytes) -> tuple[int]:
+    """
+    Return (x, y) from pubkey_ bytes encoding
+    """
+    vk = VerifyingKey.from_string(pubkey_, curve=SECP256k1)
+    return vk.pubkey.point.x(), vk.pubkey.point.y()
+
+
 def point_from_pubkey(pubkey_: bytes) -> tuple[int]:
     """
     WIP
@@ -32,8 +41,8 @@ def point_from_pubkey(pubkey_: bytes) -> tuple[int]:
         pass
     else:
         # uncompressed
-        x = (int.from_bytes(pubkey_[1:33], "big"),)
-        y = (int.from_bytes(pubkey_[33:], "big"),)
+        x = int.from_bytes(pubkey_[1:33], "big")
+        y = int.from_bytes(pubkey_[33:], "big")
     return (x, y)
 
 
@@ -56,9 +65,7 @@ def base58check(version: bytes, payload: bytes) -> bytes:
         payload
     """
     version_payload = version + payload
-    checksum = hashlib.sha256(
-        hashlib.sha256(version_payload).digest()
-    ).digest()[:4]
+    checksum = hashlib.sha256(hashlib.sha256(version_payload).digest()).digest()[:4]
     return b58encode(version_payload + checksum)
 
 
@@ -80,7 +87,7 @@ def compact_size_uint(integer: int) -> bytes:
 
 def pub_point(priv_: int) -> tuple[int]:
     """
-    Return (x, y) from priv_ key int on SECP256k1 curve
+    Return (x, y) public point on SECP256k1 curve, from priv_ key
     """
     sk = SigningKey.from_secret_exponent(priv_, curve=SECP256k1)
     return sk.verifying_key.pubkey.point.x(), sk.verifying_key.pubkey.point.y()
@@ -100,28 +107,6 @@ def pubkey_hash_from_p2pkh(baddr: bytes) -> bytes:
 
     decoded_addr = b58decode(baddr)
     checksum = decoded_addr[-4:]
-    checksum_check = hashlib.sha256(
-        hashlib.sha256(decoded_addr[:-4]).digest()
-    ).digest()
+    checksum_check = hashlib.sha256(hashlib.sha256(decoded_addr[:-4]).digest()).digest()
     assert checksum == checksum_check[:4]
     return decoded_addr[1:-4]  # remove version byte and checksum
-
-
-def pubkey_xy_from_pubkey(pubkey_: bytes) -> tuple:
-    # unfinished. unneeded?
-    prefix = pubkey_[0]
-    if prefix == b"\x02":
-        # compressed
-        # y is even
-        pass
-    elif prefix == b"\x03":
-        # compressed
-        # y is odd
-        pass
-    elif prefix == b"\x04":
-        # uncompressed
-        x = pubkey_[1:32].from_bytes(32, "big")
-        y = pubkey_[33:].from_bytes(32, "big")
-        return (x, y)
-    else:
-        raise ValueError("version byte misunderstood")

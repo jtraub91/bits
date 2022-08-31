@@ -46,18 +46,25 @@ Ch3
 """
 Elliptic curve math
 """
-# n for secp256k1, http://www.secg.org/sec2-v2.pdf
-SECP256K1_N = (
-    0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-)
-SECP256K1_A = 0
-SECP256K1_B = 7
+# http://www.secg.org/sec2-v2.pdf - pg 13
+# T(p, a, b, G, n, h)
+# The curve E: y^2 = x^3 + ax + b over Fp,
+SECP256K1_P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+SECP256K1_A = 0x0000000000000000000000000000000000000000000000000000000000000000
+SECP256K1_B = 0x0000000000000000000000000000000000000000000000000000000000000007
+SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+SECP256K1_Gx = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
+SECP256K1_Gy = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
+SECP256K1_G_compressed = b"\x02\x79\xBE\x66\x7E\xF9\xDC\xBB\xAC\x55\xA0\x62\x95\xCE\x87\x0B\x07\x02\x9B\xFC\xDB\x2D\xCE\x28\xD9\x59\xF2\x81\x5B\x16\xF8\x17\x98"
+SECP256K1_G_uncompressed = b"\x04\x79\xBE\x66\x7E\xF9\xDC\xBB\xAC\x55\xA0\x62\x95\xCE\x87\x0B\x07\x02\x9B\xFC\xDB\x2D\xCE\x28\xD9\x59\xF2\x81\x5B\x16\xF8\x17\x98\x48\x3A\xDA\x77\x26\xA3\xC4\x65\x5D\xA4\xFB\xFC\x0E\x11\x08\xA8\xFD\x17\xB4\x48\xA6\x85\x54\x19\x9C\x47\xD0\x8F\xFB\x10\xD4\xB8"
+SECP256K1_G_n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+SECP256K1_G_h = 0x01
 
 
 def add_mod_p(
     x: int,
     y: int,
-    p: int = SECP256K1_N,
+    p: int = SECP256K1_P,
 ) -> int:
     """
     x + y (mod p)
@@ -69,7 +76,7 @@ def add_mod_p(
     return (x + y) % p
 
 
-def sub_mod_p(x: int, y: int, p: int = SECP256K1_N) -> int:
+def sub_mod_p(x: int, y: int, p: int = SECP256K1_P) -> int:
     """
     x - y (mod p)
     """
@@ -80,7 +87,7 @@ def sub_mod_p(x: int, y: int, p: int = SECP256K1_N) -> int:
     return (x - y) % p
 
 
-def mul_mod_p(x: int, y: int, p: int = SECP256K1_N) -> int:
+def mul_mod_p(x: int, y: int, p: int = SECP256K1_P) -> int:
     """
     x * y (mod p)
     """
@@ -91,7 +98,7 @@ def mul_mod_p(x: int, y: int, p: int = SECP256K1_N) -> int:
     return (x * y) % p
 
 
-def pow_mod_p(x: int, y: int, p: int = SECP256K1_N) -> int:
+def pow_mod_p(x: int, y: int, p: int = SECP256K1_P) -> int:
     """
     x ** y (mod p)
     """
@@ -105,7 +112,7 @@ def pow_mod_p(x: int, y: int, p: int = SECP256K1_N) -> int:
     # because prior to python 3.8 pow(n, exp) did not support negative exp
 
 
-def div_mod_p(x: int, y: int, p: int = SECP256K1_N) -> int:
+def div_mod_p(x: int, y: int, p: int = SECP256K1_P) -> int:
     """
     x / y (mod p)
     Using Fermat's little thereom,
@@ -120,12 +127,16 @@ def div_mod_p(x: int, y: int, p: int = SECP256K1_N) -> int:
     return mul_mod_p(x, pow_mod_p(y, p - 2, p), p)
 
 
-# ch2
-
-
+# ch2 / 3
+# Elliptic curve cryptography
 def point_is_on_curve(
     x: int, y: int, a: int = SECP256K1_A, b: int = SECP256K1_B
 ) -> bool:
-    if y**2 == x**3 + a * x + b:
+    """
+    Returns True if (x, y) is on elliptic curve given by y^2 = x^3 + ax + b, else False
+    >>> point_is_on_curve(SECP256K1_Gx, SECP256K1_Gy)
+    True
+    """
+    if pow_mod_p(y, 2) == add_mod_p(add_mod_p(pow_mod_p(x, 3), mul_mod_p(x, a)), b):
         return True
     return False

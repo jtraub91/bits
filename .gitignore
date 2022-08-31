@@ -6,3 +6,5 @@ bits.egg-info/
 
 *.pem
 *.pub
+
+bits/config.json
