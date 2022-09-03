@@ -1,9 +1,14 @@
 import argparse
 
-from bits.utils import pubkey_hash, base58check
+from bits.bips.bip32 import parse_256
+from bits.bips.bip32 import point
+from bits.bips.bip32 import ser_p
+from bits.bips.bip32 import to_master_key
+from bits.bips.bip39 import generate_mnemonic_phrase
+from bits.bips.bip39 import to_seed
+from bits.utils import base58check
+from bits.utils import pubkey_hash
 from bits.wallet.hd import HD
-from bits.wallet.hd.bip32 import to_master_key, parse_256, point, ser_p
-from bits.wallet.hd.bip39 import generate_mnemonic_phrase, to_seed
 
 
 def to_bitcoin_address(pubkey_: bytes, network: str = None) -> str:
@@ -45,14 +50,16 @@ def main():
         pubkey = bytes.fromhex(args.pubkey)
         print(to_bitcoin_address(pubkey, network=args.network))
     elif args.command == "hd":
-        if args.hd_command == "generate_mnemonic":
+        if args.hd_command == "generate":
             print(generate_mnemonic_phrase())
-        elif args.hd_command == "generate_master_keys":
+        elif args.hd_command == "generate_root_keys":
             phrase = generate_mnemonic_phrase()
             hd = HD.from_mnemonic(phrase)
             xprv, xpub = hd.get_root_keys()
             print(xprv)
             print(xpub)
+        elif args.hd_command == "createwallet":
+            raise NotImplementedError
         else:
             raise ValueError("hd command not found")
     else:

@@ -7,13 +7,14 @@ m/purpose'/*
 Serialization
 always use mainnet version magic from BIP32
 """
+from typing import Tuple
 from typing import Union
 
 import bits.bips.bip32 as bip32
 
 
 def serialized_extended_key(
-    key: Union[int, tuple[int]],
+    key: Union[int, Tuple[int]],
     chaincode: bytes,
     depth: bytes,
     parent_key_fingerprint: bytes,
@@ -32,7 +33,7 @@ def serialized_extended_key(
 
 
 def root_serialized_extended_key(
-    master_key: Union[int, tuple[int]],
+    master_key: Union[int, Tuple[int]],
     master_chain_code: bytes,
     public: bool = False,
 ) -> bytes:

@@ -4,6 +4,7 @@ https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki
 """
 import hashlib
 import hmac
+from typing import Tuple
 from typing import Union
 
 from bits.ecmath import add_mod_p
@@ -58,7 +59,7 @@ def parse_256(p: bytes) -> int:
 
 ### child key derivation (ckd) functions
 ##
-def CKDpriv(k_parent: int, c_parent: bytes, i: int) -> tuple[int, bytes]:
+def CKDpriv(k_parent: int, c_parent: bytes, i: int) -> Tuple[int, bytes]:
     """
     private parent to private child
     https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#private-parent-key--private-child-key
@@ -86,7 +87,7 @@ def CKDpriv(k_parent: int, c_parent: bytes, i: int) -> tuple[int, bytes]:
     return (key_i, chain_code_i)
 
 
-def CKDpub(K_parent: tuple[int], c_parent: bytes, i: int) -> tuple[tuple[int], bytes]:
+def CKDpub(K_parent: Tuple[int], c_parent: bytes, i: int) -> Tuple[Tuple[int], bytes]:
     """
     public parent to public child
     """
@@ -106,7 +107,7 @@ def CKDpub(K_parent: tuple[int], c_parent: bytes, i: int) -> tuple[tuple[int], b
     return K_i, c_i
 
 
-def N(k_parent, c_parent) -> tuple[tuple, bytes]:
+def N(k_parent, c_parent) -> Tuple[tuple, bytes]:
     """
     private parent to public child
 
@@ -117,7 +118,7 @@ def N(k_parent, c_parent) -> tuple[tuple, bytes]:
     return point(k_parent), c_parent
 
 
-def to_master_key(seed: bytes) -> tuple[int, bytes]:
+def to_master_key(seed: bytes) -> Tuple[int, bytes]:
     """
     Defined in BIP32
     https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#master-key-generation
@@ -139,7 +140,7 @@ def to_master_key(seed: bytes) -> tuple[int, bytes]:
 
 
 def serialized_extended_key(
-    key: Union[int, tuple[int]],
+    key: Union[int, Tuple[int]],
     chaincode: bytes,
     depth: bytes,
     parent_key_fingerprint: bytes,
@@ -171,7 +172,7 @@ def serialized_extended_key(
 
 
 def root_serialized_extended_key(
-    master_key: Union[int, tuple[int]],
+    master_key: Union[int, Tuple[int]],
     master_chain_code: bytes,
     public: bool = False,
     testnet: bool = False,

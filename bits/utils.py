@@ -1,4 +1,5 @@
 import hashlib
+from typing import Tuple
 
 from base58 import b58decode
 from base58 import b58encode
@@ -20,7 +21,7 @@ def pubkey(x: int, y: int, compressed=False) -> bytes:
         return prefix + x.to_bytes(32, "big") + y.to_bytes(32, "big")
 
 
-def point(pubkey_: bytes) -> tuple[int]:
+def point(pubkey_: bytes) -> Tuple[int]:
     """
     Return (x, y) from pubkey_ bytes encoding
     """
@@ -28,7 +29,7 @@ def point(pubkey_: bytes) -> tuple[int]:
     return vk.pubkey.point.x(), vk.pubkey.point.y()
 
 
-def point_from_pubkey(pubkey_: bytes) -> tuple[int]:
+def point_from_pubkey(pubkey_: bytes) -> Tuple[int]:
     """
     WIP
     """
@@ -85,7 +86,7 @@ def compact_size_uint(integer: int) -> bytes:
         return b"\xff" + integer.to_bytes(8, "little")
 
 
-def pub_point(priv_: int) -> tuple[int]:
+def pub_point(priv_: int) -> Tuple[int]:
     """
     Return (x, y) public point on SECP256k1 curve, from priv_ key
     """

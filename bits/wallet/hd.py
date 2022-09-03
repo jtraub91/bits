@@ -3,6 +3,7 @@ BIP32, BIP39, BIP43, BIP44
 """
 import hashlib
 import json
+from typing import Tuple
 from typing import Union
 
 from base58 import b58decode
@@ -91,10 +92,10 @@ def derive_child(xkey: str, index: int) -> str:
 
 def derive_from_path(
     path: str,
-    master_extended_key: Union[tuple[int, bytes], tuple[tuple[int, int], bytes]],
+    master_extended_key: Union[Tuple[int, bytes], Tuple[Tuple[int, int], bytes]],
 ) -> Union[
-    tuple[int, bytes, bytes, bytes, bytes],
-    tuple[tuple[int], bytes, bytes, bytes, bytes],
+    Tuple[int, bytes, bytes, bytes, bytes],
+    Tuple[Tuple[int], bytes, bytes, bytes, bytes],
 ]:
     """
     Derive extended key (pre-serialization) constants at particular path
@@ -155,7 +156,7 @@ def derive_from_path(
     )[:4]  # 1st 4 bytes for fingerprint
     # fmt: on
     child_no = child_no.to_bytes(4, "big")
-    return *child, depth, parent_key_fingerprint, child_no
+    return child, depth, parent_key_fingerprint, child_no
 
 
 def p2pkh(xpub):
@@ -182,7 +183,6 @@ class HD:
     BIP44, BIP43, BIP39, BIP32 compatible wallet
     """
 
-    root_xkey: str = ""
     mnemonic: str = ""
 
     def __init__(
@@ -192,38 +192,24 @@ class HD:
         language: str = "english",
     ):
         self.passphrase = passphrase
-        if self.root_xkey:
-            if self.root_xkey.startswith("xprv"):
-                self.root_xprv = self.root_xkey
-                self.root_xpub = 0  # TODO
-            elif self.root_xkey.startswith("xpub"):
-                self.root_xprv = None
-                self.root_xpub = self.root_xkey
-            else:
-                raise ValueError(f"extended key prefix - {self.root_xkey[:4]}")
-        elif not self.mnemonic:
+        if not self.mnemonic:
             self.mnemonic = generate_mnemonic_phrase(
                 strength=strength, language=language
             )
-            self.seed = to_seed(self.mnemonic, passphrase=self.passphrase)
-            self.extended_master_key = to_master_key(self.seed)
-            self.root_xprv, self.root_xpub = self.get_root_keys()
-        self.__tree = {}
+        self.seed = to_seed(self.mnemonic, passphrase=self.passphrase)
+        self.extended_master_key = to_master_key(self.seed)
+        self.root_xprv, self.root_xpub = self.get_root_keys()
 
     @classmethod
     def from_mnemonic(cls, mnemonic, passphrase: str = ""):
         cls.mnemonic = mnemonic
         return cls(passphrase=passphrase)
 
-    def from_xkey(cls, xkey: str):
-        return cls()
-
     @classmethod
     def from_xkey(cls, xkey):
+        raise NotImplementedError
 
-        return cls()
-
-    def get_root_keys(self) -> tuple[str]:
+    def get_root_keys(self) -> Tuple[str]:
         """
         Return tuple of serialized master (root) keys (xpub/xprv)
         base58(check) encoding
@@ -241,7 +227,7 @@ class HD:
         ).decode("ascii")
         return xprv, xpub
 
-    def get_xkeys_from_path(self, path: str) -> tuple[str]:
+    def get_xkeys_from_path(self, path: str) -> Tuple[str]:
         """
         Derives child xkeys from path and class' master extended private key
         Args:
