@@ -105,7 +105,6 @@ def pubkey_hash_from_p2pkh(baddr: bytes) -> bytes:
     """
     Return pubkeyhash from bitcoin address, with checksum verification
     """
-
     decoded_addr = b58decode(baddr)
     checksum = decoded_addr[-4:]
     checksum_check = hashlib.sha256(hashlib.sha256(decoded_addr[:-4]).digest()).digest()

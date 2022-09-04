@@ -1,4 +1,5 @@
 import argparse
+from argparse import RawDescriptionHelpFormatter
 
 from bits.bips.bip32 import parse_256
 from bits.bips.bip32 import point
@@ -31,7 +32,11 @@ def to_bitcoin_address(pubkey_: bytes, network: str = None) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="bits")
+    parser = argparse.ArgumentParser(
+        prog="bits",
+        formatter_class=RawDescriptionHelpFormatter,
+        description="111101111111111011111\n100010010000100100000\n100010010000100100000\n111110010000100011110\n100010010000100000001\n100010010000100000001\n111111111100100111110",
+    )
     sub_parser = parser.add_subparsers(dest="command")
     to_bitcoin_address_parser = sub_parser.add_parser("to_bitcoin_address")
     to_bitcoin_address_parser.add_argument(
@@ -45,8 +50,9 @@ def main():
     hd_sub_parser = hd_parser.add_argument("hd_command")
 
     args = parser.parse_args()
-
-    if args.command == "to_bitcoin_address":
+    if not args.command:
+        parser.print_help()
+    elif args.command == "to_bitcoin_address":
         pubkey = bytes.fromhex(args.pubkey)
         print(to_bitcoin_address(pubkey, network=args.network))
     elif args.command == "hd":

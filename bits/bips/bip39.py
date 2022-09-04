@@ -5,9 +5,7 @@ import unicodedata
 from mnemonic import Mnemonic  # TODO: remove this dependency
 
 
-def generate_mnemonic_phrase(
-    strength: int = 256, language: str = "english"
-) -> str:
+def generate_mnemonic_phrase(strength: int = 256, language: str = "english") -> str:
     return Mnemonic(language).to_mnemonic(secrets.token_bytes(strength // 8))
 
 

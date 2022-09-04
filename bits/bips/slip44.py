@@ -1024,9 +1024,7 @@ def coin_type(coin: str) -> int:
     """
     Return SLIP44 constant from coinSymbol or coinName
     """
-    coin_code = list(
-        filter(lambda c: c[1] == coin or c[2] == coin, SLIP44_CONSTANTS)
-    )
+    coin_code = list(filter(lambda c: c[1] == coin or c[2] == coin, SLIP44_CONSTANTS))
     if coin_code:
         return coin_code[0][0]
     else:

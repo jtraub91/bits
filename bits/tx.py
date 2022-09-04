@@ -18,12 +18,7 @@ def txin(
     script_sig: bytes,
     sequence: bytes = b"\xff\xff\xff\xff",
 ) -> bytes:
-    return (
-        prev_outpoint
-        + compact_size_uint(len(script_sig))
-        + script_sig
-        + sequence
-    )
+    return prev_outpoint + compact_size_uint(len(script_sig)) + script_sig + sequence
 
 
 def txout(value: int, script_pubkey: bytes) -> bytes:
