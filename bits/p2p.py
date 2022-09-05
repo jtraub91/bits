@@ -121,7 +121,9 @@ def connect_peer(host: Union[str, bytes], port: int):
             break
 
         if recv_command == b"version":
+            log.debug(f"recv payload (parsed): {parse_version_payload(payload)}")
             msg = msg_ser(MAGIC_START_BYTES, b"verack", b"")
+            log.info("sending verack in response to received version command...")
             sock.sendall(msg)
 
 
@@ -177,6 +179,65 @@ def msg_ser(
     payload_size = len(payload).to_bytes(4, "little")
     checksum = d_hash(payload)[:4]
     return start_bytes + command + payload_size + checksum + payload
+
+
+def parse_version_payload(versionpayload_: bytes) -> dict:
+    parsed_payload = {
+        "protocol_version": int.from_bytes(versionpayload_[:4], "little"),
+        "services": int.from_bytes(versionpayload_[4:12], "little"),
+        "timestamp": int.from_bytes(versionpayload_[12:20], "little"),
+        "addr_recv_services": int.from_bytes(versionpayload_[20:28], "little"),
+        "addr_recv_ip_addr": versionpayload_[28:44].decode("ascii"),
+        "addr_recv_port": int.from_bytes(versionpayload_[44:46], "big"),
+        "addr_trans_services": int.from_bytes(versionpayload_[46:54], "little"),
+        "addr_trans_ip_addr": versionpayload_[54:70].decode("ascii"),
+        "addr_trans_port": int.from_bytes(versionpayload_[70:72], "big"),
+        "nonce": int.from_bytes(versionpayload_[72:80], "little"),
+    }
+    # parse compact size uint varint for user_agent_bytes
+    user_agent_byte = versionpayload_[80]
+    if user_agent_byte < 253:
+        user_agent_len = user_agent_byte
+        parsed_payload["user_agent_bytes"] = user_agent_len
+    elif user_agent_byte == 253:
+        user_agent_len = int.from_bytes(versionpayload_[81:83], "little")
+        parsed_payload["user_agent_bytes"] = user_agent_len
+    elif user_agent_byte == 254:
+        user_agent_len = int.from_bytes(versionpayload_[81:85], "little")
+        parsed_payload["user_agent_bytes"] = user_agent_len
+    elif user_agent_byte == 255:
+        user_agent_len = int.from_bytes(versionpayload_[81:89], "little")
+        parsed_payload["user_agent_bytes"] = user_agent_len
+    # parse rest of payload
+    if user_agent_len == 0:
+        parsed_payload["start_height"] = int.from_bytes(
+            versionpayload_[81:85], "little"
+        )
+        if versionpayload_[85] == 1:
+            parsed_payload["relay"] = True
+        elif versionpayload_[85] == 0:
+            parsed_payload["relay"] = False
+
+        if versionpayload_[86:]:
+            raise ValueError(
+                f"parse error, data longer than expected: {len(versionpayload_)}"
+            )
+    else:
+        parsed_payload["user_agent"] = versionpayload_[81 : 81 + user_agent_len]
+        parsed_payload["start_height"] = int.from_bytes(
+            versionpayload_[81 + user_agent_len : 81 + user_agent_len + 4], "little"
+        )
+        if versionpayload_[81 + user_agent_len + 4] == b"\x01":
+            parsed_payload["relay"] = True
+        elif versionpayload_[81 + user_agent_len + 4] == b"\x00":
+            parsed_payload["relay"] = False
+
+        if versionpayload_[81 + user_agent_len + 4 + 1 :]:
+            raise ValueError(
+                f"parse error, data longer than expected: {len(versionpayload_)}"
+            )
+
+    return parsed_payload
 
 
 def version_payload(
