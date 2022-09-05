@@ -1,4 +1,6 @@
 import argparse
+import os
+import random
 from argparse import RawDescriptionHelpFormatter
 
 from bits.bips.bip32 import parse_256
@@ -7,6 +9,8 @@ from bits.bips.bip32 import ser_p
 from bits.bips.bip32 import to_master_key
 from bits.bips.bip39 import generate_mnemonic_phrase
 from bits.bips.bip39 import to_seed
+from bits.p2p import connect_peer
+from bits.p2p import set_magic_start_bytes
 from bits.utils import base58check
 from bits.utils import pubkey_hash
 from bits.wallet.hd import HD
@@ -32,10 +36,18 @@ def to_bitcoin_address(pubkey_: bytes, network: str = None) -> str:
 
 
 def main():
+    terminal_size = os.get_terminal_size()
+    no_of_rows = 21
+    desc = ""
+    for row in range(no_of_rows):
+        for col in range(terminal_size.columns):
+            desc += str(random.randint(0, 1))
+        desc += "\n"
     parser = argparse.ArgumentParser(
         prog="bits",
         formatter_class=RawDescriptionHelpFormatter,
-        description="111101111111111011111\n100010010000100100000\n100010010000100100000\n111110010000100011110\n100010010000100000001\n100010010000100000001\n111111111100100111110",
+        description=desc,
+        # description="111101111111111011111\n100010010000100100000\n100010010000100100000\n111110010000100011110\n100010010000100000001\n100010010000100000001\n111111111100100111110",
     )
     sub_parser = parser.add_subparsers(dest="command")
     to_bitcoin_address_parser = sub_parser.add_parser("to_bitcoin_address")
@@ -48,6 +60,14 @@ def main():
 
     hd_parser = sub_parser.add_parser("hd")
     hd_sub_parser = hd_parser.add_argument("hd_command")
+
+    p2p_parser = sub_parser.add_parser("p2p")
+    p2p_sub_parser = p2p_parser.add_argument("p2p_command")
+    p2p_parser.add_argument("--host", type=str, help="host to connect to")
+    p2p_parser.add_argument("--port", type=int, help="port to connect to")
+    p2p_parser.add_argument(
+        "--network", type=str, default="mainnet", help="'mainnet' or 'testnet'"
+    )
 
     args = parser.parse_args()
     if not args.command:
@@ -68,6 +88,12 @@ def main():
             raise NotImplementedError
         else:
             raise ValueError("hd command not found")
+    elif args.command == "p2p":
+        if args.p2p_command == "connect_peer":
+            set_magic_start_bytes(args.network)
+            connect_peer(args.host, args.port)
+        else:
+            raise ValueError("p2p command not found")
     else:
         raise ValueError("command not found")
 

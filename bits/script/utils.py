@@ -1,9 +1,7 @@
-from bits.script.constants import (
-    OP_DUP,
-    OP_HASH160,
-    OP_EQUALVERIFY,
-    OP_CHECKSIG,
-)
+from bits.script.constants import OP_CHECKSIG
+from bits.script.constants import OP_DUP
+from bits.script.constants import OP_EQUALVERIFY
+from bits.script.constants import OP_HASH160
 
 
 def p2pkh_script_pubkey(pk_hash: bytes) -> bytes:
@@ -15,3 +13,7 @@ def p2pkh_script_pubkey(pk_hash: bytes) -> bytes:
         + OP_EQUALVERIFY.to_bytes(1, "little")
         + OP_CHECKSIG.to_bytes(1, "little")
     )
+
+
+def p2pk_script_pubkey(pk: bytes) -> bytes:
+    raise NotImplementedError
