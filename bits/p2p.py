@@ -7,6 +7,7 @@ https://en.bitcoin.it/wiki/Network
 https://en.bitcoin.it/wiki/Protocol_documentation
 """
 import asyncio
+import json
 import logging
 import socket
 import time
@@ -97,17 +98,17 @@ def connect_peer(host: Union[str, bytes], port: int):
     versionp = version_payload(0, port, local_port)
     msg = msg_ser(MAGIC_START_BYTES, b"version", versionp)
     sock.sendall(msg)
-    while True:
-        recv_bytes = sock.recv(24)
-        recv_start_bytes = recv_bytes[:4]
+
+    recv_bytes = sock.recv(24)
+    if recv_bytes:
+        recv_start_bytes, recv_command, payload = msg_deser(recv_bytes)
         if recv_start_bytes != MAGIC_START_BYTES:
             log.error(f"network mismatch start bytes: {recv_start_bytes}")
             sock.close()
             log.info("peer disconnected")
-            break
-        recv_command = recv_bytes[4:16].rstrip(b"\x00")
+            return
         log.debug(f"recv message: {recv_command}")
-        payload_size = int.from_bytes(recv_bytes[16:20], "little")
+        payload_size = len(payload)
         log.debug(f"recv payload size (bytes): {payload_size}")
 
         checksum = recv_bytes[20:]
@@ -118,46 +119,82 @@ def connect_peer(host: Union[str, bytes], port: int):
             log.error(f"checksum failed, expected {checksum_check}")
             sock.close()
             log.info("peer disconnected")
-            break
+            return
 
-        if recv_command == b"version":
-            log.debug(f"recv payload (parsed): {parse_version_payload(payload)}")
-            msg = msg_ser(MAGIC_START_BYTES, b"verack", b"")
-            log.info("sending verack in response to received version command...")
-            sock.sendall(msg)
+        handle_message(recv_command)
+
+    return sock
 
 
-def start_node(host="localhost", port=8333, max_connections=5):
-    """
-    Start p2p client / server node
-    """
-    sock = socket.socket()
-    sock.bind((host, port))
-    sock.setblocking(False)
-    sock.listen(max_connections)
+def start_loop(sock):
     while True:
-        client_sock, addr_info = sock.accept()
-        print()
+        recv_bytes = sock.recv(24)
+        if recv_bytes:
+            start_bytes, command, payload_size = msg_deser(recv_bytes)
+            if start_bytes != MAGIC_START_BYTES:
+                log.error(f"network mismatch start bytes: {start_bytes}")
+                sock.close()
+                log.info("peer disconnected")
+                return
+            log.debug(f"command: {command}")
+            payload_size = len(payload)
+            log.debug(f"recv payload size (bytes): {payload_size}")
+
+            checksum = recv_bytes[20:]
+            payload = sock.recv(payload_size)
+            log.debug(f"recv payload: {payload}")
+            checksum_check = d_hash(payload)[:4]
+            if checksum != checksum_check:
+                log.error(f"checksum failed, expected {checksum_check}")
+                sock.close()
+                log.info("peer disconnected")
+                return
+
+            handle_message(recv_command)
 
 
-def msg_deser(msg: bytes) -> Tuple[bytes, bytes, bytes]:
+def recv_message(sock):
+    return sock.recv(24)
+
+
+def handle_message(command: bytes):
+    if command == b"version":
+        log.debug(f"recv payload (parsed): {parse_version_payload(payload)}")
+        msg = msg_ser(MAGIC_START_BYTES, b"verack", b"")
+        log.info("sending verack in response to received version command...")
+        sock.sendall(msg)
+    elif command == b"getheaders":
+        log.debug(f"recv payload (parsed): {parse_getheaders_payload(payload)}")
+
+
+def start_node(use_spv: bool = False):
     """
-    Returns deserialized p2p message as command, payload
+    Start p2p client / server (full) node
+    from seed nodes as defined in bits/config.json
+    """
+    with open("bits/config.json") as config_file:
+        config = json.load(config_file)
+    peer_sockets = {}
+    for peer_no, node in enumerate(config["seedNodes"]):
+        host, port = node.split(":")
+        port = int(port)
+        peer_sockets[peer_no] = connect_peer(host, port)
+
+
+def msg_header_deser(msg: bytes) -> Tuple[bytes, bytes, bytes]:
+    """
+    Deserialize message header (w optional payload)
     """
     start_bytes = msg[:4]
     command = msg[4:16].rstrip(b"\x00")
-    print(command)
     payload_size = int.from_bytes(msg[16:20], "little")
-    print(payload_size)
     checksum = msg[20:24]
-    print(checksum)
     payload = msg[24:]
-    print(payload)
-    if len(payload) != payload_size:
+    if len(payload) and len(payload) != payload_size:
         raise ValueError("payload_size does not match length of payload")
     if checksum != d_hash(payload)[:4]:
         raise ValueError("checksum failed")
-    return start_bytes, command, payload
+    ret = start_bytes, command, payload if payload else payload_size
 
 
 def msg_ser(
@@ -272,3 +309,68 @@ def version_payload(
     )
     msg += b"\x01" if relay else b"\x00"
     return msg
+
+
+def ping_payload(nonce: int) -> bytes:
+    return nonce.to_bytes(8, "little")
+
+
+def parse_ping_payload(payload: bytes) -> int:
+    return int.from_bytes(payload, "little")
+
+
+# pong payload same as ping
+
+
+def getheaders_payload(
+    protocol_version: int,
+    hash_count: int,
+    block_header_hashes: list[bytes],
+    stop_hash: bytes,
+) -> bytes:
+    return (
+        protocol_version.to_bytes(4, "little")
+        + compact_size_uint(hash_count)
+        + b"".join(block_header_hashes)
+        + stop_hash
+    )
+
+
+def parse_getheaders_payload(payload: bytes) -> dict:
+    parsed_payload = {
+        "protocol_version": int.from_bytes(payload[:4], "little"),
+    }
+    hash_count_byte = payload[4]
+    if hash_count_byte < 253:
+        hash_count = hash_count_byte
+        parsed_payload["hash_count"] = hash_count
+        index = 5  # to resume parsing payload below
+    elif hash_count_byte == 253:
+        hash_count = int.from_bytes(payload[5:7], "little")
+        parsed_payload["hash_count"] = hash_count
+        index = 7
+    elif hash_count_byte == 254:
+        hash_count = int.from_bytes(payload[7:11], "little")
+        parsed_payload["hash_count"] = hash_count
+        index = 11
+    elif hash_count_byte == 255:
+        hash_count = int.from_bytes(payload[11:19], "little")
+        parsed_payload["hash_count"] = hash_count
+        index = 19
+
+    if hash_count > 0:
+        block_header_hashes = payload[index : index + hash_count * 32]
+        parsed_payload["block_header_hashes"] = [
+            block_header_hashes[32 * i : 32 * (i + 1)]
+            for i in range(1, 1 + len(block_header_hashes) // 32)
+        ]
+        parsed_payload["stop_hash"] = payload[
+            index + hash_count * 32 : index + hash_count * 32 + 32
+        ]
+        if payload[index + hash_count * 32 + 32 :]:
+            raise ValueError(f"parse error, data longer than expected: {len(payload)}")
+    else:
+        parsed_payload["stop_hash"] = payload[index : index + 32]
+        if payload[index + 32 :]:
+            raise ValueError(f"parse error, data longer than expected: {len(payload)}")
+    return parsed_payload

@@ -11,6 +11,7 @@ from bits.bips.bip39 import generate_mnemonic_phrase
 from bits.bips.bip39 import to_seed
 from bits.p2p import connect_peer
 from bits.p2p import set_magic_start_bytes
+from bits.p2p import start_node
 from bits.utils import base58check
 from bits.utils import pubkey_hash
 from bits.wallet.hd import HD
@@ -49,13 +50,17 @@ def main():
         description=desc,
         # description="111101111111111011111\n100010010000100100000\n100010010000100100000\n111110010000100011110\n100010010000100000001\n100010010000100000001\n111111111100100111110",
     )
+    parser.add_argument(
+        "--network",
+        "-N",
+        type=str,
+        default="mainnet",
+        help="'mainnet', 'testnet', or 'regtest'",
+    )
     sub_parser = parser.add_subparsers(dest="command")
     to_bitcoin_address_parser = sub_parser.add_parser("to_bitcoin_address")
     to_bitcoin_address_parser.add_argument(
         "pubkey", type=str, help="pubkey in hex format"
-    )
-    to_bitcoin_address_parser.add_argument(
-        "--network", type=str, default="mainnet", help="'mainnet' or 'testnet'"
     )
 
     hd_parser = sub_parser.add_parser("hd")
@@ -63,11 +68,8 @@ def main():
 
     p2p_parser = sub_parser.add_parser("p2p")
     p2p_sub_parser = p2p_parser.add_argument("p2p_command")
-    p2p_parser.add_argument("--host", type=str, help="host to connect to")
-    p2p_parser.add_argument("--port", type=int, help="port to connect to")
-    p2p_parser.add_argument(
-        "--network", type=str, default="mainnet", help="'mainnet' or 'testnet'"
-    )
+    p2p_parser.add_argument("-H", "--host", type=str, help="host to connect to")
+    p2p_parser.add_argument("-p", "--port", type=int, help="port to connect to")
 
     args = parser.parse_args()
     if not args.command:
@@ -89,9 +91,12 @@ def main():
         else:
             raise ValueError("hd command not found")
     elif args.command == "p2p":
-        if args.p2p_command == "connect_peer":
+        if args.p2p_command == "connectpeer":
             set_magic_start_bytes(args.network)
             connect_peer(args.host, args.port)
+        elif args.p2p_command == "startnode":
+            set_magic_start_bytes(args.network)
+            start_node()
         else:
             raise ValueError("p2p command not found")
     else:
