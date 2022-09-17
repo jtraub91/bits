@@ -70,6 +70,9 @@ def main():
     p2p_sub_parser = p2p_parser.add_argument("p2p_command")
     p2p_parser.add_argument("-H", "--host", type=str, help="host to connect to")
     p2p_parser.add_argument("-p", "--port", type=int, help="port to connect to")
+    p2p_parser.add_argument(
+        "--seeds", type=str, help="comma separated list of seed nodes"
+    )
 
     args = parser.parse_args()
     if not args.command:
@@ -91,12 +94,10 @@ def main():
         else:
             raise ValueError("hd command not found")
     elif args.command == "p2p":
-        if args.p2p_command == "connectpeer":
+        if args.p2p_command == "start":
+            # bits --network testnet p2p start --seeds "host1:port1,host2:port2"
             set_magic_start_bytes(args.network)
-            connect_peer(args.host, args.port)
-        elif args.p2p_command == "startnode":
-            set_magic_start_bytes(args.network)
-            start_node()
+            start_node(args.seeds.split(","))
         else:
             raise ValueError("p2p command not found")
     else:

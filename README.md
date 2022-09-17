@@ -1,8 +1,16 @@
-### `bits`
+### `#bits`
 
+```
 bits & tricks for Bitcoin
+```
 
-### Recommended usage
+## Installation
+
+```
+pip install bits
+```
+
+## Recommended usage
 
 Generate keys in an offline, airgapped computer (e.g. raspberry pi), write pubkey (only) to paper
 
@@ -65,7 +73,7 @@ openssl ecparam -name secp256k1 -genkey -noout -out <filename>.pem
 - use local Bitcoin core full node for source of truth blockchain info, etc.
 - functional before object oriented
 
-#### Examples
+### Examples
 
 _CLI_
 
@@ -80,8 +88,31 @@ _createrawtx_ (TODO)
 $ bits createrawtx --help
 ```
 
-_get hex string from public pem file_
+
+### Appendix
 
 ```
+#!/bin/bash
+
+# list openssl ec curves
+openssl ecparam -list_curves > /dev/null
+
+# generate private key on Bitcoin secp256k1 curve, to file keys.pem
+openssl ecparam -name secp256k1 -genkey -noout -out keys.pem
+
+# get only public key from keys.pem, output to file public.pem
+openssl ec -in keys.pem -pubout -out public.pem
+
+# show public key hex
+openssl ec -in public.pem -pubin -text -noout
+
+# output public key compressed pem
+openssl ec -in public.pem -pubin -conv_form compressed
+
+# "" to file
+openssl ec -in keys.pem -pubout -out public.pem -conv_form compressed
+cat public.pem
+
+# get hex string from public.pem file
 echo $(openssl ec -in public.pem -pubin -text | grep -E "[a-f0-9][a-f0-9]:" | tr -d ' ' | tr -d ':' | tr -d '\n')
 ```

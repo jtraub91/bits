@@ -11,13 +11,14 @@ import json
 import logging
 import socket
 import time
+from queue import Queue
+from threading import Thread
+from typing import List
 from typing import Tuple
 from typing import Union
 
 from bits.utils import compact_size_uint
 from bits.utils import d_hash
-
-GENESIS_BLOCK = b""
 
 
 # Magic start strings
@@ -30,6 +31,8 @@ MAGIC_START_BYTES = None
 
 # https://github.com/bitcoin/bitcoin/blob/v23.0/src/serialize.h#L31
 MAX_SIZE = 0x02000000
+
+MSG_HEADER_LEN = 24
 
 # https://en.bitcoin.it/wiki/Network#Messages
 COMMANDS = [
@@ -90,111 +93,92 @@ def discover_nodes():
     return
 
 
-def connect_peer(host: Union[str, bytes], port: int):
+def connect_peer(host: Union[str, bytes], port: int) -> socket.socket:
     sock = socket.socket()
     sock.connect((host, port))
     log.info(f"connected to peer @ {host}:{port}")
     local_host, local_port = sock.getsockname()
     versionp = version_payload(0, port, local_port)
     msg = msg_ser(MAGIC_START_BYTES, b"version", versionp)
+    log.info("sending version message...")
     sock.sendall(msg)
-
-    recv_bytes = sock.recv(24)
-    if recv_bytes:
-        recv_start_bytes, recv_command, payload = msg_deser(recv_bytes)
-        if recv_start_bytes != MAGIC_START_BYTES:
-            log.error(f"network mismatch start bytes: {recv_start_bytes}")
-            sock.close()
-            log.info("peer disconnected")
-            return
-        log.debug(f"recv message: {recv_command}")
-        payload_size = len(payload)
-        log.debug(f"recv payload size (bytes): {payload_size}")
-
-        checksum = recv_bytes[20:]
-        payload = sock.recv(payload_size)
-        log.debug(f"recv payload: {payload}")
-        checksum_check = d_hash(payload)[:4]
-        if checksum != checksum_check:
-            log.error(f"checksum failed, expected {checksum_check}")
-            sock.close()
-            log.info("peer disconnected")
-            return
-
-        handle_message(recv_command)
-
     return sock
 
 
-def start_loop(sock):
-    while True:
-        recv_bytes = sock.recv(24)
-        if recv_bytes:
-            start_bytes, command, payload_size = msg_deser(recv_bytes)
-            if start_bytes != MAGIC_START_BYTES:
-                log.error(f"network mismatch start bytes: {start_bytes}")
-                sock.close()
-                log.info("peer disconnected")
-                return
-            log.debug(f"command: {command}")
-            payload_size = len(payload)
-            log.debug(f"recv payload size (bytes): {payload_size}")
-
-            checksum = recv_bytes[20:]
-            payload = sock.recv(payload_size)
-            log.debug(f"recv payload: {payload}")
-            checksum_check = d_hash(payload)[:4]
-            if checksum != checksum_check:
-                log.error(f"checksum failed, expected {checksum_check}")
-                sock.close()
-                log.info("peer disconnected")
-                return
-
-            handle_message(recv_command)
-
-
-def recv_message(sock):
-    return sock.recv(24)
-
-
-def handle_message(command: bytes):
-    if command == b"version":
-        log.debug(f"recv payload (parsed): {parse_version_payload(payload)}")
-        msg = msg_ser(MAGIC_START_BYTES, b"verack", b"")
-        log.info("sending verack in response to received version command...")
-        sock.sendall(msg)
-    elif command == b"getheaders":
-        log.debug(f"recv payload (parsed): {parse_getheaders_payload(payload)}")
-
-
-def start_node(use_spv: bool = False):
+def start_node(seeds: List[str], use_spv: bool = False):
     """
     Start p2p client / server (full) node
-    from seed nodes as defined in bits/config.json
+    Args:
+        seeds: list, list of seeds; e.g. []
     """
-    with open("bits/config.json") as config_file:
-        config = json.load(config_file)
     peer_sockets = {}
-    for peer_no, node in enumerate(config["seedNodes"]):
+    peer_threads = []
+    for peer_no, node in enumerate(seeds):
         host, port = node.split(":")
         port = int(port)
         peer_sockets[peer_no] = connect_peer(host, port)
+        peer_threads.append(
+            Thread(
+                target=start_loop,
+                args=(peer_sockets[peer_no],),
+                kwargs={"blocking": True},
+            )
+        )
+        peer_threads[peer_no].start()
 
 
-def msg_header_deser(msg: bytes) -> Tuple[bytes, bytes, bytes]:
+def start_loop(sock: socket.socket, blocking: bool = True):
+    sock.setblocking(blocking)
+    while True:
+        start_bytes, command, payload = recv_msg(sock)
+        log.info(f"received {len(start_bytes + command + payload)} bytes")
+        log.info(f"command: {command}")
+        log.info(f"payload: {payload}")
+        parse_payload(command, payload)
+        handle_message(sock, command, payload=payload)
+
+
+def handle_message(sock: socket.socket, command: bytes, payload: bytes = b""):
+    if command == b"version":
+        msg = msg_ser(MAGIC_START_BYTES, b"verack", b"")
+        log.info("sending verack...")
+        log.debug(msg)
+        sock.sendall(msg)
+    else:
+        log.info(f"no handler for {command}")
+
+
+def initial_block_download():
     """
-    Deserialize message header (w optional payload)
+    IBD
     """
+    pass
+
+
+def recv_msg(sock: socket.socket) -> Tuple[bytes, bytes, bytes]:
+    """
+    Recv and deserialize message ( header + optional payload )
+    """
+    msg = b""
+    while len(msg) != MSG_HEADER_LEN:
+        msg += sock.recv(MSG_HEADER_LEN - len(msg))
+        # log.info(msg)
     start_bytes = msg[:4]
     command = msg[4:16].rstrip(b"\x00")
     payload_size = int.from_bytes(msg[16:20], "little")
     checksum = msg[20:24]
     payload = msg[24:]
-    if len(payload) and len(payload) != payload_size:
+    if payload_size:
+        payload = sock.recv(payload_size)
+    if len(payload) != payload_size:
         raise ValueError("payload_size does not match length of payload")
     if checksum != d_hash(payload)[:4]:
-        raise ValueError("checksum failed")
-    ret = start_bytes, command, payload if payload else payload_size
+        raise ValueError(f"checksum failed. {checksum} != {d_hash(payload)[:4]}")
+    if start_bytes != MAGIC_START_BYTES:
+        raise ValueError(
+            f"network mismatch - {start_bytes} not equal to magic start bytes {MAGIC_START_BYTES}"
+        )
+    return start_bytes, command, payload
 
 
 def msg_ser(
@@ -325,7 +309,7 @@ def parse_ping_payload(payload: bytes) -> int:
 def getheaders_payload(
     protocol_version: int,
     hash_count: int,
-    block_header_hashes: list[bytes],
+    block_header_hashes: List[bytes],
     stop_hash: bytes,
 ) -> bytes:
     return (
@@ -374,3 +358,11 @@ def parse_getheaders_payload(payload: bytes) -> dict:
         if payload[index + 32 :]:
             raise ValueError(f"parse error, data longer than expected: {len(payload)}")
     return parsed_payload
+
+
+def parse_payload(command, payload):
+    parse_fn = globals().get(f"parse_{command.decode('ascii')}_payload")
+    if parse_fn:
+        log.info(f"payload: {parse_fn(payload)}")
+    else:
+        log.info(f"no parser for {command}")
