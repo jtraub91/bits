@@ -64,12 +64,42 @@ NODE_WITNESS = 0x08
 NODE_XTHIN = 0x10
 NODE_NETWORK_LIMITED = 0x0400
 
+# https://github.com/bitcoin/bitcoin/blob/v23.0/src/protocol.h#L452-L473
+# https://developer.bitcoin.org/reference/p2p_networking.html#data-messages
+MSG_WITNESS_FLAG = 1 << 30
+# UNDEFINED = 0
+MSG_TX = 1
+MSG_BLOCK = 2
+# MSG_WTX = 5
+MSG_FILTERED_BLOCK = 3
+MSG_CMPCT_BLOCK = 4
+MSG_WITNESS_TX = MSG_TX | MSG_WITNESS_FLAG
+MSG_WITNESS_BLOCK = MSG_BLOCK | MSG_WITNESS_FLAG
+# MSG_FILTERED_WITNESS_BLOCK = MSG_FILTERED_BLOCK | MSG_WITNESS_FLAG
+INVENTORY_TYPE_ID = {
+    "MSG_TX": MSG_TX,
+    "MSG_BLOCK": MSG_BLOCK,
+    "MSG_FILTERED_BLOCK": MSG_FILTERED_BLOCK,
+    "MSG_CMPCT_BLOCK": MSG_CMPCT_BLOCK,
+    "MSG_WITNESS_TX": MSG_WITNESS_TX,
+    "MSG_WITNESS_BLOCK": MSG_WITNESS_BLOCK,
+}
+
+
 log = logging.getLogger("p2p")
-log.setLevel(logging.DEBUG)
+log.setLevel(logging.INFO)
 formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
 sh = logging.StreamHandler()
 sh.setFormatter(formatter)
 log.addHandler(sh)
+
+
+def set_log_level(level: str):
+    valid_log_levels = ["info", "debug", "warning", "critical", "error"]
+    if level.lower() not in valid_log_levels:
+        raise ValueError(f"level not valid: {level}")
+    log.setLevel(getattr(logging, level.upper()))
+    return True
 
 
 def set_magic_start_bytes(network: str):
@@ -131,21 +161,36 @@ def start_loop(sock: socket.socket, blocking: bool = True):
     sock.setblocking(blocking)
     while True:
         start_bytes, command, payload = recv_msg(sock)
-        log.info(f"received {len(start_bytes + command + payload)} bytes")
-        log.info(f"command: {command}")
-        log.info(f"payload: {payload}")
-        parse_payload(command, payload)
+        log.info(
+            f"received {len(start_bytes + command + payload)} bytes. command: {command}"
+        )
+        log.debug(f"payload: {payload}")
         handle_message(sock, command, payload=payload)
 
 
-def handle_message(sock: socket.socket, command: bytes, payload: bytes = b""):
-    if command == b"version":
-        msg = msg_ser(MAGIC_START_BYTES, b"verack", b"")
-        log.info("sending verack...")
-        log.debug(msg)
-        sock.sendall(msg)
+def handle_version_command(sock: socket.socket, command: bytes, payload: dict):
+    log.info(f"handling {command} command...")
+    msg = msg_ser(MAGIC_START_BYTES, b"verack", b"")
+    log.info("sending verack...")
+    sock.sendall(msg)
+    log.debug(f"sent serialized message: {msg}")
+    log.info(f"TODO store connected peer version info: {payload}")
+
+
+def handle_command(sock, command, payload):
+    handle_fn_name = f"handle_{command.decode('ascii')}_command"
+    handle_fn = globals().get(handle_fn_name)
+    if handle_fn:
+        return handle_fn(sock, command, payload)
     else:
-        log.info(f"no handler for {command}")
+        log.warning(f"no handler {handle_fn_name}")
+
+
+def handle_message(sock: socket.socket, command: bytes, payload: bytes):
+    if payload:
+        payload = parse_payload(command, payload)
+        log.info(f"received payload (parsed): {payload}")
+    handle_command(sock, command, payload)
 
 
 def initial_block_download():
@@ -299,8 +344,8 @@ def ping_payload(nonce: int) -> bytes:
     return nonce.to_bytes(8, "little")
 
 
-def parse_ping_payload(payload: bytes) -> int:
-    return int.from_bytes(payload, "little")
+def parse_ping_payload(payload: bytes) -> dict:
+    return {"nonce": int.from_bytes(payload, "little")}
 
 
 # pong payload same as ping
@@ -345,24 +390,91 @@ def parse_getheaders_payload(payload: bytes) -> dict:
     if hash_count > 0:
         block_header_hashes = payload[index : index + hash_count * 32]
         parsed_payload["block_header_hashes"] = [
-            block_header_hashes[32 * i : 32 * (i + 1)]
+            block_header_hashes[32 * i : 32 * (i + 1)].hex()
             for i in range(1, 1 + len(block_header_hashes) // 32)
         ]
         parsed_payload["stop_hash"] = payload[
             index + hash_count * 32 : index + hash_count * 32 + 32
-        ]
+        ].hex()
         if payload[index + hash_count * 32 + 32 :]:
             raise ValueError(f"parse error, data longer than expected: {len(payload)}")
     else:
-        parsed_payload["stop_hash"] = payload[index : index + 32]
+        parsed_payload["stop_hash"] = payload[index : index + 32].hex()
         if payload[index + 32 :]:
             raise ValueError(f"parse error, data longer than expected: {len(payload)}")
     return parsed_payload
 
 
+def parse_feefilter_payload(payload: bytes) -> dict:
+    assert len(payload) == 8
+    return {"feerate": int.from_bytes(payload, "little")}
+
+
+def parse_sendcmpct_payload(payload: bytes) -> dict:
+    assert len(payload) == 9
+    return {"announce": payload[0], "version": int.from_bytes(payload[1:], "little")}
+
+
+def parse_inv_payload(payload: bytes) -> dict:
+    # count encoded as compact_size_uint
+    count = payload[0]
+    start_index = 1
+    if count == 253:
+        count = int.from_bytes(payload[1:3], "little")
+        start_index = 3
+    elif count == 254:
+        count = int.from_bytes(payload[1:5], "little")
+        start_index = 5
+    elif count == 255:
+        count = int.from_bytes(payload[1:9], "little")
+        start_index = 9
+    ret = {"count": count, "inventory": []}
+    inventory_len = 36
+    for _ in range(count):
+        parsed_inventory = parse_inventory(
+            payload[start_index : start_index + inventory_len]
+        )
+        ret["inventory"].append(parsed_inventory)
+        start_index += inventory_len
+    return ret
+
+
+def inventory(type_id: str, hash: bytes) -> bytes:
+    """
+    inventory data structure
+    https://developer.bitcoin.org/glossary.html#term-Inventory
+    """
+    return int.to_bytes(INVENTORY_TYPE_ID[type_id.upper()], 4, "little") + hash
+
+
+def parse_inventory(inventory_: bytes) -> dict:
+    assert len(inventory_) == 36
+    type_id_integer = int.from_bytes(inventory_[:4], "little")
+    type_id = list(
+        filter(lambda item: item[1] == type_id_integer, INVENTORY_TYPE_ID.items())
+    )[0][0]
+    return {"type_id": type_id, "hash": inventory_[4:].hex()}
+
+
+# version
+# verack
+# sendheaders
+# sendcmpct
+# ping
+# getheaders
+# feefilter
+# inv
+
+
 def parse_payload(command, payload):
-    parse_fn = globals().get(f"parse_{command.decode('ascii')}_payload")
+    parse_fn_name = f"parse_{command.decode('ascii')}_payload"
+    parse_fn = globals().get(parse_fn_name)
     if parse_fn:
-        log.info(f"payload: {parse_fn(payload)}")
+        return parse_fn(payload)
     else:
-        log.info(f"no parser for {command}")
+        log.warning(f"no parser {parse_fn_name}")
+
+
+class Node:
+    def __init__(self, peers: List[Tuple[str, int]]):
+        self.peers = peers

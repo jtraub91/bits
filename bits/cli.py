@@ -10,6 +10,7 @@ from bits.bips.bip32 import to_master_key
 from bits.bips.bip39 import generate_mnemonic_phrase
 from bits.bips.bip39 import to_seed
 from bits.p2p import connect_peer
+from bits.p2p import set_log_level
 from bits.p2p import set_magic_start_bytes
 from bits.p2p import start_node
 from bits.utils import base58check
@@ -73,6 +74,9 @@ def main():
     p2p_parser.add_argument(
         "--seeds", type=str, help="comma separated list of seed nodes"
     )
+    p2p_parser.add_argument(
+        "-L", "-l", dest="log_level", type=str, default="info", help="set log level"
+    )
 
     args = parser.parse_args()
     if not args.command:
@@ -94,6 +98,7 @@ def main():
         else:
             raise ValueError("hd command not found")
     elif args.command == "p2p":
+        set_log_level(args.log_level)
         if args.p2p_command == "start":
             # bits --network testnet p2p start --seeds "host1:port1,host2:port2"
             set_magic_start_bytes(args.network)
