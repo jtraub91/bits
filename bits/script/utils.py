@@ -16,4 +16,4 @@ def p2pkh_script_pubkey(pk_hash: bytes) -> bytes:
 
 
 def p2pk_script_pubkey(pk: bytes) -> bytes:
-    raise NotImplementedError
+    return len(pk).to_bytes(1, "little") + pk + OP_CHECKSIG.to_bytes(1, "little")
