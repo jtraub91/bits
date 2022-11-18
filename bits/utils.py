@@ -21,6 +21,11 @@ def pubkey(x: int, y: int, compressed=False) -> bytes:
         return prefix + x.to_bytes(32, "big") + y.to_bytes(32, "big")
 
 
+def pubkey_from_pem(pem: bytes, compressed=False) -> bytes:
+    vk = VerifyingKey.from_pem(pem)
+    return pubkey(vk.pubkey.point.x(), vk.pubkey.point.y(), compressed=compressed)
+
+
 def point(pubkey_: bytes) -> Tuple[int]:
     """
     Return (x, y) from pubkey_ bytes encoding
@@ -86,6 +91,30 @@ def compact_size_uint(integer: int) -> bytes:
         return b"\xff" + integer.to_bytes(8, "little")
 
 
+def parse_compact_size_uint(payload: bytes) -> Tuple[int, bytes]:
+    """
+    This function expects a compact size uint at the beginning of payload.
+    Since compact size uints are variable in size, this function
+    will observe the first byte, parse the necessary subsequent bytes,
+    and return, as a tuple, the parsed integer followed by the rest of the
+    payload (i.e. the remaining unparsed payload)
+    """
+    first_byte = payload[0]
+    if first_byte == 255:
+        integer = int.from_bytes(payload[1:9], "little")
+        payload = payload[9:]
+    elif first_byte == 254:
+        integer = int.from_bytes(payload[1:5], "little")
+        payload = payload[5:]
+    elif first_byte == 253:
+        integer = int.from_bytes(payload[1:3], "little")
+        payload = payload[3:]
+    else:
+        integer = first_byte
+        payload = payload[1:]
+    return integer, payload
+
+
 def pub_point(priv_: int) -> Tuple[int]:
     """
     Return (x, y) public point on SECP256k1 curve, from priv_ key
@@ -110,3 +139,22 @@ def pubkey_hash_from_p2pkh(baddr: bytes) -> bytes:
     checksum_check = hashlib.sha256(hashlib.sha256(decoded_addr[:-4]).digest()).digest()
     assert checksum == checksum_check[:4]
     return decoded_addr[1:-4]  # remove version byte and checksum
+
+
+def to_bitcoin_address(pubkey_: bytes, network: str = None) -> str:
+    """
+    Convert pubkey to bitcoin address
+    Args:
+        pubkey_: bytes, pubkey in hex
+        network: str, `mainnet` or `testnet`
+    Returns:
+        base58 encoded bitcoin address
+    """
+    pkh = pubkey_hash(pubkey_)
+    if network == "mainnet":
+        version = b"\x00"
+    elif network == "testnet":
+        version = b"\x6f"
+    else:
+        raise ValueError(f"unrecognized network: {network}")
+    return base58check(version, pkh).decode("ascii")

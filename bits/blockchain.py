@@ -1,6 +1,7 @@
 """
 blockchain lulz
 """
+import os
 from typing import List
 from typing import Tuple
 
@@ -9,10 +10,13 @@ from bits.tx import coinbase_txin
 from bits.tx import tx
 from bits.tx import txout
 from bits.utils import compact_size_uint
+from bits.utils import d_hash
 
 
 COIN = 100000000  # satoshis / bitcoin
 NULL_32 = b"\x00" * 32
+
+MAX_BLOCKFILE_SIZE = 0x08000000
 
 
 def block_header(
@@ -49,7 +53,7 @@ def merkle_root(txns: List[bytes]) -> bytes:
         for i in len(row) // 2:
             branches += d_hash(row[2 * i] + row[2 * i + 1])
         row = branches
-    return row[0]
+    return d_hash(row[0])
 
 
 def genesis_coinbase_tx():
@@ -61,6 +65,8 @@ def genesis_coinbase_tx():
     psz_timestamp = (
         b"The Times 03/Jan/2009 Chancellor on brink of second bailout for banks"
     )
+    # https://github.com/bitcoin/bitcoin/blob/v23.0/src/chainparams.cpp#L25
+    # https://github.com/bitcoin/bitcoin/blob/v0.1.5/main.cpp#L1488
     coinbase_script = (
         b"\x04"  # OP_PUSH_4
         + (486604799).to_bytes(4, "little")
@@ -85,7 +91,6 @@ def genesis_block():
 
     coinbase_tx = genesis_coinbase_tx()
     merkle_ = merkle_root([coinbase_tx])
-    print(merkle_)
 
     return block_ser(
         block_header(1, NULL_32, merkle_, nTime, nBits, nNonce), [coinbase_tx]

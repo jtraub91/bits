@@ -28,17 +28,18 @@ def genkey(save_as: str = "", curve: str = "secp256k1"):
     return stdout
 
 
-def public_pem_from_secret_pem(from_pem: str, save_as=""):
-    cmd = f"{OPENSSL_} ec -in {from_pem} -pubout -conv_form compressed "
+def public_pem_from_secret_pem(from_pem: str, save_as="", compressed: bool = True):
+    cmd = f"{OPENSSL_} ec -in {from_pem} -pubout "
     if save_as:
-        cmd += f"-out {save_as}"
+        cmd += f"-out {save_as} "
+    if compressed:
+        cmd += "-conv_form compressed "
     with Popen(cmd.split(), stdout=PIPE, stderr=PIPE) as proc:
         stdout, _ = proc.communicate()
     return stdout
 
 
 def public_key_hex_from_public_pem(from_pem: str):
-
     if SYSTEM == "Windows":
         cwd = "C:\\Users\\Jason\\WebProjects\\bits"
         abspath = os.path.join(cwd, from_pem)

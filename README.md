@@ -116,3 +116,27 @@ cat public.pem
 # get hex string from public.pem file
 echo $(openssl ec -in public.pem -pubin -text | grep -E "[a-f0-9][a-f0-9]:" | tr -d ' ' | tr -d ':' | tr -d '\n')
 ```
+
+
+### TODO
+
+Implement and test basic wallet functionality
+- generate JBOK
+- generate HD wallet mnemonic
+  - Bitcoin for now; naturally can extend to other coins per BIP spec
+  - generate new xpub, xprv, and all address types legacy, p2sh segwit, and native segwit
+
+Future:
+- check wallet balance; needs node
+- mine
+- sign transactions, i.e. spend
+- implement full node, spv node
+
+- lightning
+
+
+bits createwallet
+
+bits to_bitcoin_address <pubkey>
+bits to_bitcoin_address <pem>
+

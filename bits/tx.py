@@ -26,7 +26,7 @@ def txin(
 
 def txout(value: int, script_pubkey: bytes) -> bytes:
     return (
-        value.to_bytes(8, "little", signed=True)
+        value.to_bytes(8, "little")
         + compact_size_uint(len(script_pubkey))
         + script_pubkey
     )
@@ -36,7 +36,7 @@ def tx(
     txins: list[bytes], txouts: list[bytes], version: int = 1, locktime: int = 0
 ) -> bytes:
     return (
-        version.to_bytes(4, "little", signed=True)
+        version.to_bytes(4, "little")
         + compact_size_uint(len(txins))
         + b"".join(txins)
         + compact_size_uint(len(txouts))
@@ -68,7 +68,8 @@ def coinbase_txin(
     Create coinbase txin
     Args:
         coinbase_script: bytes, arbitrary data not exceeding 100 bytes
-        block_height: bytes, block height of this block in script language (now required per BIP34)
+        block_height: bytes, block height of this block in script language
+            (now required per BIP34)
 
     """
     if len(coinbase_script) > 100:

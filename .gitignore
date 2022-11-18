@@ -1,5 +1,8 @@
 __pycache__/
 .ipynb_checkpoints/
+
+.bits/
+
 venv/
 build/
 bits.egg-info/
