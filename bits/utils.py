@@ -1,11 +1,16 @@
+import base64
 import hashlib
+import re
+from typing import List
 from typing import Tuple
 
 from base58 import b58decode
+from base58 import b58decode_check
 from base58 import b58encode
 from ecdsa import SECP256k1
 from ecdsa import SigningKey
 from ecdsa import VerifyingKey
+from ecdsa.der import UnexpectedDER
 
 
 def pubkey(x: int, y: int, compressed=False) -> bytes:
@@ -22,7 +27,13 @@ def pubkey(x: int, y: int, compressed=False) -> bytes:
 
 
 def pubkey_from_pem(pem: bytes, compressed=False) -> bytes:
-    vk = VerifyingKey.from_pem(pem)
+    """
+    Return pubkey bytes from private or public pem
+    """
+    try:
+        vk = VerifyingKey.from_pem(pem)
+    except UnexpectedDER:
+        vk = SigningKey.from_pem(pem).verifying_key
     return pubkey(vk.pubkey.point.x(), vk.pubkey.point.y(), compressed=compressed)
 
 
@@ -67,12 +78,17 @@ def base58check(version: bytes, payload: bytes) -> bytes:
     Base58 check encoding used for bitcoin addresses
 
     Args:
-        version: 0x00 for mainnet, 0x6f for testnet, etc.
-        payload
+        version: bytes, 0x00 for mainnet, 0x6f for testnet, etc.
+        payload: bytes, payload, e.g. pubkey hash
     """
     version_payload = version + payload
     checksum = hashlib.sha256(hashlib.sha256(version_payload).digest()).digest()[:4]
     return b58encode(version_payload + checksum)
+
+
+def decode_addr(baddr: str) -> Tuple[bytes, bytes]:
+    decoded = b58decode_check(baddr)
+    return decoded[0], decoded[1:]
 
 
 def compact_size_uint(integer: int) -> bytes:
@@ -141,20 +157,106 @@ def pubkey_hash_from_p2pkh(baddr: bytes) -> bytes:
     return decoded_addr[1:-4]  # remove version byte and checksum
 
 
-def to_bitcoin_address(pubkey_: bytes, network: str = None) -> str:
+def to_bitcoin_address(
+    pubkey_: bytes, addr_type: str = "pkh", network: str = None
+) -> str:
     """
     Convert pubkey to bitcoin address
     Args:
         pubkey_: bytes, pubkey in hex
+        addr_type: str, adress type
         network: str, `mainnet` or `testnet`
     Returns:
         base58 encoded bitcoin address
     """
-    pkh = pubkey_hash(pubkey_)
+    if addr_type.lower() == "pkh":
+        key = pubkey_hash(pubkey_)
+    elif addr_type.lower() == "pk":
+        key = pubkey_
+    elif addr_type.lower() == "wpkh":
+        raise NotImplementedError
+    else:
+        raise ValueError(f"addr_type not recognized: {addr_type}")
     if network == "mainnet":
         version = b"\x00"
     elif network == "testnet":
         version = b"\x6f"
     else:
         raise ValueError(f"unrecognized network: {network}")
-    return base58check(version, pkh).decode("ascii")
+    return base58check(version, key).decode("ascii")
+
+
+def decode_pem(pem: bytes) -> bytes:
+    """
+    Decode pem to der
+    inspiration from ssl.PEM_cert_to_DER_cert
+    but more general
+    """
+    pem_ = pem.strip()
+    header_re = b"-----BEGIN .+-----"
+    footer_re = b"-----END .+-----"
+    header_search = re.search(header_re, pem_)
+    if not header_search or header_search.start() != 0:
+        raise ValueError("encoding error; must start with pem header")
+    footer_search = re.search(footer_re, pem_)
+    if not footer_search or footer_search.end() != len(pem_):
+        raise ValueError("encoding error; must end with pem footer")
+    d = pem_[header_search.end() : footer_search.start()].strip()
+    return base64.decodebytes(d)
+
+
+# https://letsencrypt.org/docs/a-warm-welcome-to-asn1-and-der/
+# https://letsencrypt.org/docs/a-warm-welcome-to-asn1-and-der/#tag
+TAG_MAP = {
+    0x02: "INTEGER",
+    0x03: "BIT STRING",
+    0x04: "OCTET STRING",
+    0x05: "NULL",
+    0x06: "OBJECT IDENTIFIER",
+    0x0C: "UTF8String",
+    0x10: "SEQUENCE (OF)",
+    0x11: "SET (OF)",
+}
+# tag classes
+#   bit 6: 1=constructed 0=primitive
+#   | class            | bit 8 | bit 7 |
+#    ------------------ ------- -------
+#   | universal        |   0   |   0   |
+#   | application      |   0   |   1   |
+#   | context-specific |   1   |   0   |
+#   | private          |   1   |   1   |
+# https://letsencrypt.org/docs/a-warm-welcome-to-asn1-and-der/#tag-classes
+TAG_CLASS_MAP = {
+    0b00: "Universal",
+    0b01: "Application",
+    0b10: "Context-specific",
+    0b11: "Private",
+}
+
+
+def parse_asn1(data: bytes):
+    """
+    Parse ASN.1 data
+    Recursive for SEQUENCE (OF) tag
+    """
+    parsed = []
+    while data:
+        tag = data[0]
+        length = data[1]
+        value = data[2 : 2 + length]
+        parsed.append(
+            (
+                (
+                    TAG_MAP[tag & 0b00011111],
+                    "Constructed" if tag & 0b00100000 else "Primitive",
+                    TAG_CLASS_MAP[tag >> 6],
+                ),
+                length,
+                parse_asn1(value)
+                if tag & 0b00011111
+                == list(filter(lambda key: TAG_MAP[key] == "SEQUENCE (OF)", TAG_MAP))[0]
+                else value,
+            )
+        )
+        data = data[2 + length :]
+    return parsed

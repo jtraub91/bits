@@ -4,6 +4,7 @@ Utilities for transactions
 https://developer.bitcoin.org/reference/transactions.html
 """
 from hashlib import sha256
+from typing import List
 
 from bits.utils import compact_size_uint
 from bits.utils import d_hash
@@ -12,8 +13,13 @@ from bits.utils import d_hash
 UINT32_MAX = 2**32 - 1
 
 
-def outpoint(txid: bytes, index: int) -> bytes:
-    return txid + index.to_bytes(4, "little")
+def outpoint(txid_: bytes, index: int) -> bytes:
+    """
+    # https://developer.bitcoin.org/reference/transactions.html#outpoint-the-specific-part-of-a-specific-output
+    Args:
+        txid_: bytes, txid in internal byte order
+    """
+    return txid_ + index.to_bytes(4, "little")
 
 
 def txin(
@@ -33,7 +39,7 @@ def txout(value: int, script_pubkey: bytes) -> bytes:
 
 
 def tx(
-    txins: list[bytes], txouts: list[bytes], version: int = 1, locktime: int = 0
+    txins: List[bytes], txouts: List[bytes], version: int = 1, locktime: int = 0
 ) -> bytes:
     return (
         version.to_bytes(4, "little")

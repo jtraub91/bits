@@ -15,5 +15,20 @@ def p2pkh_script_pubkey(pk_hash: bytes) -> bytes:
     )
 
 
+def p2pkh_script_sig(sig: bytes, pk: bytes):
+    """
+    Args:
+        sig: bytes, signature
+        pk: bytes, public key
+    """
+    return (
+        (len(sig) + 1).to_bytes(1, "little")
+        + sig
+        + SIGHASH_ALL.to_bytes(1, "little")
+        + len(pk).to_bytes(1, "little")
+        + pk
+    )
+
+
 def p2pk_script_pubkey(pk: bytes) -> bytes:
     return len(pk).to_bytes(1, "little") + pk + OP_CHECKSIG.to_bytes(1, "little")

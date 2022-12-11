@@ -100,22 +100,7 @@ INVENTORY_TYPE_ID = {
 MAX_BLOCKFILE_SIZE = 0x8000000  # 128 MiB
 
 
-log = logging.getLogger("p2p")
-log.setLevel(logging.DEBUG)
-formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
-if not os.path.exists(".bits/logs"):
-    os.makedirs(".bits/logs")
-fh = logging.FileHandler(".bits/logs/bits.log")
-fh.setFormatter(formatter)
-log.addHandler(fh)
-
-
-def set_log_level(level: str):
-    valid_log_levels = ["info", "debug", "warning", "critical", "error"]
-    if level.lower() not in valid_log_levels:
-        raise ValueError(f"level not valid: {level}")
-    log.setLevel(getattr(logging, level.upper()))
-    return True
+log = logging.getLogger(__name__)
 
 
 def set_magic_start_bytes(network: str):
@@ -511,7 +496,7 @@ class PeerThread(Thread):
 class Node:
     def __init__(
         self,
-        seeds: List[str],
+        seeds: List[str] = [],
         protocol_version: int = 70015,
         services: int = NODE_NETWORK,
         relay: bool = True,
