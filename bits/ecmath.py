@@ -1,51 +1,9 @@
 """
-Notes and (re/para)phrasing from Programming Bitcoin, Jimmy Song
-https://github.com/jimmysong/programmingbitcoin
-
-Ch1
-
-https://en.wikipedia.org/wiki/Set_(mathematics)
-https://en.wikipedia.org/wiki/Group_(mathematics)
-https://en.wikipedia.org/wiki/Field_(mathematics)
-https://en.wikipedia.org/wiki/Finite_field
-https://en.wikipedia.org/wiki/Modular_arithmetic
-https://en.wikipedia.org/wiki/Fermat's_little_theorem
-
-Finite Fields (Galois field) are have the following properties
-
-1. Closed: if a and b are in the set, a+b and a*b are in the set
-2. Additive Identity: 0 exists and has the property a + 0 = a
-3. Multiplicative Identity: 1 exists and has the propert a * 1 = a
-4. Additive Inverse: If a is in the set, -a is in the set, defined as the value in which
-    a + (-a) = 0 
-5. Multiplicative Inverse: If a is in the set (and is not 0), a^-1 is in the set
-    and is defined as the value in which a * (a^-1) = 1
-
-
-Let `p` be the order of the Finite Field set (how big the set is)
-
-F_p = set([0, 1, 2, ..., p-1])
-
-??finite field elements in general need not be integers, and p is, strictly speaking, the number of elements
-
-"it turns out that fields must have an order that is a power of a prime, and that the finite fields whose order is prime are the ones we’re interested in"
-JT: The set of integers, with order p, where p is prime, turns out to be a (finite) field
-    by using modular arithmetic
-
-
-Fermat's little thereom essentially states
-
-(n**(p-1))%p = 1 where p is prime (and n > 0 ?)
-
-Ch2
-...
-
-Ch3
-...
-"""
-"""
 Elliptic curve math
 """
+import math
+from typing import Tuple
+
 # http://www.secg.org/sec2-v2.pdf - pg 13
 # T(p, a, b, G, n, h)
 # The curve E: y^2 = x^3 + ax + b over Fp,
@@ -108,8 +66,6 @@ def pow_mod_p(x: int, y: int, p: int = SECP256K1_P) -> int:
         raise TypeError(f"{y} must be an integer")
         # y need not be in field p
     return pow(x, y, p)  # more efficient than (x ** y) % p ¯\_(ツ)_/¯
-    # why does jimmy song use (exp) % (p-1) before pow function?
-    # because prior to python 3.8 pow(n, exp) did not support negative exp
 
 
 def div_mod_p(x: int, y: int, p: int = SECP256K1_P) -> int:
@@ -127,8 +83,33 @@ def div_mod_p(x: int, y: int, p: int = SECP256K1_P) -> int:
     return mul_mod_p(x, pow_mod_p(y, p - 2, p), p)
 
 
-# ch2 / 3
-# Elliptic curve cryptography
+def sqrt_mod_p(x: int, p: int = SECP256K1_P) -> int:
+    # TODO: tonelli shank's algorithm, works for all prime p
+    # https://en.wikipedia.org/wiki/Tonelli%E2%80%93Shanks_algorithm
+    # https://www.geeksforgeeks.org/find-square-root-modulo-p-set-2-shanks-tonelli-algorithm/
+    # TODO: check euler criterion
+    # https://en.wikipedia.org/wiki/Euler's_criterion
+    # x ** (p-1)/2 == 1 or -1 (1 if sqrt exists)
+
+    x = add_mod_p(0, x)
+    # https://www.geeksforgeeks.org/find-square-root-under-modulo-p-set-1-when-p-is-in-form-of-4i-3/
+    if p % 4 == 3:
+        # +/-
+        y = pow_mod_p(x, (p + 1) // 4, p=p)
+        return y, sub_mod_p(0, y, p=p)
+    else:
+        raise NotImplementedError
+
+
+def y_from_x(x: int, a: int = SECP256K1_A, b: int = SECP256K1_B) -> Tuple[int]:
+    """
+    Find y from x
+    y^2 = x^3 + ax + b
+    """
+    y_squared = add_mod_p(add_mod_p(pow_mod_p(x, 3), mul_mod_p(a, x)), b)
+    return sqrt_mod_p(y_squared)
+
+
 def point_is_on_curve(
     x: int, y: int, a: int = SECP256K1_A, b: int = SECP256K1_B
 ) -> bool:
@@ -140,3 +121,69 @@ def point_is_on_curve(
     if pow_mod_p(y, 2) == add_mod_p(add_mod_p(pow_mod_p(x, 3), mul_mod_p(x, a)), b):
         return True
     return False
+
+
+def point_negate(p: Tuple[int], a: int = SECP256K1_A, b: int = SECP256K1_B):
+    """
+    Returns:
+        -p
+    """
+    # https://crypto.stanford.edu/pbc/notes/elliptic/explicit.html
+    x, y = p
+    return (x, -y)
+
+
+def point_add(
+    p1: Tuple[int, int], p2: Tuple[int, int], a: int = SECP256K1_A, b: int = SECP256K1_B
+) -> Tuple[int]:
+    # https://crypto.stanford.edu/pbc/notes/elliptic/explicit.html
+    # y^2 + a1*x*y + a3*y = x^3 + a2 * x^2 + a4*x + a6
+    # a1 = a2 = a3 = 0
+    # a4 = a
+    # a6 = b
+    # y^2 = x^3 + ax + b
+    if p1 is None:
+        return p2
+    elif p2 is None:
+        return p1
+    elif p1 == p2:
+        x, y = p1
+        # s = (3 * x ** 2 + a) / (2 * y)
+        # xr = s ** 2 - 2 * x
+        # yr = - s * xr + s * x - y
+        s = div_mod_p(add_mod_p(mul_mod_p(3, pow_mod_p(x, 2)), a), mul_mod_p(2, y))
+        xr = sub_mod_p(pow_mod_p(s, 2), mul_mod_p(2, x))
+        yr = sub_mod_p(add_mod_p(mul_mod_p(sub_mod_p(0, s), xr), mul_mod_p(s, x)), y)
+        return (xr, yr)
+    elif p1 == point_negate(p2):
+        return None
+    else:
+        x1, y1 = p1
+        x2, y2 = p2
+        # s = y2 - y1 / x2 - x1
+        s = div_mod_p(sub_mod_p(y2, y1), sub_mod_p(x2, x1))
+        # xr = s ** 2 - x1 - x2
+        xr = sub_mod_p(sub_mod_p(pow_mod_p(s, 2), x1), x2)
+        # yr = - s * xr + s * x1 - y1
+        yr = sub_mod_p(add_mod_p(mul_mod_p(sub_mod_p(0, s), xr), mul_mod_p(s, x1)), y1)
+        return (xr, yr)
+
+
+def point_scalar_mul(
+    k: int, P: Tuple[int, int], a: int = SECP256K1_A, b: int = SECP256K1_B
+):
+    """
+    Point multiplication using double and add algorithm
+    kP where k has n binary digits
+    O(k)
+    """
+    # https://andrea.corbellini.name/2015/05/17/elliptic-curve-cryptography-a-gentle-introduction/
+    # https://en.wikipedia.org//wiki/Elliptic_curve_point_multiplication
+    # https://en.wikipedia.org/wiki/Elliptic_curve_point_multiplication#Double-and-add
+    result = None
+    bit_depth = math.ceil(math.log2(k))
+    for bit_no in reversed(range(bit_depth)):
+        result = point_add(result, result)  # double
+        if k & (2**bit_no):
+            result = point_add(result, P)  # add
+    return result

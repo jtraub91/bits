@@ -7,9 +7,9 @@ import hmac
 from typing import Tuple
 from typing import Union
 
+from bits.base58 import base58check
 from bits.ecmath import add_mod_p
 from bits.ecmath import SECP256K1_N
-from bits.utils import base58check
 from bits.utils import pub_point
 from bits.utils import pubkey
 

@@ -174,9 +174,70 @@ __TapRoot__
 
 - https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki
 
+### Notes
+
+Notes and (re/para)phrasing from Programming Bitcoin, Jimmy Song
+https://github.com/jimmysong/programmingbitcoin
+
+Ch1
+
+- https://en.wikipedia.org/wiki/Set_(mathematics)
+- https://en.wikipedia.org/wiki/Group_(mathematics)
+- https://en.wikipedia.org/wiki/Field_(mathematics)
+- https://en.wikipedia.org/wiki/Finite_field
+- https://en.wikipedia.org/wiki/Modular_arithmetic
+- https://en.wikipedia.org/wiki/Fermat's_little_theorem
+
+Finite Fields (Galois field) are have the following properties
+
+1. Closed: if a and b are in the set, a+b and a*b are in the set
+2. Additive Identity: 0 exists and has the property a + 0 = a
+3. Multiplicative Identity: 1 exists and has the propert a * 1 = a
+4. Additive Inverse: If a is in the set, -a is in the set, defined as the value in which
+    a + (-a) = 0 
+5. Multiplicative Inverse: If a is in the set (and is not 0), a^-1 is in the set
+    and is defined as the value in which a * (a^-1) = 1
+
+
+Let `p` be the order of the Finite Field set (how big the set is)
+
+F_p = set([0, 1, 2, ..., p-1])
+
+??finite field elements in general need not be integers, and p is, strictly speaking, the number of elements
+
+"it turns out that fields must have an order that is a power of a prime, and that the finite fields whose order is prime are the ones we’re interested in"
+JT: The set of integers, with order p, where p is prime, turns out to be a (finite) field
+    by using modular arithmetic
+
+
+Fermat's little thereom essentially states
+
+(n**(p-1))%p = 1 where p is prime (and n > 0 ?)
+
+Ch2
+...
+
+Ch3
+...
+
+
 
 TODO
 - [x] der decoder
 - [ ] get public key and private key
 - [ ] ecmath get pubkey coords from private key
 - [ ] ecmath get pubkey coord from compressed public key
+- [ ] support wif
+- [ ] remove base58 dependency (reimplement functions)
+- [ ] add signing operations to ecmath or depend on opessl, remove python-ecdsa dependency 
+
+- https://blog.cloudflare.com/a-relatively-easy-to-understand-primer-on-elliptic-curve-cryptography/
+- https://andrea.corbellini.name/2015/05/17/elliptic-curve-cryptography-a-gentle-introduction/
+- https://crypto.stanford.edu/~dabo/cs255/syllabus.html
+- https://crypto.stanford.edu/~dabo/courses/OnlineCrypto/
+
+- https://github.com/trezor/python-mnemonic
+- https://github.com/keis/base58
+- https://digitalbazaar.github.io/base58-spec
+- https://en.bitcoinwiki.org/wiki/Base58
+- https://en.bitcoin.it/wiki/Base58Check_encoding

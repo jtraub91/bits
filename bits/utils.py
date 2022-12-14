@@ -1,22 +1,22 @@
 import base64
 import hashlib
+import math
 import re
 from typing import List
 from typing import Tuple
+from typing import Union
 
-from base58 import b58decode
-from base58 import b58decode_check
-from base58 import b58encode
-from ecdsa import SECP256k1
-from ecdsa import SigningKey
-from ecdsa import VerifyingKey
-from ecdsa.der import UnexpectedDER
+from bits.base58 import base58check
+from bits.base58 import base58check_decode
+from bits.ecmath import point_scalar_mul
+from bits.ecmath import SECP256K1_Gx
+from bits.ecmath import SECP256K1_Gy
+from bits.ecmath import y_from_x
 
 
 def pubkey(x: int, y: int, compressed=False) -> bytes:
     """
-    Returns pubkey in hex from point (x, y),
-    optionally SEC1 compressed
+    Returns SEC1 pubkey from point (x, y)
     """
     if compressed:
         prefix = b"\x02" if y % 2 == 0 else b"\x03"
@@ -26,40 +26,38 @@ def pubkey(x: int, y: int, compressed=False) -> bytes:
         return prefix + x.to_bytes(32, "big") + y.to_bytes(32, "big")
 
 
-def pubkey_from_pem(pem: bytes, compressed=False) -> bytes:
+def privkey_int(privkey_: bytes) -> int:
+    assert len(privkey_) == 32
+    return int.from_bytes(privkey_, "big")
+
+
+def compute_point(privkey_: bytes) -> Tuple[int]:
     """
-    Return pubkey bytes from private or public pem
+    Compute (x, y) public key point from private key
     """
-    try:
-        vk = VerifyingKey.from_pem(pem)
-    except UnexpectedDER:
-        vk = SigningKey.from_pem(pem).verifying_key
-    return pubkey(vk.pubkey.point.x(), vk.pubkey.point.y(), compressed=compressed)
+    k = privkey_int(privkey_)
+    return point_scalar_mul(k, (SECP256K1_Gx, SECP256K1_Gy))
 
 
 def point(pubkey_: bytes) -> Tuple[int]:
     """
-    Return (x, y) from pubkey_ bytes encoding
+    Return (x, y) point from SEC1 public key
     """
-    vk = VerifyingKey.from_string(pubkey_, curve=SECP256k1)
-    return vk.pubkey.point.x(), vk.pubkey.point.y()
-
-
-def point_from_pubkey(pubkey_: bytes) -> Tuple[int]:
-    """
-    WIP
-    """
-    if pubkey_[0] not in [b"\x02", b"\x03", b"\x04"]:
-        raise ValueError(f"unrecognized version byte: {pubkey_[0]}")
-    x = int.from_bytes(pubkey_[1:33], "big")
-    if pubkey_[0] == b"\x02":
-        pass
-    elif pubkey_[0] == b"\x03":
-        pass
-    else:
+    assert len(pubkey_) == 33 or len(pubkey_) == 65
+    version = pubkey_[0]
+    payload = pubkey_[1:]
+    x = int.from_bytes(payload[:32], "big")
+    if version == 2:
+        # compressed, y
+        y = y_from_x(x)[0]
+    elif version == 3:
+        # compressed, -y
+        y = y_from_x(x)[1]
+    elif version == 4:
         # uncompressed
-        x = int.from_bytes(pubkey_[1:33], "big")
-        y = int.from_bytes(pubkey_[33:], "big")
+        y = int.from_bytes(payload[32:], "big")
+    else:
+        raise ValueError(f"unrecognized version: {version}")
     return (x, y)
 
 
@@ -71,24 +69,6 @@ def pubkey_hash(pubkey_: bytes) -> bytes:
     hash_256 = hashlib.sha256(pubkey_).digest()
     ripe_hash = hashlib.new("ripemd160", hash_256).digest()
     return ripe_hash
-
-
-def base58check(version: bytes, payload: bytes) -> bytes:
-    """
-    Base58 check encoding used for bitcoin addresses
-
-    Args:
-        version: bytes, 0x00 for mainnet, 0x6f for testnet, etc.
-        payload: bytes, payload, e.g. pubkey hash
-    """
-    version_payload = version + payload
-    checksum = hashlib.sha256(hashlib.sha256(version_payload).digest()).digest()[:4]
-    return b58encode(version_payload + checksum)
-
-
-def decode_addr(baddr: str) -> Tuple[bytes, bytes]:
-    decoded = b58decode_check(baddr)
-    return decoded[0], decoded[1:]
 
 
 def compact_size_uint(integer: int) -> bytes:
@@ -131,30 +111,11 @@ def parse_compact_size_uint(payload: bytes) -> Tuple[int, bytes]:
     return integer, payload
 
 
-def pub_point(priv_: int) -> Tuple[int]:
-    """
-    Return (x, y) public point on SECP256k1 curve, from priv_ key
-    """
-    sk = SigningKey.from_secret_exponent(priv_, curve=SECP256k1)
-    return sk.verifying_key.pubkey.point.x(), sk.verifying_key.pubkey.point.y()
-
-
 def d_hash(msg: bytes) -> bytes:
     """
     Double sha256 hash of msg
     """
     return hashlib.sha256(hashlib.sha256(msg).digest()).digest()
-
-
-def pubkey_hash_from_p2pkh(baddr: bytes) -> bytes:
-    """
-    Return pubkeyhash from bitcoin address, with checksum verification
-    """
-    decoded_addr = b58decode(baddr)
-    checksum = decoded_addr[-4:]
-    checksum_check = hashlib.sha256(hashlib.sha256(decoded_addr[:-4]).digest()).digest()
-    assert checksum == checksum_check[:4]
-    return decoded_addr[1:-4]  # remove version byte and checksum
 
 
 def to_bitcoin_address(
@@ -186,9 +147,9 @@ def to_bitcoin_address(
     return base58check(version, key).decode("ascii")
 
 
-def decode_pem(pem: bytes) -> bytes:
+def decode_base64_pem(pem: bytes) -> bytes:
     """
-    Decode pem to der
+    Decode pem base64 data
     inspiration from ssl.PEM_cert_to_DER_cert
     but more general
     """
@@ -205,7 +166,28 @@ def decode_pem(pem: bytes) -> bytes:
     return base64.decodebytes(d)
 
 
-# https://letsencrypt.org/docs/a-warm-welcome-to-asn1-and-der/
+def decode_pem(pem_: bytes):
+    """
+    Decode pem and parse ASN.1
+    """
+    der = decode_base64_pem(pem_)
+    parsed = parse_asn1(der)
+    return parsed
+
+
+def decode_key(pem_: bytes):
+    """
+    Decode pem EC private / public key
+    """
+    parsed = decode_pem(pem_)
+    if parsed[0][2][0][2] == b"\x01":
+        return parsed[0][2][1][2]
+    elif parsed[0][2][0][2][0][2] == "id-ecPublicKey":
+        return parsed[0][2][1][2][1:]
+    else:
+        raise ValueError("could not identify data as private nor public key")
+
+
 # https://letsencrypt.org/docs/a-warm-welcome-to-asn1-and-der/#tag
 TAG_MAP = {
     0x02: "INTEGER",
@@ -217,6 +199,7 @@ TAG_MAP = {
     0x10: "SEQUENCE (OF)",
     0x11: "SET (OF)",
 }
+MAP_TAG = {value: key for key, value in TAG_MAP.items()}
 # tag classes
 #   bit 6: 1=constructed 0=primitive
 #   | class            | bit 8 | bit 7 |
@@ -233,7 +216,7 @@ TAG_CLASS_MAP = {
     0b11: "Private",
 }
 
-
+# https://letsencrypt.org/docs/a-warm-welcome-to-asn1-and-der/
 def parse_asn1(data: bytes):
     """
     Parse ASN.1 data
@@ -247,16 +230,97 @@ def parse_asn1(data: bytes):
         parsed.append(
             (
                 (
-                    TAG_MAP[tag & 0b00011111],
+                    TAG_MAP.get(tag & 0b00011111, tag & 0b00011111),
                     "Constructed" if tag & 0b00100000 else "Primitive",
                     TAG_CLASS_MAP[tag >> 6],
                 ),
                 length,
-                parse_asn1(value)
-                if tag & 0b00011111
-                == list(filter(lambda key: TAG_MAP[key] == "SEQUENCE (OF)", TAG_MAP))[0]
-                else value,
+                parse_asn1_value(tag, value),
             )
         )
         data = data[2 + length :]
     return parsed
+
+
+def parse_asn1_value(tag: int, value: bytes):
+    """
+    Parse ASN.1 tag's value
+    """
+    tag_constructed = tag & 0b00100000
+    tag_class = tag >> 6
+    tag = tag & 0b00011111
+    if tag == MAP_TAG["SEQUENCE (OF)"]:
+        return parse_asn1(value)
+    elif tag == MAP_TAG["OBJECT IDENTIFIER"]:
+        oid = parse_oid(value)
+        if oid == "1.2.840.10045.2.1":
+            oid = "id-ecPublicKey"
+        return oid
+    elif tag_constructed:
+        return parse_asn1(value)
+    else:
+        return value
+
+
+def parse_oid(data: bytes) -> str:
+    """
+    >>> parse_oid(bytes.fromhex("2a8648ce3d0201"))
+    '1.2.840.10045.2.1'
+    """
+    # https://learn.microsoft.com/en-us/windows/win32/seccertenroll/about-object-identifier
+    # relevant OIDS:
+    #   id-ecPublicKey: 1.2.840.10045.2.1
+    nodes = []
+    # 1st byte = node1 * 40 + node2
+    first_byte = data[0]
+    first_node = int(first_byte / 40)
+    second_node = first_byte % 40
+    nodes.append(first_node)
+    nodes.append(second_node)
+    data = data[1:]
+    while data:
+        i = 0
+        first_byte = data[i]
+        leftmost_bit = first_byte & 0b10000000
+        if leftmost_bit:
+            # https://stackoverflow.com/a/24720842
+            vlq_bytes = [first_byte]
+            while leftmost_bit:
+                i += 1
+                next_byte = data[i]
+                vlq_bytes.append(next_byte)
+                leftmost_bit = next_byte & 0b10000000
+            data = data[i + 1 :]
+            # concatenate lower 7 bits of each vlq_byte, read as int
+            # vlq_bytes = [vlq_byte & 0x7F for vlq_byte in vlq_bytes]
+            vlq_bytes_bits = [
+                (
+                    vlq_byte & 0x40,
+                    vlq_byte & 0x20,
+                    vlq_byte & 0x10,
+                    vlq_byte & 0x8,
+                    vlq_byte & 0x4,
+                    vlq_byte & 0x2,
+                    vlq_byte & 0x1,
+                )
+                for vlq_byte in vlq_bytes
+            ]
+            no_bits = len(vlq_bytes_bits) * 7
+            no_bytes = 8 * math.ceil(no_bits / 8)
+            node_value = 0
+            for byte_idx, vlq_byte_bits in enumerate(
+                reversed(vlq_bytes_bits)
+            ):  # reversed i.e. bytes lsb first
+                for bit_idx, vlq_byte_bit in enumerate(
+                    reversed(vlq_byte_bits)
+                ):  # reversed i.e. bits lsb first
+                    node_value = (
+                        node_value | (0x1 << (bit_idx + (byte_idx * 7)))
+                        if vlq_byte_bit
+                        else node_value
+                    )
+            nodes.append(node_value)
+        else:
+            nodes.append(first_byte)
+            data = data[i + 1 :]
+    return ".".join([str(node) for node in nodes])

@@ -14,6 +14,7 @@ import bits.openssl
 import bits.rpc
 from bits import default_config
 from bits import set_log_level
+from bits.base58 import base58check_decode
 from bits.bips.bip32 import parse_256
 from bits.bips.bip32 import point
 from bits.bips.bip32 import ser_p
@@ -31,7 +32,6 @@ from bits.tx import tx
 from bits.tx import txin
 from bits.tx import txout
 from bits.utils import d_hash
-from bits.utils import decode_addr
 from bits.utils import pubkey
 from bits.utils import pubkey_from_pem
 from bits.utils import pubkey_hash
@@ -377,7 +377,7 @@ def main():
                 raise ValueError(f"sigdep not recognized: {args.sigdep}")
         return tx_.hex()
     elif args.subcommand == "scriptpubkey":
-        _, pkh = decode_addr(args.addr)
+        _, pkh = base58check_decode(args.addr)
         return p2pkh_script_pubkey(pkh).hex()
     elif args.subcommand == "scriptsig":
         if args.sigdep == "openssl":

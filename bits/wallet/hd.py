@@ -6,13 +6,12 @@ import json
 from typing import Tuple
 from typing import Union
 
-from base58 import b58decode
-from base58 import b58decode_check
-from base58 import b58encode
 from ecdsa import VerifyingKey
 from ecdsa.curves import SECP256k1
 
 import bits.bips.bip43 as bip43
+from bits.base58 import base58check_decode
+from bits.base58 import base58decode
 from bits.bips.bip32 import CKDpriv
 from bits.bips.bip32 import CKDpub
 from bits.bips.bip32 import point as point_from_privkey
@@ -46,7 +45,7 @@ def derive_child(xkey: str, index: int) -> str:
     if not xkey.startswith("xprv") and not xkey.startswith("xpub"):
         raise ValueError(f"must be xprv or xpub: {xkey}")
 
-    decoded_ = b58decode_check(xkey)
+    decoded_ = base58check_decode(xkey)
     version = decoded_[:4]
     if version not in [
         VERSION_PRIVATE_MAINNET,
@@ -163,13 +162,8 @@ def p2pkh(xpub):
     """
     Return p2pkh bitcoin address from xpub
     """
-    decoded_xpub_bytes = b58decode(xpub)
-    checksum = decoded_xpub_bytes[-4:]
-    checksum_check = hashlib.sha256(
-        hashlib.sha256(decoded_xpub_bytes[:-4]).digest()
-    ).digest()
-    assert checksum == checksum_check[:4]
-    payload = decoded_xpub_bytes[4:-4]  # remove 4 byte version and checksum
+    decoded_xpub_bytes = base58check_decode(xpub)
+    payload = decoded_xpub_bytes[4:]  # remove 4 byte version and checksum
 
     pubkey_ = payload[-33:]  # last 33 bytes is pubkey in SEC1 compressed form
 
