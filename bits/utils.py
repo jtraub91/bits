@@ -144,7 +144,8 @@ def to_bitcoin_address(
         version = b"\x6f"
     else:
         raise ValueError(f"unrecognized network: {network}")
-    return base58check(version, key).decode("ascii")
+    payload = version + key
+    return base58check(payload).decode("ascii")
 
 
 def decode_base64_pem(pem: bytes) -> bytes:
@@ -171,17 +172,26 @@ def decode_pem(pem_: bytes):
     Decode pem and parse ASN.1
     """
     der = decode_base64_pem(pem_)
-    parsed = parse_asn1(der)
-    return parsed
+    return der
 
 
-def decode_key(pem_: bytes):
+def pubkey_from_pem(pem_: bytes):
+    decoded_key = decode_key(pem_)
+    if len(decoded_key) == 2:
+        return decoded_key[1]
+    return decoded_key
+
+
+def decode_key(pem_: bytes) -> Union[Tuple[bytes, bytes], bytes]:
     """
-    Decode pem EC private / public key
+    Decode from pem encoded EC private / public key
+    Returns:
+        (privkey, pubkey) or pubkey, respectively
     """
-    parsed = decode_pem(pem_)
+    decoded = decode_pem(pem_)
+    parsed = parse_asn1(decoded)
     if parsed[0][2][0][2] == b"\x01":
-        return parsed[0][2][1][2]
+        return parsed[0][2][1][2], parsed[0][2][3][2][0][2]
     elif parsed[0][2][0][2][0][2] == "id-ecPublicKey":
         return parsed[0][2][1][2][1:]
     else:
@@ -324,3 +334,33 @@ def parse_oid(data: bytes) -> str:
             nodes.append(first_byte)
             data = data[i + 1 :]
     return ".".join([str(node) for node in nodes])
+
+
+def wif(
+    privkey_: bytes,
+    compressed_pubkey: bool = True,
+    network: str = "mainnet",
+) -> bytes:
+    """
+    WIF encoding
+    # https://en.bitcoin.it/wiki/Wallet_import_format
+    # https://river.com/learn/terms/w/wallet-import-format-wif/
+    Args:
+        privkey_: bytes, private key
+        compressed_pubkey: bool, corresponds to a compressed pubkey
+        network: str, mainnet or testnet
+    """
+    if network.lower() == "mainnet":
+        prefix = b"\x80"
+    elif network.lower() == "testnet":
+        prefix = b"\xef"
+    else:
+        raise ValueError(f"unrecognized network: {network}")
+    wif = prefix + privkey_
+    if corresponds_to_compressed_pubkey:
+        wif += b"\x01"
+    return base58check(wif)
+
+
+def wif_decode(wif_: bytes) -> Tuple[bytes, bool]:
+    return base58check_decode(wif_)

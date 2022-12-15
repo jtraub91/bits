@@ -1,6 +1,7 @@
 """
 Base58 encoding
 """
+import hashlib
 from typing import Tuple
 
 BITCOIN_ALPHABET = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
@@ -24,16 +25,15 @@ def base58encode(data: bytes) -> bytes:
     return BITCOIN_ALPHABET[0:1] * zeros + encoded
 
 
-def base58check(version: bytes, payload: bytes) -> bytes:
+def base58check(data: bytes) -> bytes:
     """
     Base58 check encoding used for bitcoin addresses
     # https://en.bitcoin.it/wiki/Base58Check_encoding
     Args:
-        version: bytes, 0x00 for mainnet, 0x6f for testnet, etc.
-        payload: bytes, payload, e.g. pubkey hash
+        data: bytes, data to encode
     """
-    checksum = hashlib.sha256(hashlib.sha256(version + payload).digest()).digest()[:4]
-    return base58encode(version + payload + checksum)
+    checksum = hashlib.sha256(hashlib.sha256(data).digest()).digest()[:4]
+    return base58encode(data + checksum)
 
 
 def base58decode(data: bytes) -> bytes:
@@ -54,10 +54,6 @@ def base58decode(data: bytes) -> bytes:
 
 
 def base58check_decode(addr_: bytes) -> bytes:
-    """
-    Returns:
-        (version: int, payload: bytes)
-    """
     decoded_addr = base58decode(addr_)
     payload = decoded_addr[:-4]
     checksum = decoded_addr[-4:]

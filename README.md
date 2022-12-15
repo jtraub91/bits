@@ -1,5 +1,7 @@
 ### `#bits`
 
+Bitcoin protocol
+
 ```
 bits & tricks for Bitcoin
 ```
@@ -224,12 +226,15 @@ Ch3
 
 TODO
 - [x] der decoder
-- [ ] get public key and private key
-- [ ] ecmath get pubkey coords from private key
-- [ ] ecmath get pubkey coord from compressed public key
-- [ ] support wif
-- [ ] remove base58 dependency (reimplement functions)
-- [ ] add signing operations to ecmath or depend on opessl, remove python-ecdsa dependency 
+- [x] get public key and private key
+- [x] ecmath get pubkey coords from private key
+- [x] ecmath get pubkey coord from compressed public key
+- [x] support wif
+- [x] remove base58 dependency (reimplement functions)
+- [ ] add signing operations to ecmath or depend on opessl, remove python-ecdsa dependency
+- [ ] implement basic wallet functionality (jbok, hd)
+- [ ] implement node, full/spv
+- [ ] implement miner
 
 - https://blog.cloudflare.com/a-relatively-easy-to-understand-primer-on-elliptic-curve-cryptography/
 - https://andrea.corbellini.name/2015/05/17/elliptic-curve-cryptography-a-gentle-introduction/

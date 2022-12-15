@@ -10,7 +10,7 @@ from typing import Union
 from bits.base58 import base58check
 from bits.ecmath import add_mod_p
 from bits.ecmath import SECP256K1_N
-from bits.utils import pub_point
+from bits.utils import point as point_
 from bits.utils import pubkey
 
 VERSION_PUBLIC_MAINNET = b"\x04\x88\xb2\x1e"
@@ -25,7 +25,7 @@ def point(p: int) -> tuple:
     Returns the coordinate pair resulting from EC point multiplication
     of the secp256k1 base point with the integer p
     """
-    return pub_point(p)
+    return point_(p.to_bytes(32, "big"))
 
 
 def ser_32(i: int) -> bytes:
