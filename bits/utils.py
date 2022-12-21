@@ -8,9 +8,11 @@ from typing import Union
 
 from bits.base58 import base58check
 from bits.base58 import base58check_decode
+from bits.ecmath import point_is_on_curve
 from bits.ecmath import point_scalar_mul
 from bits.ecmath import SECP256K1_Gx
 from bits.ecmath import SECP256K1_Gy
+from bits.ecmath import SECP256K1_N
 from bits.ecmath import y_from_x
 
 
@@ -28,7 +30,9 @@ def pubkey(x: int, y: int, compressed=False) -> bytes:
 
 def privkey_int(privkey_: bytes) -> int:
     assert len(privkey_) == 32
-    return int.from_bytes(privkey_, "big")
+    p = int.from_bytes(privkey_, "big")
+    assert p > 0 and p < SECP256K1_N, f"private key not in range(1, N): {p}"
+    return p
 
 
 def compute_point(privkey_: bytes) -> Tuple[int]:
@@ -58,6 +62,7 @@ def point(pubkey_: bytes) -> Tuple[int]:
         y = int.from_bytes(payload[32:], "big")
     else:
         raise ValueError(f"unrecognized version: {version}")
+    assert point_is_on_curve(x, y), "invalid pubkey"
     return (x, y)
 
 
@@ -357,7 +362,7 @@ def wif(
     else:
         raise ValueError(f"unrecognized network: {network}")
     wif = prefix + privkey_
-    if corresponds_to_compressed_pubkey:
+    if compressed_pubkey:
         wif += b"\x01"
     return base58check(wif)
 

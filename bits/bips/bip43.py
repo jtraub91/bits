@@ -19,7 +19,6 @@ def serialized_extended_key(
     depth: bytes,
     parent_key_fingerprint: bytes,
     child_no: bytes,
-    public: bool = False,
 ) -> bytes:
     return bip32.serialized_extended_key(
         key,
@@ -28,15 +27,13 @@ def serialized_extended_key(
         parent_key_fingerprint,
         child_no,
         testnet=False,  # testnet always False for BIP43
-        public=public,
     )
 
 
 def root_serialized_extended_key(
     master_key: Union[int, Tuple[int]],
     master_chain_code: bytes,
-    public: bool = False,
 ) -> bytes:
     return bip32.root_serialized_extended_key(
-        master_key, master_chain_code, public=public, testnet=False
+        master_key, master_chain_code, testnet=False
     )

@@ -58,5 +58,6 @@ def base58check_decode(addr_: bytes) -> bytes:
     payload = decoded_addr[:-4]
     checksum = decoded_addr[-4:]
     checksum_check = hashlib.sha256(hashlib.sha256(payload).digest()).digest()[:4]
-    assert checksum == checksum_check
+    if checksum != checksum_check:
+        raise ValueError("invalid checksum")
     return payload

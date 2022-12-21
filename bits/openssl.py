@@ -32,7 +32,7 @@ def genkey(out: str = "", curve: str = "secp256k1"):
 
 def pubkey_pem(in_: str = "", out: str = "", compressed: bool = True):
     """
-    Return public key from secret key, pem format
+    Return public key from secret key
     Args:
         in_: str, reads from sys.stdin if not specified else secret key input filename
         out: str, output filename

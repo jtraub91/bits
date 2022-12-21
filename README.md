@@ -1,10 +1,23 @@
-### `#bits`
-
-Bitcoin protocol
+# `#bits`
 
 ```
 bits & tricks for Bitcoin
 ```
+
+Features:
+- OpenSSL wrapper for key generation and signing operations
+- RPC wrapper interace to local RPC node
+- Create and sign transactions
+- Wallet management
+  - HD
+  - JBOK
+  - BYOK
+
+
+## Dependencies
+
+- Python 3.7+
+- OpenSSL 
 
 ## Installation
 
@@ -14,23 +27,109 @@ pip install bits
 
 ## Recommended usage
 
-Generate keys in an offline, airgapped computer (e.g. raspberry pi), write pubkey (only) to paper
+When handling real funds for mainnet, never store private keys on an internet-connected computer.
 
-_load pubkey bits_
+Instead, generate private keys on an offline, air gapped computer with a vetted operating system image.
+
+With openssl
+```
+openssl ecparam -name secp256k1 -genkey -noout
+```
+or with `bits`
+```
+bits genkey
+```
+Then, from this private key, output pubkey only
+
+With openssl
+
+_uncompressed_
+```
+openssl ec -pubout
+```
+_compressed_
+```
+openssl ec -pubout -conv_form compressed
+```
+Or with `bits`
+
+_uncompressed_
+```
+bits pubkey
+```
+_compressed_
+```
+bits pubkey -X
+```
+
+Like `openssl`, most `bits` commands will accept `stdin` as input, or optionally accept a filename. See `bits <subcommand> -h` in each case for options.
+
+Generate a bitcoin address,
 
 ```
-from bits.btypes import pubkey_hash, bitcoin_address
-from bits.keys import load_pubkey
-
-pk_1 = load_pubkey(b"\x04\x...\x...")
-pkh_1 = pubkey_hash(pk_1)
-baddr_1 = bitcoin_address(pkh_1)
+bits addr
+```
+This will work with private and public keys, as input, in PEM format. The default address type is P2PKH (pay to public key hash) but can be configured otherwise via command line options, e.g.
+```
+bits addr -T segwit
+```
+as can other global config options like `--network` (or `-N`)
+```
+bits -N testnet addr
 ```
 
-identify utxos (bitcoin rpc)
-create raw tx
-send tx, via RPC to bitcoin core full node
+Acquire Bitcoin
+```
+# get paid in it or mine, idk ¯\_(ツ)_/¯
+```
 
+Leverage the RPC wrapper interface to locally configured node to retrieve UTXOs
+
+```
+bits rpc scantxoutset 
+```
+
+From this, we can form a raw transaction
+```
+bits scriptPubkey
+```
+```
+bits scriptSig
+```
+```
+bit tx
+```
+Sign it
+```
+bits sign
+```
+and relay to node via RPC wrapper 
+```
+bits rpc sendrawtransaction
+```
+
+Retrieve balance of this address again with the RPC interface
+```
+bits rpc getbalance
+```
+
+From here, a powerful and flexible, low level interface is presented and will be expounded upon. However, quickly the need for some wallet management emerges for several reasons
+
+- Creating change addresses
+- Generating new address for each receive
+- Get balance
+- UTXO management
+
+BIP-compatible HD wallet is also presented
+
+High level functions a wallet should provide:
+- get balance
+- send
+- receive
+
+Future development
+- P2P Full Node
+- Miner
 
 
 _Goals_
@@ -79,15 +178,9 @@ openssl ecparam -name secp256k1 -genkey -noout -out <filename>.pem
 
 _CLI_
 
-```
-$ bits to_bitcoin_address 02ee784d05304ca4e5595ea8bc17c8dd6d613079000f3ee0c2292a57370bafc066
-1MXHGHdhGRdZo551ibWMtb7D53LT3GdqtC
+Create a transaction
 ```
 
-_createrawtx_ (TODO)
-
-```
-$ bits createrawtx --help
 ```
 
 
@@ -137,11 +230,7 @@ Future:
 
 - lightning
 
-
 bits createwallet
-
-bits to_bitcoin_address <pubkey>
-bits to_bitcoin_address <pem>
 
 ### Links
 
