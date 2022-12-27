@@ -13,6 +13,7 @@ from bits.ecmath import point_scalar_mul
 from bits.ecmath import SECP256K1_Gx
 from bits.ecmath import SECP256K1_Gy
 from bits.ecmath import SECP256K1_N
+from bits.ecmath import sub_mod_p
 from bits.ecmath import y_from_x
 
 
@@ -66,6 +67,21 @@ def point(pubkey_: bytes) -> Tuple[int]:
     return (x, y)
 
 
+def compressed_pubkey(pubkey_: bytes) -> bytes:
+    """
+    Returns:
+        compressed pubkey from (un)compressed pubkey
+    """
+    assert len(pubkey_) == 33 or len(pubkey_) == 65
+    prefix = pubkey_[0:1]
+    if prefix in [b"\x02", b"\x03"]:
+        return pubkey_
+    elif prefix == b"\x04":
+        return pubkey(*point(pubkey_), compressed=True)
+    else:
+        raise ValueError(f"unrecognized prefix {prefix}")
+
+
 def pubkey_hash(pubkey_: bytes) -> bytes:
     """
     Returns pubkeyhash as used in P2PKH scriptPubKey
@@ -116,6 +132,13 @@ def parse_compact_size_uint(payload: bytes) -> Tuple[int, bytes]:
     return integer, payload
 
 
+def s_hash(msg: bytes) -> bytes:
+    """
+    Single sha256 hash of msg
+    """
+    return hashlib.sha256(msg).digest()
+
+
 def d_hash(msg: bytes) -> bytes:
     """
     Double sha256 hash of msg
@@ -124,10 +147,10 @@ def d_hash(msg: bytes) -> bytes:
 
 
 def to_bitcoin_address(
-    pubkey_: bytes, addr_type: str = "pkh", network: str = None
+    pubkey_: bytes, addr_type: str = "p2pkh", network: str = None
 ) -> str:
     """
-    Convert pubkey to bitcoin address
+    Convert pubkey to bitcoin address invoice
     Args:
         pubkey_: bytes, pubkey in hex
         addr_type: str, adress type
@@ -135,10 +158,8 @@ def to_bitcoin_address(
     Returns:
         base58 encoded bitcoin address
     """
-    if addr_type.lower() == "pkh":
+    if addr_type.lower() == "p2pkh":
         key = pubkey_hash(pubkey_)
-    elif addr_type.lower() == "pk":
-        key = pubkey_
     elif addr_type.lower() == "wpkh":
         raise NotImplementedError
     else:
@@ -180,6 +201,42 @@ def decode_pem(pem_: bytes):
     return der
 
 
+def encode_pem(
+    der_: bytes,
+    header: bytes = b"-----BEGIN CERTIFICATE-----",
+    footer: bytes = b"-----END CERTIFICATE-----",
+) -> bytes:
+    return header + b"\n" + base64.encodebytes(der_) + b"\n" + footer
+
+
+def ensure_sig_low_s(sig_: bytes) -> bytes:
+    """
+    Ensure DER encoded signature has low enough s value
+    https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki#low-s-values-in-signatures
+
+    OpenSSL does not ensure this by default
+    https://bitcoin.stackexchange.com/a/59826/135678
+    Apparently, Bitcoin Core used to do this to get around it
+    https://github.com/bitcoin/bitcoin/blob/v0.9.0/src/key.cpp#L204L224
+
+    Essentially just use s = N - s if s > N / 2
+    """
+    parsed = parse_asn1(sig_)
+    # r_val = int.from_bytes(parsed[0][2][0][2], "big")
+    r_len = parsed[0][2][0][1]
+    s_val = int.from_bytes(parsed[0][2][1][2], "big")
+    s_len = parsed[0][2][1][1]
+    if s_val > SECP256K1_N // 2 or s_val < 1:
+        # s_val = SECP256K1_N - s_val
+        s_val = sub_mod_p(0, s_val, p=SECP256K1_N)
+        parsed[0][2][1][2] = s_val.to_bytes(32, "big")
+        parsed[0][2][1][1] = 32
+        parsed[0][1] = 32 + r_len + 4
+        encoded = encode_parsed_asn1(parsed[0])
+        return encoded
+    return sig_
+
+
 def pubkey_from_pem(pem_: bytes):
     decoded_key = decode_key(pem_)
     if len(decoded_key) == 2:
@@ -196,7 +253,7 @@ def decode_key(pem_: bytes) -> Union[Tuple[bytes, bytes], bytes]:
     decoded = decode_pem(pem_)
     parsed = parse_asn1(decoded)
     if parsed[0][2][0][2] == b"\x01":
-        return parsed[0][2][1][2], parsed[0][2][3][2][0][2]
+        return parsed[0][2][1][2], parsed[0][2][3][2][0][2][1:]
     elif parsed[0][2][0][2][0][2] == "id-ecPublicKey":
         return parsed[0][2][1][2][1:]
     else:
@@ -230,6 +287,38 @@ TAG_CLASS_MAP = {
     0b10: "Context-specific",
     0b11: "Private",
 }
+MAP_CLASS_TAG = {value: key for key, value in TAG_CLASS_MAP.items()}
+
+
+def encode_parsed_asn1_val(tag: int, parsed_val: Union[list, bytes]) -> bytes:
+    encoded = b""
+    if tag & 0x1F == MAP_TAG["SEQUENCE (OF)"]:
+        for val in parsed_val:
+            encoded += encode_parsed_asn1(val)
+    elif tag & 0x1F == MAP_TAG["INTEGER"]:
+        encoded += parsed_val
+    return encoded
+
+
+def encode_parsed_asn1(parsed_data: list) -> bytes:
+    """
+    Inverse of parse_asn1
+    >>> sig = bytes.fromhex("3046022100807ebfaf104a08061044a11109873af5c16cfb2e4e4ec69b47bd4dfcf3b630d4022100bbc3387cc3c5fd83d672eee20c40161099f8df44e135ca96a9b8650dbcbfe1bc")
+    >>> parsed = parse_asn1(sig)
+    >>> encoded = encode_parsed_asn1(parsed[0])
+    >>> assert sig == encoded
+    """
+    encoded = b""
+    tag_tuple, length, parsed_data = parsed_data[0], parsed_data[1], parsed_data[2]
+    tag, tag_constructed, tag_class = tag_tuple
+    tag_int = MAP_TAG[tag]
+    if tag_constructed == "Constructed":
+        tag_int |= 0b00100000
+    tag_int |= MAP_CLASS_TAG[tag_class] << 6
+    encoded += tag_int.to_bytes(1, "big") + length.to_bytes(1, "big")
+    encoded += encode_parsed_asn1_val(tag_int, parsed_data)
+    return encoded
+
 
 # https://letsencrypt.org/docs/a-warm-welcome-to-asn1-and-der/
 def parse_asn1(data: bytes):
@@ -243,15 +332,15 @@ def parse_asn1(data: bytes):
         length = data[1]
         value = data[2 : 2 + length]
         parsed.append(
-            (
-                (
+            [
+                [
                     TAG_MAP.get(tag & 0b00011111, tag & 0b00011111),
                     "Constructed" if tag & 0b00100000 else "Primitive",
                     TAG_CLASS_MAP[tag >> 6],
-                ),
+                ],
                 length,
                 parse_asn1_value(tag, value),
-            )
+            ]
         )
         data = data[2 + length :]
     return parsed

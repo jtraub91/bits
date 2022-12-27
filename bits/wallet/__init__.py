@@ -48,9 +48,7 @@ class Wallet:
             wallet_public_pems = [
                 pem for pem in wallet_keys if pem.startswith("public")
             ]
-            addrs = [
-                to_bitcoin_address(wpp, network="mainnet") for wpp in wallet_public_pems
-            ]
+            addrs = [to_bitcoin_address(wpp) for wpp in wallet_public_pems]
             return addrs
 
     def get_balance(self):

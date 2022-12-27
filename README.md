@@ -320,10 +320,16 @@ TODO
 - [x] ecmath get pubkey coord from compressed public key
 - [x] support wif
 - [x] remove base58 dependency (reimplement functions)
-- [ ] add signing operations to ecmath or depend on opessl, remove python-ecdsa dependency
-- [ ] implement basic wallet functionality (jbok, hd)
-- [ ] implement node, full/spv
+- [x] openssl, python-ecdsa for signing transactions
+- [ ] remove python-ecdsa dependency
+- [ ] segwit transactions
+- [ ] other transactions
+- [ ] native signing operations via ecmath
+- [ ] remove openssl dependency
+- [ ] implement basic wallet management functionality (jbok, hd)
 - [ ] implement miner
+- [ ] implement node, full/spv
+
 
 - https://blog.cloudflare.com/a-relatively-easy-to-understand-primer-on-elliptic-curve-cryptography/
 - https://andrea.corbellini.name/2015/05/17/elliptic-curve-cryptography-a-gentle-introduction/

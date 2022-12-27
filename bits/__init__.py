@@ -23,7 +23,8 @@ def set_log_level(level: str):
 def default_config():
     return {
         "network": "mainnet",
-        "log_level": "info",
+        "logfile": ".bits/logs/bits.log",
+        "loglevel": "info",
         "rpcurl": "",
         "rpcuser": "",
         "rpcpassword": "",

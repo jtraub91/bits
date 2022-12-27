@@ -53,35 +53,7 @@ def pubkey_pem(in_: str = "", out: str = "", compressed: bool = True):
     return stdout
 
 
-def pubkey_hex(in_: str):
-    """
-    Return public key (in hex) from public key file in pem format
-    Args:
-        in_: str, public key pem file input
-    """
-    if SYSTEM == "Windows":
-        cwd = "C:\\Users\\Jason\\WebProjects\\bits"
-        abspath = os.path.join(cwd, in_)
-        cmd = f'"{OPENSSL_}" ec -in {abspath} -pubin -text '
-    elif SYSTEM == "Linux" or SYSTEM == "Darwin":
-        cmd = f"{OPENSSL_} ec -in {in_} -pubin -text | grep -E \"[a-f0-9][a-f0-9]:\" | tr -d ' ' | tr -d ':' | tr -d '\\n'"
-
-    with Popen(
-        cmd.split(),
-        stdin=PIPE,
-        stdout=PIPE,
-        stderr=PIPE,
-    ) as proc:
-        stdout, stderr = proc.communicate()
-
-    if SYSTEM == "Windows":
-        raise NotImplementedError
-        return
-
-    return stdout, stderr
-
-
-def sign(privkey_file: str, files: List[str] = []):
+def sign(privkey_file: str, files: List[str] = [], stdin: bytes = None):
     """
     Sign file(s) with private key file. If no file(s) specified, stdin is used.
     Args:
@@ -92,7 +64,7 @@ def sign(privkey_file: str, files: List[str] = []):
     if files:
         cmd += " ".join(files)
     with Popen(cmd.split(), stdin=PIPE, stdout=PIPE, stderr=PIPE) as proc:
-        stdout, stderr = proc.communicate()
+        stdout, stderr = proc.communicate(stdin)
     return stdout
 
 
