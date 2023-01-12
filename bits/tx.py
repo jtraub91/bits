@@ -39,8 +39,29 @@ def txout(value: int, script_pubkey: bytes) -> bytes:
 
 
 def tx(
-    txins: List[bytes], txouts: List[bytes], version: int = 1, locktime: int = 0
+    txins: List[bytes],
+    txouts: List[bytes],
+    version: int = 1,
+    locktime: int = 0,
+    script_witnesses: List[bytes] = [],
 ) -> bytes:
+    """
+    Transaction serialization, optional SegWit
+    """
+    if script_witnesses:
+        marker = b"\x00"
+        flag = b"\x01"
+        return (
+            version.to_bytes(4, "little")
+            + marker
+            + flag
+            + compact_size_uint(len(txins))
+            + b"".join(txins)
+            + compact_size_uint(len(txouts))
+            + b"".join(txouts)
+            + b"".join(script_witnesses)
+            + locktime.to_bytes(4, "little")
+        )
     return (
         version.to_bytes(4, "little")
         + compact_size_uint(len(txins))
@@ -91,9 +112,9 @@ def coinbase_tx(
     coinbase_script: bytes,
     block_reward: int,
     script_pubkey: bytes,
-    block_height: bytes = b"",
+    # block_height: bytes = b"",
 ) -> bytes:
     return tx(
-        [coinbase_txin(coinbase_script, block_height=block_height)],
+        [coinbase_txin(coinbase_script)],
         [txout(block_reward, script_pubkey)],
     )

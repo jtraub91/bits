@@ -3,8 +3,9 @@ __pycache__/
 
 .bits/
 .bitsconfig.toml
+.bitsconfig.json
 
-venv/
+venv*/
 build/
 bits.egg-info/
 

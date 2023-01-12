@@ -92,6 +92,10 @@ def pubkey_hash(pubkey_: bytes) -> bytes:
     return ripe_hash
 
 
+def script_hash(redeem_script: bytes) -> bytes:
+    return hashlib.new("ripemd160", redeem_script).digest()
+
+
 def compact_size_uint(integer: int) -> bytes:
     """
     https://developer.bitcoin.org/reference/transactions.html#compactsize-unsigned-integers
@@ -147,31 +151,30 @@ def d_hash(msg: bytes) -> bytes:
 
 
 def to_bitcoin_address(
-    pubkey_: bytes, addr_type: str = "p2pkh", network: str = None
+    payload: bytes, addr_type: str = "p2pkh", network: str = None
 ) -> str:
     """
-    Convert pubkey to bitcoin address invoice
+    Encode payload as bitcoin address invoice
     Args:
-        pubkey_: bytes, pubkey in hex
-        addr_type: str, adress type
+        payload: bytes, pubkey_hash (p2pkh) or redeem_script (p2sh)
+        addr_type: str, address type
         network: str, `mainnet` or `testnet`
     Returns:
         base58 encoded bitcoin address
     """
-    if addr_type.lower() == "p2pkh":
-        key = pubkey_hash(pubkey_)
-    elif addr_type.lower() == "wpkh":
-        raise NotImplementedError
-    else:
-        raise ValueError(f"addr_type not recognized: {addr_type}")
-    if network == "mainnet":
+    if network == "mainnet" and addr_type == "p2pkh":
         version = b"\x00"
-    elif network == "testnet":
+    elif network == "testnet" and addr_type == "p2pkh":
         version = b"\x6f"
+    elif network == "mainnet" and addr_type == "p2sh":
+        version = b"\x05"
+    elif network == "testnet" and addr_type == "p2sh":
+        version = b"\xc4"
     else:
-        raise ValueError(f"unrecognized network: {network}")
-    payload = version + key
-    return base58check(payload).decode("ascii")
+        raise ValueError(
+            f"unrecognized network ({network}) or address type ({addr_type})"
+        )
+    return base58check(version + payload).decode("ascii")
 
 
 def decode_base64_pem(pem: bytes) -> bytes:

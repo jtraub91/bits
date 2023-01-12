@@ -1,0 +1,8 @@
+bits
+black
+ipdb
+pip-chill
+pre-commit
+pylint
+pytest
+reorder-python-imports
