@@ -33,15 +33,6 @@ def calculate_mnemonic_phrase(entropy: bytes):
     return " ".join([words[bit_group] for bit_group in reversed(bit_groups)])
 
 
-def generate_mnemonic_phrase(strength: int = 256) -> str:
-    """
-    Args:
-        strength: int, number of bits for secret token
-    """
-    entropy = secrets.token_bytes(strength // 8)
-    return calculate_mnemonic_phrase(entropy)
-
-
 def to_seed(mnemonic, passphrase: str = "") -> bytes:
     """
     Defined in BIP39
@@ -54,3 +45,7 @@ def to_seed(mnemonic, passphrase: str = "") -> bytes:
         unicodedata.normalize("NFKD", "mnemonic" + passphrase).encode("utf-8"),
         ITERATIONS,
     )
+
+
+def to_entropy():
+    raise NotImplementedError

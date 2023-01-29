@@ -9,9 +9,6 @@ BITCOIN_ALPHABET_MAP = {value: idx for idx, value in enumerate(BITCOIN_ALPHABET)
 
 
 def base58encode(data: bytes) -> bytes:
-    # refactored from https://github.com/trezor/python-mnemonic and
-    # https://github.com/keis/base58
-    # oddly, https://digitalbazaar.github.io/base58-spec/#encode doesn't seem to work
     origlen = len(data)
     data = data.lstrip(b"\x00")
     newlen = len(data)

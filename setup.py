@@ -2,10 +2,8 @@ from setuptools import setup
 
 setup(
     name="bits",
-    version="0.0.1",
-    install_requires=[
-        "ecdsa",
-    ],
+    version="0.1.0",
+    install_requires=[],
     extras_require={
         "dev": [],
         "test": [],

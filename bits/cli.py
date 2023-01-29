@@ -2,60 +2,107 @@
 bits cli
 """
 import argparse
+import functools
 import json
 import os
-import random
+import secrets
 import sys
 import time
 
-import ecdsa
-import toml
+try:
+    import tomllib
 
+    HAS_TOMLLIB = True
+except ImportError:
+    HAS_TOMLLIB = False
+
+import bits
 import bits.openssl
 import bits.rpc
-from bits import default_config
-from bits import set_log_level
+from bits import print_bytes, read_bytes
+from bits.ecmath import SECP256K1_N
 from bits.base58 import base58check_decode
-from bits.bips.bip32 import parse_256
-from bits.bips.bip32 import point
-from bits.bips.bip32 import ser_p
-from bits.bips.bip32 import to_master_key
-from bits.bips.bip39 import generate_mnemonic_phrase
-from bits.bips.bip39 import to_seed
+from bits.bips.bip39 import calculate_mnemonic_phrase
+from bits.bips.bip173 import segwit_addr
+from bits.blockchain import genesis_block
 from bits.p2p import Node
 from bits.p2p import set_magic_start_bytes
 from bits.rpc import rpc_method
 from bits.script.constants import SIGHASH_ALL
 from bits.script.utils import p2pk_script_pubkey
-from bits.script.utils import p2pk_script_sig
-from bits.script.utils import p2pkh_script_pubkey
-from bits.script.utils import p2pkh_script_sig
+from bits.script.utils import p2pk_script_sig, p2pkh_script_sig
+from bits.script.utils import (
+    p2pkh_script_pubkey,
+    script,
+    scriptpubkey,
+    p2sh_script_pubkey,
+)
+from bits.script.utils import multisig_script_pubkey
 from bits.tx import outpoint
 from bits.tx import tx
 from bits.tx import txin
 from bits.tx import txout
 from bits.utils import compressed_pubkey
 from bits.utils import compute_point
-from bits.utils import d_hash
-from bits.utils import decode_key
 from bits.utils import ensure_sig_low_s
-from bits.utils import point
 from bits.utils import pubkey
 from bits.utils import pubkey_from_pem
 from bits.utils import pubkey_hash
 from bits.utils import s_hash
-from bits.utils import to_bitcoin_address
-from bits.wallet import HD
-from bits.wallet import Wallet
+from bits.utils import to_bitcoin_address, script_hash
 
 
-def main():
-    bitsconfig = default_config()
-    bitsconfig.update(toml.load(".bitsconfig.toml"))
+bitsconfig = {}
 
-    parser = argparse.ArgumentParser(
-        prog="bits",
+
+def catch_exception(fun):
+    @functools.wraps(fun)
+    def wrapper():
+        try:
+            return fun()
+        except Exception as err:
+            return err
+        except KeyboardInterrupt:
+            return "keyboard interrupt. exiting..."
+
+    return wrapper
+
+
+def load_config():
+    global bitsconfig
+    bitsconfig = bits.default_config()
+    bitsconfig_file = (
+        open(".bitsconfig.toml", "rb") if HAS_TOMLLIB else open(".bitsconfig.json")
     )
+    bitsconfig_file_dict = (
+        tomllib.load(bitsconfig_file) if HAS_TOMLLIB else json.load(bitsconfig_file)
+    )
+    bitsconfig.update(bitsconfig_file_dict)
+    bitsconfig_file.close()
+
+
+def update_config(args):
+    global bitsconfig
+    if args.network:
+        bitsconfig.update({"network": args.network})
+    if args.log_level:
+        bitsconfig.update({"loglevel": args.log_level})
+
+    if args.output_format_raw:
+        bitsconfig.update({"output_format": "raw"})
+    if args.output_format_bin:
+        bitsconfig.update({"output_format": "bin"})
+    if args.output_format_hex:
+        bitsconfig.update({"output_format": "hex"})
+    if args.input_format_raw:
+        bitsconfig.update({"input_format": "raw"})
+    if args.input_format_bin:
+        bitsconfig.update({"input_format": "bin"})
+    if args.input_format_hex:
+        bitsconfig.update({"input_format": "hex"})
+
+
+def add_common_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
         "-N",
         "--network",
@@ -72,117 +119,133 @@ def main():
         help="log level, e.g. 'info', 'debug', 'warning', etc.",
     )
 
+
+def add_input_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument(
+        "--in-file",
+        type=argparse.FileType("rb")
+        if bitsconfig["input_format"] == "raw"
+        else argparse.FileType("r"),
+        help="input data file, if applicable",
+    )
+    input_group = parser.add_mutually_exclusive_group()
+    input_group.add_argument(
+        "-1",
+        dest="input_format_raw",
+        action="store_true",
+        help="input format raw binary",
+    )
+    input_group.add_argument(
+        "-1b",
+        dest="input_format_bin",
+        action="store_true",
+        help="input format binary string",
+    )
+    input_group.add_argument(
+        "-1x",
+        dest="input_format_hex",
+        action="store_true",
+        help="input format hexadecimal string",
+    )
+
+
+def add_output_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument(
+        "--out-file",
+        type=argparse.FileType("wb")
+        if bitsconfig["output_format"] == "raw"
+        else argparse.FileType("w"),
+        help="output data to file, if applicable",
+    )
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument(
+        "-0",
+        dest="output_format_raw",
+        action="store_true",
+        help="output format raw binary",
+    )
+    output_group.add_argument(
+        "-0b",
+        dest="output_format_bin",
+        action="store_true",
+        help="output format binary string",
+    )
+    output_group.add_argument(
+        "-0x",
+        dest="output_format_hex",
+        action="store_true",
+        help="output format hexadecimal string",
+    )
+
+
+# @catch_exception
+def main():
+    load_config()
+    bits_desc = """
+    The `bits` command (with no sub-command) accepts input and transparently writes 
+    output, in either raw binary, binary string, or hex string format. The format of the
+    input and output can be specified independently using the following command options,
+    making it able to be used as a converter between these formats.
+    """
+    parser = argparse.ArgumentParser(prog="bits", description=bits_desc)
+    add_common_arguments(parser)
+    add_input_arguments(parser)
+    add_output_arguments(parser)
+
     sub_parser = parser.add_subparsers(
-        title="commands",
         dest="command",
         metavar="<command>",
         description="Use bits <command> -h for help on each command",
     )
 
-    wallet_parser = sub_parser.add_parser("wallet", help="wallet interface")
-    wallet_sub_parser = wallet_parser.add_subparsers(dest="wallet_command")
+    key_parser = sub_parser.add_parser("key", help="generate Bitcoin secret key")
+    add_common_arguments(key_parser)
+    add_output_arguments(key_parser)
 
-    wallet_create_parser = wallet_sub_parser.add_parser(
-        "create", help="create a new wallet"
-    )
-    wallet_create_parser.add_argument("-n", "--wallet-name", help="name of wallet")
-    wallet_create_parser.add_argument(
-        "-T",
-        "--wallet-type",
-        choices=["hd", "jbok"],
-        help="type of wallet",
-    )
-    wallet_create_parser.add_argument(
-        "-S",
-        "--strength",
-        type=int,
-        default=256,
-        choices=[128, 160, 192, 224, 256],
-        help="entropy strenghth (in bits) for mnemonic generation",
-    )
+    pub_parser = sub_parser.add_parser("pub", help="pubkey from secret")
+    pub_parser.add_argument("-X", "--compressed", action="store_true", default=False)
+    add_common_arguments(pub_parser)
+    add_input_arguments(pub_parser)
+    add_output_arguments(pub_parser)
 
-    wallet_load_parser = wallet_sub_parser.add_parser("load", help="load wallet")
-    wallet_getbalance_parser = wallet_sub_parser.add_parser(
-        "getbalance", help="get wallet balance"
-    )
-    wallet_listkeys_parser = wallet_sub_parser.add_parser(
-        "listkeys", help="list wallet keys"
-    )
-    wallet_listaddrs_parser = wallet_sub_parser.add_parser(
-        "listaddrs", help="list wallet addresses"
-    )
-    wallet_send_parser = wallet_sub_parser.add_parser("send", help="send wallet funds")
-    wallet_receive_parser = wallet_sub_parser.add_parser(
-        "receive", help="receive funds to wallet"
-    )
-    # wallet_tx_parser = wallet_sub_parser.add_parser("tx", help="interface with raw transactions")
-    # wallet_rx_parser = wallet_sub_parser.add_parser("rx", help="troubleshoot")
-    # wallet_sub_parser.add_parser("tx", help="")
-    # ...
-    # wallet_parser.add_argument("command", type=str, help="create, load, getbalance, listkeys, listaddrs, tx, rx, send, receive")
+    script_parser = sub_parser.add_parser("script", help="create generic scripts")
+    script_parser.add_argument("script_args", nargs="+", help="script code")
+    add_output_arguments(script_parser)
 
     p2p_parser = sub_parser.add_parser("p2p", help="start p2p node")
     p2p_parser.add_argument(
         "--seeds", type=str, help="comma separated list of seed nodes"
     )
 
-    genkey_parser = sub_parser.add_parser(
-        "genkey",
-        description="Generate bitcoin private key",
-        help="generate bitcoin private key",
-    )
-    genkey_parser.add_argument("-out", "--out", help="secret key output file")
-    # genkey_parser.add_argument("--out-format", default="pem", choices=["pem", "der"], help="key output format")
-
-    pubkey_parser = sub_parser.add_parser(
-        "pubkey",
-        description="Output public key",
-        help="get public key from private / public key",
-    )
-    pubkey_parser.add_argument(
-        "-in", "--in", dest="in_file", type=str, help="private key input file"
-    )
-    pubkey_parser.add_argument("-out", "--out", help="public key output file")
-    pubkey_parser.add_argument(
-        "-X",
-        "--compressed",
-        action="store_true",
-        default=False,
-        help="compressed public key",
-    )
-    pubkey_parser.add_argument(
-        "-f",
-        "--out-format",
-        default="pem",
-        choices=["pem", "hex"],
-        help="public key output format",
-    )
-
     addr_parser = sub_parser.add_parser(
         "addr",
-        description="Output standard address types",
+        description="Output standard address types from script or pubkey",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    addr_parser.add_argument(
-        "-in", "--in", dest="in_file", help="public key input file"
     )
     addr_parser.add_argument(
         "-T",
         "--type",
         default="p2pkh",
-        choices=["p2pkh", "p2sh", "bech32"],
+        choices=[
+            "p2pkh",
+            "p2sh",
+            "multisig",
+            "p2wpkh",
+            "p2wsh",
+            "p2sh-p2wpkh",
+            "p2sh-p2wsh",
+            "p2sh-multisig",
+        ],
         help="address invoice type",
     )
-    # TODO: addr command should not have -X compressed flag, should conform to what original pubkey was
-    # and perhaps refactor to only allow -in <pubkey> (see bits.utils.pubkey_from_pem)
-    # and also perhaps refactor/develop minimal der decoder to remove ecdsa dependency
     addr_parser.add_argument(
-        "-X",
-        "--compressed",
-        action="store_true",
-        default=False,
-        help="compressed public key",
+        "--witness-version",
+        type=int,
+        help="witness version for native or p2sh segwit addresses",
+        choices=range(17),
     )
+    add_common_arguments(addr_parser)
+    add_input_arguments(addr_parser)
 
     tx_parser = sub_parser.add_parser(
         "tx",
@@ -208,17 +271,31 @@ def main():
         default=[],
         help="Transaction output data provided as a dictionary with the following keys: satoshis, scriptPubKey",
     )
-    # tx_parser.add_argument("-T", "--type", choices=["p2pk, p2pkh, p2sh, p2wpkh"], default="", help="transaction type")
+    # # BIP 68 transaction version 2+
+    # # https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki
+    # tx_parser.add_argument("-v", "--version", type=int, default=1, help="transaction version")
 
     script_pubkey_parser = sub_parser.add_parser(
-        "scriptpubkey", help="create bitcoin pubkey scripts"
+        "scriptpubkey", help="create scriptPubKey of various types. "
     )
-    script_pubkey_parser.add_argument("addr", help="create scriptPubKey from addr")
+    script_pubkey_parser.add_argument(
+        "data", nargs="*", help="data per scriptPubKey type"
+    )
     script_pubkey_parser.add_argument(
         "-type",
         "--type",
-        default="p2pkh",
-        choices=["p2pk", "p2pkh"],
+        choices=[
+            "p2pk",
+            "p2pkh",
+            "multisig",
+            "null",
+            "p2sh",
+            # "p2sh-multisig",
+            # "p2sh-p2wpkh",
+            # "p2sh-p2wsh",
+            "p2wpkh",
+            "p2wsh",
+        ],
         help="scriptPubKey type",
     )
 
@@ -243,13 +320,20 @@ def main():
     script_sig_parser.add_argument(
         "--type",
         default="p2pkh",
-        choices=["p2pkh", "p2pk", "p2sh", "p2wpkh"],
+        choices=[
+            "p2pk",
+            "p2pkh",
+            "multisig",
+            "p2sh",
+            "p2wpkh",
+            "p2wsh",
+        ],
         help="scriptSig type",
     )
     script_sig_parser.add_argument(
         "-sigdep",
         "--sigdep",
-        choices=["openssl", "python-ecdsa", "native"],
+        choices=["openssl", "native"],
         default="openssl",
         help="dependency to use for signing",
     )
@@ -265,75 +349,120 @@ def main():
         "-rpcpassword", "--rpcpassword", dest="rpc_password", help="rpc password"
     )
 
-    args = parser.parse_args()
-    if args.network:
-        bitsconfig.update({"network": args.network})
-    if args.log_level:
-        bitsconfig.update({"loglevel": args.log_level})
+    mnemonic_parser = sub_parser.add_parser("mnemonic", help="mnemonic utils")
+    mnemonic_parser.add_argument(
+        "entropy",
+        nargs="?",
+        type=argparse.FileType("rb"),
+        # ^ doesn't work for "-" on python < 3.9
+        # https://github.com/python/cpython/issues/58364
+    )
+    mnemonic_parser.add_argument(
+        "--generate",
+        action="store_true",
+    )
+    mnemonic_parser.add_argument(
+        "-S",
+        "--strength",
+        type=int,
+        default=256,
+        choices=[128, 160, 192, 224, 256],
+        help="entropy strenghth (in bits) for mnemonic generation",
+    )
+    mnemonic_parser.add_argument("--show-details", action="store_true")
+    mnemonic_parser.add_argument("--to-master-key")
+    mnemonic_parser.add_argument(
+        "--to-seed",
+        action="store_true",
+    )
+    mnemonic_parser.add_argument("--to-entropy")
 
-    set_log_level(bitsconfig["loglevel"])
+    blockchain_parser = sub_parser.add_parser("blockchain", help="blockchain utils")
+    blockchain_parser.add_argument("blockheight", type=int, help="block height")
+
+    args = parser.parse_args()
+    update_config(args)
+
+    bits.set_log_level(bitsconfig["loglevel"])
     set_magic_start_bytes(bitsconfig["network"])
 
     if not args.command:
-        parser.print_help()
-    elif args.command == "wallet":
-        if not args.wallet_command:
-            wallet_parser.print_help()
-        elif args.wallet_command == "create":
-            if not args.wallet_type:
-                wallet_type = input(
-                    "What type of wallet do you want to create? (JBOK or HD): "
-                )
-            else:
-                wallet_type = args.wallet_type
-            wallet_type = wallet_type.lower()
-            if wallet_type not in ["jbok", "hd"]:
-                print(f"choice not recognized: {wallet_type}")
-                exit()
-            if not args.wallet_name:
-                wallet_name = input("Specify wallet name: ")
-            else:
-                wallet_name = args.wallet_name
-            if os.path.exists(f".bits/wallets/{wallet_type}/{wallet_name}"):
-                print(
-                    f"'{wallet_name}' {wallet_type} wallet already exists. Exiting... "
-                )
-                exit()
-            else:
-                if wallet_type == "jbok":
-                    wallet_dir = f".bits/wallets/{wallet_type}/{wallet_name}"
-                    os.makedirs(wallet_dir)
-
-                    secret_pem = (
-                        f".bits/wallets/{wallet_type}/{wallet_name}/secret0.pem"
-                    )
-                    public_pem = (
-                        f".bits/wallets/{wallet_type}/{wallet_name}/public0.pem"
-                    )
-
-                    bits.openssl.genkey(out=secret_pem)
-                    print(f"Secret key saved to {secret_pem}")
-
-                    bits.openssl.pubkey_pem(
-                        in_=secret_pem, out=public_pem, compressed=True
-                    )
-                    print(f"Public key saved to {public_pem}")
-                else:
-                    # wallet_type == "hd"
-                    wallet_dir = f".bits/wallets/{wallet_type}/{wallet_name}"
-                    os.makedirs(wallet_dir)
-                    filepath = os.path.join(wallet_dir, "mnemonic.txt")
-                    with open(filepath, "w") as file_:
-                        file_.write(generate_mnemonic_phrase(strength=args.strength))
-                    print(f"Mnemonic phrase saved to {filepath}")
-        elif args.wallet_command == "load":
-            # wallet = Wallet()
-            # wallet.load()
-            raise NotImplementedError
-        elif args.wallet_command == "":
-            pass
+        data = read_bytes(args.in_file, input_format=bitsconfig["input_format"])
+        print_bytes(data, output_format=bitsconfig["output_format"])
+    elif args.command == "key":
+        # generate Bitcoin secret key
+        k = secrets.randbelow(SECP256K1_N)
+        print_bytes(k.to_bytes(32, "big"), output_format=bitsconfig["output_format"])
+    elif args.command == "pub":
+        data = read_bytes(args.in_file, input_format=bitsconfig["input_format"])
+        if len(data) == 32:
+            # privkey
+            x, y = compute_point(data)
+            pk = pubkey(x, y, compressed=args.compressed)
+        elif len(data) == 33 or len(data) == 65:
+            # pubkey
+            pk = compressed_pubkey(data) if args.compressed else data
         else:
-            raise ValueError("wallet command not found")
+            raise ValueError("data not recognized as private or public key")
+        print_bytes(
+            pk,
+            output_format=bitsconfig["output_format"],
+        )
+    elif args.command == "addr":
+        data = read_bytes(args.in_file, input_format=bitsconfig["input_format"])
+
+        addr = to_bitcoin_address(
+            data, addr_type=args.type, network=bitsconfig["network"]
+        )
+        print_bytes(addr + os.linesep.encode("ascii"), output_format="raw")
+        if args.type == "p2pkh":
+            pk = read_bytes(args.in_file, input_format=bitsconfig["input_format"])
+            if args.compressed:
+                pk = compressed_pubkey(pk)
+            pk_hash = pubkey_hash(pk)
+            print_bytes(
+                to_bitcoin_address(
+                    pk_hash, addr_type=args.type, network=bitsconfig["network"]
+                )
+                + os.linesep.encode("ascii"),
+                output_format="raw",
+            )
+        elif args.type == "p2sh":
+            redeem_script = read_bytes(
+                args.in_file, input_format=bitsconfig["input_format"]
+            )
+            sh = script_hash(redeem_script)
+            print_bytes(
+                to_bitcoin_address(
+                    sh, addr_type=args.type, network=bitsconfig["network"]
+                )
+                + os.linesep.encode("ascii"),
+                output_format="raw",
+            )
+        elif args.type == "p2wpkh":
+            pk = read_bytes(args.in_file, input_format=bitsconfig["input_format"])
+            if args.compressed:
+                pk = compressed_pubkey(pk)
+            pk_hash = pubkey_hash(pk)
+            print_bytes(
+                segwit_addr(
+                    pk_hash,
+                    network=bitsconfig["network"],
+                    witness_version=args.witness_version,
+                )
+                + os.linesep.encode("ascii"),
+                output_format="raw",
+            )
+        elif args.type == "p2wsh":
+            redeem_script = read_bytes(
+                args.in_file, input_format=bitsconfig["input_format"]
+            )
+            sh = script_hash(redeem_script)
+            print_bytes(
+                to_bitcoin_address(
+                    sh, addr_type=args.type, network=bitsconfig["network"]
+                ).decode("ascii")
+            )
     elif args.command == "p2p":
         # bits --network testnet p2p start --seeds "host1:port1,host2:port2"
         if not args.seeds:
@@ -341,45 +470,6 @@ def main():
             p2p_node = Node()
         p2p_node = Node(seeds=args.seeds.split(","))
         p2p_node.start()
-    elif args.command == "genkey":
-        if not args.out:
-            print(bits.openssl.genkey().decode("utf8"))
-        else:
-            bits.openssl.genkey(args.out)
-    elif args.command == "pubkey":
-        if args.out_format == "hex":
-            if args.in_file:
-                with open(args.in_file, "rb") as file_:
-                    in_bytes = file_.read()
-            else:
-                in_bytes = "".join([line for line in sys.stdin]).encode("utf8")
-            key = decode_key(in_bytes)
-            if len(key) == 2:
-                key = key[1]
-            if args.compressed:
-                key = compressed_pubkey(key)
-            return key.hex()
-        # else out_format == "pem"
-        # this mode only takes private key pem, not public
-        # TODO: add in_format, in addition to out_format, currently only pem
-        # TODO: remove openssl dep, implement pem/der encoder
-        print(
-            bits.openssl.pubkey_pem(
-                args.in_file, args.out, compressed=args.compressed
-            ).decode("utf8")
-        )
-    elif args.command == "addr":
-        if not args.in_file:
-            in_bytes = "".join([line for line in sys.stdin]).encode("utf8")
-        else:
-            with open(args.in_file, "rb") as file_:
-                in_bytes = file_.read()
-        pk = pubkey_from_pem(in_bytes)
-        if args.compressed:
-            pk = compressed_pubkey(pk)
-        return to_bitcoin_address(
-            pk, addr_type=args.type, network=bitsconfig["network"]
-        )
     elif args.command == "tx":
         txins = []
         for txin_dict in args.txins:
@@ -397,14 +487,43 @@ def main():
         ]
         tx_ = tx(txins, txouts)
         return tx_.hex()
+    elif args.command == "script":
+        print_bytes(script(args.script_args), output_format=bitsconfig["output_format"])
     elif args.command == "scriptpubkey":
-        if args.type == "p2pkh":
-            decoded = base58check_decode(args.addr.encode("ascii"))
+        print_bytes(scriptpubkey(args.data), output_format=bitsconfig["output_format"])
+        return
+        if args.type == "p2pk":
+            print(p2pk_script_pubkey(bytes.fromhex(args.data)).hex())
+        elif args.type == "p2pkh" or args.type == "p2sh":
+            decoded = base58check_decode(args.data.encode("ascii"))
             version = decoded[0:1]
             payload = decoded[1:]
-            return p2pkh_script_pubkey(payload).hex()
-        elif args.type == "p2pk":
-            return p2pk_script_pubkey(bytes.fromhex(args.addr)).hex()
+            script_pubkey = (
+                p2pkh_script_pubkey(payload)
+                if args.type == "p2pkh"
+                else p2sh_script_pubkey(payload)
+            )
+            print(script_pubkey.hex())
+        elif args.type == "multisig":
+            m = int(args.data[0])
+            pubkeys = [bytes.fromhex(pk) for pk in args.data[1:]]
+            print(multisig_script_pubkey(m, pubkeys).hex())
+        elif args.type == "p2sh":
+            decoded = base58check_decode(args.data.encode("ascii"))
+            version = decoded[0:1]
+            payload = decoded[1:]
+            print(p2sh_script_pubkey(payload).hex())
+        elif args.type == "p2sh-multisig":
+            raise NotImplementedError
+        elif args.type == "p2wpkh":
+            raise NotImplementedError
+        elif args.type == "p2wsh":
+            raise NotImplementedError
+
+        elif args.type == "p2sh-p2wpkh":
+            raise NotImplementedError
+        elif args.type == "p2sh-p2wsh":
+            raise NotImplementedError
         else:
             raise NotImplementedError
     elif args.command == "scriptsig":
@@ -425,7 +544,6 @@ def main():
             else:
                 # read line from stdin
                 # transform hex to bytes, take single hash, send to openssl
-                # TODO: support multiple lines
                 for line in sys.stdin:
                     stdin_bytes = bytes.fromhex(line)
                     stdin_bytes = s_hash(stdin_bytes)
@@ -436,37 +554,6 @@ def main():
                 pubkey_ = pubkey_from_pem(privkey_bytes)
             if args.compressed_pubkey:
                 pubkey_ = compressed_pubkey(pubkey_)
-            if args.type == "p2pkh":
-                return p2pkh_script_sig(sig, pubkey_).hex()
-            elif args.type == "p2pk":
-                return p2pk_script_sig(sig).hex()
-            else:
-                raise NotImplementedError(args.type)
-        elif args.sigdep == "python-ecdsa":
-            if args.tx:
-                tx_ = bytes.fromhex(args.tx)
-            else:
-                tx_ = bytes.fromhex("".join([line for line in sys.stdin]))
-            sig_data = d_hash(tx_ + SIGHASH_ALL.to_bytes(4, "little"))
-            tmp_filename = f".bits/tmp/{int(1000 * time.time())}.sigdata"
-            with open(tmp_filename, "wb") as tmp_file:
-                tmp_file.write(sig_data)
-            with open(args.privkey, "rb") as privkey_file:
-                privkey_pem = privkey_file.read()
-                privkey = decode_key(privkey_pem)[0]
-                pubkey_ = pubkey(
-                    *compute_point(privkey),
-                    compressed=args.compressed_pubkey,
-                )
-            signing_key = ecdsa.SigningKey.from_pem(privkey_pem)
-            sig = signing_key.sign_digest(sig_data, sigencode=ecdsa.util.sigencode_der)
-            sig = ensure_sig_low_s(sig)
-            assert signing_key.verifying_key.verify_digest(
-                sig, sig_data, sigdecode=ecdsa.util.sigdecode_der
-            )
-            tmp_filename_2 = os.path.splitext(tmp_filename)[0] + ".sig"
-            with open(tmp_filename_2, "wb") as tmp_file:
-                tmp_file.write(sig)
             if args.type == "p2pkh":
                 return p2pkh_script_sig(sig, pubkey_).hex()
             elif args.type == "p2pk":
@@ -494,6 +581,22 @@ def main():
                 rpc_password=bitsconfig["rpcpassword"],
             )
         )
+    elif args.command == "mnemonic":
+        if args.generate:
+            # generate entropy
+            entropy = secrets.token_bytes(args.strength // 8)
+        elif args.entropy:
+            # accept optional filename or -
+            entropy = args.entropy.read()
+        else:
+            # read from stdin
+            entropy = sys.stdin.buffer.read()
+        print(calculate_mnemonic_phrase(entropy))
+    elif args.command == "blockchain":
+        if args.blockheight == 0:
+            print_bytes(genesis_block(), output_format=bitsconfig["output_format"])
+        else:
+            raise NotImplementedError
     else:
         raise ValueError("command not recognized")
 

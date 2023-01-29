@@ -3,6 +3,7 @@ BIP32, BIP39, BIP43, BIP44
 """
 import hashlib
 import json
+import secrets
 from typing import Tuple
 from typing import Union
 
@@ -14,7 +15,7 @@ from bits.bips.bip32 import VERSION_PRIVATE_MAINNET
 from bits.bips.bip32 import VERSION_PRIVATE_TESTNET
 from bits.bips.bip32 import VERSION_PUBLIC_MAINNET
 from bits.bips.bip32 import VERSION_PUBLIC_TESTNET
-from bits.bips.bip39 import generate_mnemonic_phrase
+from bits.bips.bip39 import calculate_mnemonic_phrase
 from bits.bips.bip39 import to_seed
 from bits.utils import base58check
 from bits.utils import point as point_from_pubkey
@@ -23,7 +24,7 @@ from bits.wallet.utils import derive_from_path
 
 
 def xpub(xprv_):
-    return
+    raise NotImplementedError
 
 
 def derive_child(xkey: str, index: int) -> str:
@@ -98,6 +99,8 @@ class HD:
     BIP44, BIP43, BIP39, BIP32 compatible wallet
     """
 
+    ADDR_GAP_LIMIT: int = 20
+
     mnemonic: str = ""
 
     def __init__(
@@ -107,7 +110,8 @@ class HD:
     ):
         self.passphrase = passphrase
         if not self.mnemonic:
-            self.mnemonic = generate_mnemonic_phrase(strength)
+            entropy = secrets.token_bytes(strength // 8)
+            self.mnemonic = calculate_mnemonic_phrase(entropy)
         self.strength = len(self.mnemonic) * 8
         self.seed = to_seed(self.mnemonic, passphrase=self.passphrase)
         self.extended_master_key = bip32.to_master_key(self.seed)
