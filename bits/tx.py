@@ -5,7 +5,9 @@ https://developer.bitcoin.org/reference/transactions.html
 """
 from hashlib import sha256
 from typing import List
+from typing import Optional
 
+import bits.script.constants
 from bits.utils import compact_size_uint
 from bits.utils import d_hash
 
@@ -89,7 +91,9 @@ def wtxid(
 
 
 def coinbase_txin(
-    coinbase_script: bytes, sequence: bytes = b"\xff\xff\xff\xff"
+    coinbase_script: bytes,
+    sequence: bytes = b"\xff\xff\xff\xff",
+    block_height: Optional[int] = None,
 ) -> bytes:
     """
     Create coinbase txin
@@ -99,6 +103,19 @@ def coinbase_txin(
             (now required per BIP34)
 
     """
+    if block_height:
+        # "minimally encoded serialized CScript"
+        if block_height <= 16:
+            op = getattr(bits.script.constants, f"OP_{block_height}")
+            coinbase_script = op.to_bytes(1, "big") + coinbase_script
+        else:
+            # signed int
+            number_of_bytes = (block_height.bit_length() + 8) // 8
+            coinbase_script = (
+                number_of_bytes.to_bytes(1, "little")
+                + block_height.to_bytes(number_of_bytes, "little")
+                + coinbase_script
+            )
     if len(coinbase_script) > 100:
         raise ValueError("script exceeds 100 bytes!")
     return txin(
@@ -110,11 +127,28 @@ def coinbase_txin(
 
 def coinbase_tx(
     coinbase_script: bytes,
-    block_reward: int,
     script_pubkey: bytes,
-    # block_height: bytes = b"",
+    block_reward: Optional[int] = None,
+    block_height: Optional[int] = None,
+    network: str = "mainnet",
 ) -> bytes:
+    if network == "mainnet" or network == "testnet":
+        raise NotImplementedError
+        if block_height:
+            halvings = block_height // 2016
+    elif network == "regtest":
+        if block_height:
+            max_reward = int(50e8)
+            halvings = block_height // 150
+            if halvings:
+                max_reward //= 2 * halvings
+            if block_reward:
+                assert block_reward <= max_reward, "block reward too high"
+            else:
+                block_reward = max_reward
+    else:
+        raise ValueError("unrecognized network")
     return tx(
-        [coinbase_txin(coinbase_script)],
+        [coinbase_txin(coinbase_script, block_height=block_height)],
         [txout(block_reward, script_pubkey)],
     )

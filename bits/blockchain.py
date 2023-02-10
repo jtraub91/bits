@@ -18,13 +18,49 @@ NULL_32 = b"\x00" * 32
 
 MAX_BLOCKFILE_SIZE = 0x08000000
 
+# https://en.bitcoin.it/wiki/Target
+# https://developer.bitcoin.org/reference/block_chain.html#target-nbits
+MAX_TARGET = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
+MAX_TARGET_REGTEST = 0x7FFFFF0000000000000000000000000000000000000000000000000000000000
+# https://en.bitcoin.it/wiki/Difficulty
+
+
+def target_threshold(nBits: bytes) -> int:
+    """
+    Calculate target threshold from compact nBits
+    # https://developer.bitcoin.org/reference/block_chain.html#target-nbits
+    Args:
+        nBits: bytes, rpc byte order
+    >>> target = target_threshold(bytes.fromhex("207fffff"))
+    >>> hex(target)
+    '0x7fffff0000000000000000000000000000000000000000000000000000000000'
+    """
+    mantissa = nBits[-3:]
+    exponent = int.from_bytes(nBits[:-3], "big")
+    target = int.from_bytes(mantissa, "big") * 256 ** (exponent - len(mantissa))
+    return target
+
+
+def difficulty(target: int, network: str = "mainnet") -> float:
+    """
+    difficulty = difficulty_1_target / current_target
+    https://en.bitcoin.it/wiki/Difficulty
+
+    """
+    if network == "mainnet" or network == "testnet":
+        return MAX_TARGET / target
+    elif network == "regtest":
+        return MAX_TARGET_REGTEST / target
+    else:
+        raise ValueError("unrecognized network")
+
 
 def block_header(
     version: int,
     prev_blockheaderhash: bytes,
     merkle_root_hash: bytes,
     ntime: int,
-    nBits: int,
+    nBits: bytes,
     nNonce: int,
 ) -> bytes:
     """ """
@@ -34,7 +70,7 @@ def block_header(
         + prev_blockheaderhash
         + merkle_root_hash
         + ntime.to_bytes(4, "little")
-        + nBits.to_bytes(4, "little")
+        + nBits
         + nNonce.to_bytes(4, "little")
     )
 
@@ -102,4 +138,5 @@ def block_ser(blk_hdr: bytes, txns: List[bytes]) -> bytes:
 
 
 def block_deser(block: bytes) -> Tuple[bytes, List[bytes]]:
-    return block_header_, txns
+    # return block_header_, txns
+    raise NotImplementedError

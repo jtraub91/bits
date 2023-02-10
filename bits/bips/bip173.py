@@ -6,8 +6,6 @@ from typing import Optional
 from typing import Tuple
 from typing import Union
 
-import ipdb
-
 bech32_max_len = 90
 bech32_chars = b"qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 bech32_int_map = {b.to_bytes(1, "big"): bech32_chars.index(b) for b in bech32_chars}

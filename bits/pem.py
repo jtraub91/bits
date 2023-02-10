@@ -6,6 +6,11 @@ import math
 import re
 import typing
 
+# monkeypatch base64 global variables for proper PEM encoding
+# via base64.encodebytes
+base64.MAXLINESIZE = 64
+base64.MAXBINSIZE = (base64.MAXLINESIZE // 4) * 3
+
 
 def decode_base64_pem(pem: bytes) -> bytes:
     """
@@ -39,27 +44,11 @@ def encode_pem(
     header: bytes = b"-----BEGIN CERTIFICATE-----",
     footer: bytes = b"-----END CERTIFICATE-----",
 ) -> bytes:
-    return header + b"\n" + base64.encodebytes(der_) + b"\n" + footer
-
-
-def decode_key(pem_: bytes) -> typing.Union[tuple[bytes, bytes], bytes]:
-    """
-    Decode from pem / der encoded EC private / public key
-    Returns:
-        (privkey, pubkey) or pubkey, respectively
-    """
-    decoded = decode_pem(pem_)
-    parsed = parse_asn1(decoded)
-    if parsed[0][2][0][2] == b"\x01":
-        return parsed[0][2][1][2], parsed[0][2][3][2][0][2][1:]
-    elif parsed[0][2][0][2][0][2] == "id-ecPublicKey":
-        return parsed[0][2][1][2][1:]
-    else:
-        raise ValueError("could not identify data as private nor public key")
+    return header + b"\n" + base64.encodebytes(der_) + footer + b"\n"
 
 
 # https://letsencrypt.org/docs/a-warm-welcome-to-asn1-and-der/#tag
-TAG_MAP = {
+TAG_MAP: dict[int, str] = {
     0x02: "INTEGER",
     0x03: "BIT STRING",
     0x04: "OCTET STRING",
@@ -69,7 +58,7 @@ TAG_MAP = {
     0x10: "SEQUENCE (OF)",
     0x11: "SET (OF)",
 }
-MAP_TAG = {value: key for key, value in TAG_MAP.items()}
+MAP_TAG: dict[str, int] = {value: key for key, value in TAG_MAP.items()}
 # tag classes
 #   bit 6: 1=constructed 0=primitive
 #   | class            | bit 8 | bit 7 |
@@ -90,11 +79,23 @@ MAP_CLASS_TAG = {value: key for key, value in TAG_CLASS_MAP.items()}
 
 def encode_parsed_asn1_val(tag: int, parsed_val: typing.Union[list, bytes]) -> bytes:
     encoded = b""
-    if tag & 0x1F == MAP_TAG["SEQUENCE (OF)"]:
+    if tag & 0x1F in [MAP_TAG["SEQUENCE (OF)"], 0x00, 0x01]:
         for val in parsed_val:
             encoded += encode_parsed_asn1(val)
-    elif tag & 0x1F == MAP_TAG["INTEGER"]:
+    elif tag & 0x1F in [
+        MAP_TAG["INTEGER"],
+        MAP_TAG["OCTET STRING"],
+        MAP_TAG["BIT STRING"],
+    ]:
         encoded += parsed_val
+    elif tag & 0x1F == MAP_TAG["OBJECT IDENTIFIER"]:
+        if parsed_val == "id-ecPublicKey":
+            oid = "1.2.840.10045.2.1"
+        elif parsed_val == "id-ansip256k1":
+            oid = "1.3.132.0.10"
+        else:
+            oid = parsed_val
+        encoded += encode_oid(oid)
     return encoded
 
 
@@ -109,7 +110,7 @@ def encode_parsed_asn1(parsed_data: list) -> bytes:
     encoded = b""
     tag_tuple, length, parsed_data = parsed_data[0], parsed_data[1], parsed_data[2]
     tag, tag_constructed, tag_class = tag_tuple
-    tag_int = MAP_TAG[tag]
+    tag_int = MAP_TAG[tag] if type(tag) is str else tag
     if tag_constructed == "Constructed":
         tag_int |= 0b00100000
     tag_int |= MAP_CLASS_TAG[tag_class] << 6
@@ -155,8 +156,11 @@ def parse_asn1_value(tag: int, value: bytes):
         return parse_asn1(value)
     elif tag == MAP_TAG["OBJECT IDENTIFIER"]:
         oid = parse_oid(value)
+        # https://oidref.com/
         if oid == "1.2.840.10045.2.1":
             oid = "id-ecPublicKey"
+        elif oid == "1.3.132.0.10":
+            oid = "id-ansip256k1"
         return oid
     elif tag_constructed:
         return parse_asn1(value)
@@ -164,10 +168,46 @@ def parse_asn1_value(tag: int, value: bytes):
         return value
 
 
+def encode_oid(oid: str) -> bytes:
+    """
+    https://learn.microsoft.com/en-us/windows/win32/seccertenroll/about-object-identifier
+    >>> encode_oid("1.2.840.10045.2.1").hex()
+    '2a8648ce3d0201'
+    >>> encode_oid("1.3.6.1.4.1.311.21.20").hex()
+    '2b0601040182371514'
+    >>> encode_oid("1.3.132.0.10").hex()
+    '2b8104000a'
+    """
+    encoded = b""
+    nodes = oid.split(".")
+    first_byte = (int(nodes[0]) * 40 + int(nodes[1])).to_bytes(1, "big")
+    encoded += first_byte
+    for node in nodes[2:]:
+        if int(node) < 128:
+            # encode node as single byte
+            encoded += int(node).to_bytes(1, "big")
+        else:
+            # encode node as multiple bytes
+            number_of_bytes = (int(node).bit_length() + 8) // 8
+            vlq_bits = format(int(node), f"0{7 * number_of_bytes}b")
+            vlq_bytes_bits = [
+                vlq_bits[7 * i : 7 * i + 7] for i in range(number_of_bytes)
+            ]
+            # prepend '1' to all bytes except last
+            encoded_bytes_bits = ["1" + byte_bits for byte_bits in vlq_bytes_bits[:-1]]
+            # prepend '0' to last byte
+            encoded_bytes_bits += ["0" + vlq_bytes_bits[-1]]
+            for encoded_byte_bits in encoded_bytes_bits:
+                encoded += int(encoded_byte_bits, 2).to_bytes(1, "big")
+    return encoded
+
+
 def parse_oid(data: bytes) -> str:
     """
     >>> parse_oid(bytes.fromhex("2a8648ce3d0201"))
     '1.2.840.10045.2.1'
+    >>> parse_oid(bytes.fromhex("2b8104000a"))
+    '1.3.132.0.10'
     """
     # https://learn.microsoft.com/en-us/windows/win32/seccertenroll/about-object-identifier
     # relevant OIDS:
@@ -175,7 +215,7 @@ def parse_oid(data: bytes) -> str:
     nodes = []
     # 1st byte = node1 * 40 + node2
     first_byte = data[0]
-    first_node = int(first_byte / 40)
+    first_node = first_byte // 40
     second_node = first_byte % 40
     nodes.append(first_node)
     nodes.append(second_node)

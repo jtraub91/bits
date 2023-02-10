@@ -2,6 +2,7 @@ import pytest
 
 from bits.bips.bip39 import calculate_mnemonic_phrase
 
+
 # https://github.com/trezor/python-mnemonic/blob/v0.20/vectors.json
 @pytest.mark.parametrize(
     "vector",

@@ -25,6 +25,7 @@ VERSION_PRIVATE_TESTNET = b"\x04\x35\x83\x94"
 
 HARDENED_OFFSET = 0x80000000
 
+
 # https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#conventions
 def point(p: int) -> tuple:
     """

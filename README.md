@@ -19,3 +19,14 @@
 ```bash
 pip install bits
 ```
+
+v0.1.0 - MVP
+
+v0.2.0
+
+- `sweep` cli command i.e. send all (or fraction) associated with from_addr to  to_addr (optional change_addr)
+
+v1.0.0
+
+- full node
+- `scan` cli command

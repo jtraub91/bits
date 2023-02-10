@@ -21,12 +21,15 @@ def rpc_method(method, *params, rpc_url="", rpc_user="", rpc_password="") -> str
     formatted_params = []
     for param in params:
         try:
-            formatted_params.append(json.loads(param))
-        except json.decoder.JSONDecodeError as json_error:
-            log.debug(
-                f"JSONDecodeError - '{json_error}'. Continuing with param as string..."
-            )
-            formatted_params.append(param)
+            formatted_params.append(int(param))
+        except ValueError as value_error:
+            try:
+                formatted_params.append(json.loads(param))
+            except json.decoder.JSONDecodeError as json_error:
+                log.debug(
+                    f"JSONDecodeError - '{json_error}'. Continuing with param as string..."
+                )
+                formatted_params.append(param)
 
     data = {
         "jsonrpc": "1.0",
@@ -38,7 +41,7 @@ def rpc_method(method, *params, rpc_url="", rpc_user="", rpc_password="") -> str
     try:
         ret = urlopen(req)
         result = json.load(ret)["result"]
-        return json.dumps(result) if type(result) is dict else result
+        return result
     except HTTPError as http_error:
         ret = json.load(http_error.file)
         detail = {"id": ret["id"], "code": ret["error"]["code"]}

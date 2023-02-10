@@ -9,35 +9,25 @@ import secrets
 import sys
 import time
 
-try:
-    import tomllib
-
-    HAS_TOMLLIB = True
-except ImportError:
-    HAS_TOMLLIB = False
-
-import bits
 import bits.openssl
 import bits.rpc
-from bits import print_bytes, read_bytes
-from bits.ecmath import SECP256K1_N
 from bits.base58 import base58check_decode
-from bits.bips.bip39 import calculate_mnemonic_phrase
 from bits.bips.bip173 import segwit_addr
+from bits.bips.bip39 import calculate_mnemonic_phrase
 from bits.blockchain import genesis_block
+from bits.ecmath import SECP256K1_N
 from bits.p2p import Node
 from bits.p2p import set_magic_start_bytes
 from bits.rpc import rpc_method
 from bits.script.constants import SIGHASH_ALL
-from bits.script.utils import p2pk_script_pubkey
-from bits.script.utils import p2pk_script_sig, p2pkh_script_sig
-from bits.script.utils import (
-    p2pkh_script_pubkey,
-    script,
-    scriptpubkey,
-    p2sh_script_pubkey,
-)
 from bits.script.utils import multisig_script_pubkey
+from bits.script.utils import p2pk_script_pubkey
+from bits.script.utils import p2pk_script_sig
+from bits.script.utils import p2pkh_script_pubkey
+from bits.script.utils import p2pkh_script_sig
+from bits.script.utils import p2sh_script_pubkey
+from bits.script.utils import script
+from bits.script.utils import scriptpubkey
 from bits.tx import outpoint
 from bits.tx import tx
 from bits.tx import txin
@@ -45,14 +35,14 @@ from bits.tx import txout
 from bits.utils import compressed_pubkey
 from bits.utils import compute_point
 from bits.utils import ensure_sig_low_s
+from bits.utils import pem_decode_key
+from bits.utils import pem_encode_key
 from bits.utils import pubkey
 from bits.utils import pubkey_from_pem
 from bits.utils import pubkey_hash
 from bits.utils import s_hash
-from bits.utils import to_bitcoin_address, script_hash
-
-
-bitsconfig = {}
+from bits.utils import script_hash
+from bits.utils import to_bitcoin_address
 
 
 def catch_exception(fun):
@@ -61,6 +51,8 @@ def catch_exception(fun):
         try:
             return fun()
         except Exception as err:
+            if bits.bitsconfig.get("debug"):
+                raise err
             return err
         except KeyboardInterrupt:
             return "keyboard interrupt. exiting..."
@@ -68,38 +60,24 @@ def catch_exception(fun):
     return wrapper
 
 
-def load_config():
-    global bitsconfig
-    bitsconfig = bits.default_config()
-    bitsconfig_file = (
-        open(".bitsconfig.toml", "rb") if HAS_TOMLLIB else open(".bitsconfig.json")
-    )
-    bitsconfig_file_dict = (
-        tomllib.load(bitsconfig_file) if HAS_TOMLLIB else json.load(bitsconfig_file)
-    )
-    bitsconfig.update(bitsconfig_file_dict)
-    bitsconfig_file.close()
-
-
 def update_config(args):
-    global bitsconfig
     if args.network:
-        bitsconfig.update({"network": args.network})
+        bits.bitsconfig.update({"network": args.network})
     if args.log_level:
-        bitsconfig.update({"loglevel": args.log_level})
+        bits.bitsconfig.update({"loglevel": args.log_level})
 
     if args.output_format_raw:
-        bitsconfig.update({"output_format": "raw"})
+        bits.bitsconfig.update({"output_format": "raw"})
     if args.output_format_bin:
-        bitsconfig.update({"output_format": "bin"})
+        bits.bitsconfig.update({"output_format": "bin"})
     if args.output_format_hex:
-        bitsconfig.update({"output_format": "hex"})
+        bits.bitsconfig.update({"output_format": "hex"})
     if args.input_format_raw:
-        bitsconfig.update({"input_format": "raw"})
+        bits.bitsconfig.update({"input_format": "raw"})
     if args.input_format_bin:
-        bitsconfig.update({"input_format": "bin"})
+        bits.bitsconfig.update({"input_format": "bin"})
     if args.input_format_hex:
-        bitsconfig.update({"input_format": "hex"})
+        bits.bitsconfig.update({"input_format": "hex"})
 
 
 def add_common_arguments(parser: argparse.ArgumentParser):
@@ -124,7 +102,7 @@ def add_input_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--in-file",
         type=argparse.FileType("rb")
-        if bitsconfig["input_format"] == "raw"
+        if bits.bitsconfig["input_format"] == "raw"
         else argparse.FileType("r"),
         help="input data file, if applicable",
     )
@@ -153,7 +131,7 @@ def add_output_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--out-file",
         type=argparse.FileType("wb")
-        if bitsconfig["output_format"] == "raw"
+        if bits.bitsconfig["output_format"] == "raw"
         else argparse.FileType("w"),
         help="output data to file, if applicable",
     )
@@ -178,9 +156,8 @@ def add_output_arguments(parser: argparse.ArgumentParser):
     )
 
 
-# @catch_exception
+@catch_exception
 def main():
-    load_config()
     bits_desc = """
     The `bits` command (with no sub-command) accepts input and transparently writes 
     output, in either raw binary, binary string, or hex string format. The format of the
@@ -202,7 +179,7 @@ def main():
     add_common_arguments(key_parser)
     add_output_arguments(key_parser)
 
-    pub_parser = sub_parser.add_parser("pub", help="pubkey from secret")
+    pub_parser = sub_parser.add_parser("pub", help="pubkey from secret (or pubkey)")
     pub_parser.add_argument("-X", "--compressed", action="store_true", default=False)
     add_common_arguments(pub_parser)
     add_input_arguments(pub_parser)
@@ -212,14 +189,33 @@ def main():
     script_parser.add_argument("script_args", nargs="+", help="script code")
     add_output_arguments(script_parser)
 
+    # TODO: sig_parser
+
     p2p_parser = sub_parser.add_parser("p2p", help="start p2p node")
     p2p_parser.add_argument(
         "--seeds", type=str, help="comma separated list of seed nodes"
     )
+    scripthash_parser = sub_parser.add_parser(
+        "scripthash", help="ripemd160(redeem_script)"
+    )
+    add_input_arguments(scripthash_parser)
+    add_output_arguments(scripthash_parser)
+
+    pubkeyhash_parser = sub_parser.add_parser(
+        "pubkeyhash", help="ripemd160(sha256(pubkey))"
+    )
+    pubkeyhash_parser.add_argument(
+        "--pem",
+        action="store_true",
+        default=False,
+        help="use pem encoded private/public input file",
+    )
+    add_input_arguments(pubkeyhash_parser)
+    add_output_arguments(pubkeyhash_parser)
 
     addr_parser = sub_parser.add_parser(
         "addr",
-        description="Output standard address types from script or pubkey",
+        description="Output standard address types from scripthash or pubkeyhash",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     addr_parser.add_argument(
@@ -229,19 +225,16 @@ def main():
         choices=[
             "p2pkh",
             "p2sh",
-            "multisig",
-            "p2wpkh",
-            "p2wsh",
-            "p2sh-p2wpkh",
-            "p2sh-p2wsh",
-            "p2sh-multisig",
         ],
-        help="address invoice type",
+        help="""
+        address invoice type. 
+        when combined with --witness-version, will result in p2wpkh and p2wsh, accordingly
+        """,
     )
     addr_parser.add_argument(
         "--witness-version",
         type=int,
-        help="witness version for native or p2sh segwit addresses",
+        help="witness version for native segwit addresses",
         choices=range(17),
     )
     add_common_arguments(addr_parser)
@@ -260,7 +253,10 @@ def main():
         type=json.loads,
         action="append",
         default=[],
-        help="Transaction input data provided as a dictionary with the following keys: txid, vout, scriptSig. Use scriptPubKey as scriptSig if generating the pre-signature transaction.",
+        help="""
+        Transaction input data provided as a dictionary with the following keys: txid, vout, scriptSig.
+        Use scriptPubKey as scriptSig if generating the pre-signature transaction.
+        """,
     )
     tx_parser.add_argument(
         "-txout",
@@ -338,6 +334,20 @@ def main():
         help="dependency to use for signing",
     )
 
+    scan_parser = sub_parser.add_parser("scan", help="scan utxoset for addr")
+    scan_parser.add_argument("addr")
+
+    sweep_parser = sub_parser.add_parser(
+        "sweep",
+        help="convencience utility for sending (all or a fraction) currency associated with addr",
+    )
+    # change addr
+    # miner fee
+    sweep_parser.add_argument("addr")
+    sweep_parser.add_argument("--miner-fee")
+    sweep_parser.add_argument("--fraction", default=1)
+    sweep_parser.add_argument("--change-addr")
+
     rpc_parser = sub_parser.add_parser(
         "rpc", help="rpc interface", description="Send command to RPC node"
     )
@@ -383,18 +393,24 @@ def main():
     args = parser.parse_args()
     update_config(args)
 
-    bits.set_log_level(bitsconfig["loglevel"])
-    set_magic_start_bytes(bitsconfig["network"])
+    bits.set_log_level(bits.bitsconfig["loglevel"])
+    set_magic_start_bytes(bits.bitsconfig["network"])
 
     if not args.command:
-        data = read_bytes(args.in_file, input_format=bitsconfig["input_format"])
-        print_bytes(data, output_format=bitsconfig["output_format"])
+        data = bits.read_bytes(
+            args.in_file, input_format=bits.bitsconfig["input_format"]
+        )
+        bits.print_bytes(data, output_format=bits.bitsconfig["output_format"])
     elif args.command == "key":
         # generate Bitcoin secret key
         k = secrets.randbelow(SECP256K1_N)
-        print_bytes(k.to_bytes(32, "big"), output_format=bitsconfig["output_format"])
+        bits.print_bytes(
+            k.to_bytes(32, "big"), output_format=bits.bitsconfig["output_format"]
+        )
     elif args.command == "pub":
-        data = read_bytes(args.in_file, input_format=bitsconfig["input_format"])
+        data = bits.read_bytes(
+            args.in_file, input_format=bits.bitsconfig["input_format"]
+        )
         if len(data) == 32:
             # privkey
             x, y = compute_point(data)
@@ -404,65 +420,39 @@ def main():
             pk = compressed_pubkey(data) if args.compressed else data
         else:
             raise ValueError("data not recognized as private or public key")
-        print_bytes(
+        bits.print_bytes(
             pk,
-            output_format=bitsconfig["output_format"],
+            output_format=bits.bitsconfig["output_format"],
+        )
+    elif args.command == "scripthash":
+        redeem_script = bits.read_bytes(
+            args.in_file, input_format=bits.bitsconfig["input_format"]
+        )
+        bits.print_bytes(
+            script_hash(redeem_script), output_format=bits.bitsconfig["output_format"]
+        )
+    elif args.command == "pubkeyhash":
+        if args.pem:
+            pubkey_pem = bits.read_bytes(args.in_file, input_format="raw")
+            pubkey_ = pem_decode_key(pubkey_pem)[-1]
+        else:
+            pubkey_ = bits.read_bytes(
+                args.in_file, input_format=bits.bitsconfig["input_format"]
+            )
+        bits.print_bytes(
+            pubkey_hash(pubkey_), output_format=bits.bitsconfig["output_format"]
         )
     elif args.command == "addr":
-        data = read_bytes(args.in_file, input_format=bitsconfig["input_format"])
-
-        addr = to_bitcoin_address(
-            data, addr_type=args.type, network=bitsconfig["network"]
+        payload = bits.read_bytes(
+            args.in_file, input_format=bits.bitsconfig["input_format"]
         )
-        print_bytes(addr + os.linesep.encode("ascii"), output_format="raw")
-        if args.type == "p2pkh":
-            pk = read_bytes(args.in_file, input_format=bitsconfig["input_format"])
-            if args.compressed:
-                pk = compressed_pubkey(pk)
-            pk_hash = pubkey_hash(pk)
-            print_bytes(
-                to_bitcoin_address(
-                    pk_hash, addr_type=args.type, network=bitsconfig["network"]
-                )
-                + os.linesep.encode("ascii"),
-                output_format="raw",
-            )
-        elif args.type == "p2sh":
-            redeem_script = read_bytes(
-                args.in_file, input_format=bitsconfig["input_format"]
-            )
-            sh = script_hash(redeem_script)
-            print_bytes(
-                to_bitcoin_address(
-                    sh, addr_type=args.type, network=bitsconfig["network"]
-                )
-                + os.linesep.encode("ascii"),
-                output_format="raw",
-            )
-        elif args.type == "p2wpkh":
-            pk = read_bytes(args.in_file, input_format=bitsconfig["input_format"])
-            if args.compressed:
-                pk = compressed_pubkey(pk)
-            pk_hash = pubkey_hash(pk)
-            print_bytes(
-                segwit_addr(
-                    pk_hash,
-                    network=bitsconfig["network"],
-                    witness_version=args.witness_version,
-                )
-                + os.linesep.encode("ascii"),
-                output_format="raw",
-            )
-        elif args.type == "p2wsh":
-            redeem_script = read_bytes(
-                args.in_file, input_format=bitsconfig["input_format"]
-            )
-            sh = script_hash(redeem_script)
-            print_bytes(
-                to_bitcoin_address(
-                    sh, addr_type=args.type, network=bitsconfig["network"]
-                ).decode("ascii")
-            )
+        addr = to_bitcoin_address(
+            payload,
+            addr_type=args.type,
+            witness_version=args.witness_version,
+            network=bits.bitsconfig["network"],
+        )
+        bits.print_bytes(addr + os.linesep.encode("ascii"), output_format="raw")
     elif args.command == "p2p":
         # bits --network testnet p2p start --seeds "host1:port1,host2:port2"
         if not args.seeds:
@@ -474,9 +464,7 @@ def main():
         txins = []
         for txin_dict in args.txins:
             # internal byte order
-            txid_ = bytearray.fromhex(txin_dict["txid"])
-            txid_.reverse()
-            txid_ = bytes(txid_)
+            txid_ = bytes.fromhex(txin_dict["txid"])[::-1]
             # use script pub key as script sig for signing
             script_sig = bytes.fromhex(txin_dict["scriptSig"])
             txin_ = txin(outpoint(bytes(txid_), txin_dict["vout"]), script_sig)
@@ -488,9 +476,13 @@ def main():
         tx_ = tx(txins, txouts)
         return tx_.hex()
     elif args.command == "script":
-        print_bytes(script(args.script_args), output_format=bitsconfig["output_format"])
+        bits.print_bytes(
+            script(args.script_args), output_format=bits.bitsconfig["output_format"]
+        )
     elif args.command == "scriptpubkey":
-        print_bytes(scriptpubkey(args.data), output_format=bitsconfig["output_format"])
+        bits.print_bytes(
+            scriptpubkey(args.data), output_format=bits.bitsconfig["output_format"]
+        )
         return
         if args.type == "p2pk":
             print(p2pk_script_pubkey(bytes.fromhex(args.data)).hex())
@@ -542,13 +534,12 @@ def main():
                 sig = ensure_sig_low_s(sig)
                 os.remove(tmp_filename)
             else:
-                # read line from stdin
-                # transform hex to bytes, take single hash, send to openssl
-                for line in sys.stdin:
-                    stdin_bytes = bytes.fromhex(line)
-                    stdin_bytes = s_hash(stdin_bytes)
-                    sig = bits.openssl.sign(args.privkey, stdin=stdin_bytes)
-                    sig = ensure_sig_low_s(sig)
+                tx_ = bits.read_bytes(
+                    args.in_file, input_format=bits.bitsconfig["input_format"]
+                )
+                sigdata = s_hash(tx_ + SIGHASH_ALL.to_bytes(4, "little"))
+                sig = bits.openssl.sign(args.privkey, stdin=sigdata)
+                sig = ensure_sig_low_s(sig)
             with open(args.privkey, "rb") as privkey_file:
                 privkey_bytes = privkey_file.read()
                 pubkey_ = pubkey_from_pem(privkey_bytes)
@@ -564,23 +555,39 @@ def main():
             raise NotImplementedError
         else:
             raise ValueError("sigdep not supported")
+    elif args.command == "scan":
+        # scan utxo set for addr
+        # for now use bitcoind via rpc
+        # future: natively support scan internal blockchain
+        result = rpc_method(
+            "scantxoutset",
+            "start",
+            f'["addr({args.addr})"]',
+            rpc_url=bits.bitsconfig["rpcurl"],
+            rpc_user=bits.bitsconfig["rpcuser"],
+            rpc_password=bits.bitsconfig["rpcpassword"],
+        )
+        print(json.dumps(result) if type(result) is dict else result)
+        return
+    elif args.command == "sweep":
+        # sweep/send funds (or a fraction) to another address (+ change adress, if applicable)
+        return
     elif args.command == "rpc":
         if args.rpc_url:
-            bitsconfig.update({"rpcurl": args.rpc_url})
+            bits.bitsconfig.update({"rpcurl": args.rpc_url})
         if args.rpc_user:
-            bitsconfig.update({"rpcuser": args.rpc_user})
+            bits.bitsconfig.update({"rpcuser": args.rpc_user})
         if args.rpc_password:
-            bitsconfig.update({"rpcpassword": args.rpc_password})
+            bits.bitsconfig.update({"rpcpassword": args.rpc_password})
 
-        print(
-            rpc_method(
-                args.rpc_command,
-                *args.params,
-                rpc_url=bitsconfig["rpcurl"],
-                rpc_user=bitsconfig["rpcuser"],
-                rpc_password=bitsconfig["rpcpassword"],
-            )
+        result = rpc_method(
+            args.rpc_command,
+            *args.params,
+            rpc_url=bits.bitsconfig["rpcurl"],
+            rpc_user=bits.bitsconfig["rpcuser"],
+            rpc_password=bits.bitsconfig["rpcpassword"],
         )
+        print(json.dumps(result) if type(result) is dict else result)
     elif args.command == "mnemonic":
         if args.generate:
             # generate entropy
@@ -594,7 +601,9 @@ def main():
         print(calculate_mnemonic_phrase(entropy))
     elif args.command == "blockchain":
         if args.blockheight == 0:
-            print_bytes(genesis_block(), output_format=bitsconfig["output_format"])
+            bits.print_bytes(
+                genesis_block(), output_format=bits.bitsconfig["output_format"]
+            )
         else:
             raise NotImplementedError
     else:

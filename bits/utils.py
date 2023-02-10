@@ -1,4 +1,3 @@
-import base64
 import hashlib
 import math
 import re
@@ -17,8 +16,9 @@ from bits.ecmath import SECP256K1_Gy
 from bits.ecmath import SECP256K1_N
 from bits.ecmath import sub_mod_p
 from bits.ecmath import y_from_x
-from bits.pem import decode_key
+from bits.pem import decode_pem
 from bits.pem import encode_parsed_asn1
+from bits.pem import encode_pem
 from bits.pem import parse_asn1
 
 
@@ -98,6 +98,9 @@ def pubkey_hash(pubkey_: bytes) -> bytes:
 
 
 def script_hash(redeem_script: bytes) -> bytes:
+    """
+    RIPEMD160(redeem_script)
+    """
     return hashlib.new("ripemd160", redeem_script).digest()
 
 
@@ -156,26 +159,39 @@ def d_hash(msg: bytes) -> bytes:
 
 
 def to_bitcoin_address(
-    payload: bytes, addr_type: str = "p2pkh", network: str = None
+    payload: bytes,
+    addr_type: str = "p2pkh",
+    network: str = "mainnet",
+    witness_version: Optional[int] = None,
 ) -> bytes:
     """
-    Encode payload as bitcoin address invoice
+    Encode payload as bitcoin address invoice (optional segwit)
     Args:
-        payload: bytes, pubkey_hash (p2pkh) or script_hash (p2sh)
-        addr_type: str, address type ("p2pkh" or "p2sh")
-        network: str, `mainnet` or `testnet`
+        payload: bytes, pubkey_hash or script_hash
+        addr_type: str, address type, "p2pkh" or "p2sh".
+            results in p2wpkh or p2wsh, respectively when combined with witness_version
+        network: str, mainnet, testnet, or regtest
+        witness_version: Optional[int], witness version for native segwit addresses
+            usage implies p2wpkh or p2wsh, accordingly
     Returns:
-        base58 encoded bitcoin address
+        base58 (or bech32 segwit) encoded bitcoin address
     """
-    assert network in ["mainnet", "testnet"], f"unrecognized network: {network}"
+    assert network in [
+        "mainnet",
+        "testnet",
+        "regtest",
+    ], f"unrecognized network: {network}"
     assert addr_type in ["p2pkh", "p2sh"], f"unrecognized address type: {addr_type}"
+    if witness_version:
+        assert witness_version in range(17), "witness version not in [0, 16]"
+        return segwit_addr(payload, witness_version=witness_version, network=network)
     if network == "mainnet" and addr_type == "p2pkh":
         version = b"\x00"
-    elif network == "testnet" and addr_type == "p2pkh":
+    elif network in ["testnet", "regtest"] and addr_type == "p2pkh":
         version = b"\x6f"
     elif network == "mainnet" and addr_type == "p2sh":
         version = b"\x05"
-    elif network == "testnet" and addr_type == "p2sh":
+    elif network in ["testnet", "regtest"] and addr_type == "p2sh":
         version = b"\xc4"
     return base58check(version + payload)
 
@@ -209,7 +225,7 @@ def ensure_sig_low_s(sig_: bytes) -> bytes:
 
 
 def pubkey_from_pem(pem_: bytes):
-    decoded_key = decode_key(pem_)
+    decoded_key = pem_decode_key(pem_)
     if len(decoded_key) == 2:
         return decoded_key[1]
     return decoded_key
@@ -243,3 +259,107 @@ def wif(
 
 def wif_decode(wif_: bytes) -> Tuple[bytes, bool]:
     return base58check_decode(wif_)
+
+
+def pem_decode_key(pem_: bytes) -> Union[tuple[bytes, bytes], tuple[bytes]]:
+    """
+    Decode from pem / der encoded EC private / public key
+    Returns:
+        (privkey, pubkey) or pubkey, respectively
+    """
+    decoded = decode_pem(pem_)
+    parsed = parse_asn1(decoded)
+    if parsed[0][2][0][2] == b"\x01":
+        return parsed[0][2][1][2], parsed[0][2][3][2][0][2][1:]
+    elif parsed[0][2][0][2][0][2] == "id-ecPublicKey":
+        return (parsed[0][2][1][2][1:],)
+    else:
+        raise ValueError("could not identify data as private nor public key")
+
+
+def pem_encode_key(key_: bytes) -> bytes:
+    """
+    Encode (pub)key as pem
+    """
+    if len(key_) == 32:
+        # private secp256k1 key
+        parsed_data_struct = [
+            [
+                ["SEQUENCE (OF)", "Constructed", "Universal"],
+                116,
+                [
+                    [["INTEGER", "Primitive", "Universal"], 1, b"\x01"],
+                    [
+                        ["OCTET STRING", "Primitive", "Universal"],
+                        32,
+                        key_,
+                    ],
+                    [
+                        [0, "Constructed", "Context-specific"],
+                        7,
+                        [
+                            [
+                                ["OBJECT IDENTIFIER", "Primitive", "Universal"],
+                                5,
+                                "id-ansip256k1",
+                            ]
+                        ],
+                    ],
+                    [
+                        [1, "Constructed", "Context-specific"],
+                        68,
+                        [
+                            [
+                                ["BIT STRING", "Primitive", "Universal"],
+                                66,
+                                b"\x00" + pubkey(*compute_point(key_)),
+                            ]
+                        ],
+                    ],
+                ],
+            ]
+        ]
+        return encode_pem(
+            encode_parsed_asn1(parsed_data_struct[0]),
+            header=b"-----BEGIN EC PRIVATE KEY-----",
+            footer=b"-----END EC PRIVATE KEY-----",
+        )
+    elif len(key_) == 33 or len(key_) == 65:
+        parsed_data_struct = [
+            [
+                ["SEQUENCE (OF)", "Constructed", "Universal"],
+                86 if len(key_) == 65 else 54,
+                [
+                    [
+                        ["SEQUENCE (OF)", "Constructed", "Universal"],
+                        16,
+                        [
+                            [
+                                ["OBJECT IDENTIFIER", "Primitive", "Universal"],
+                                7,
+                                "id-ecPublicKey",
+                            ],
+                            [
+                                ["OBJECT IDENTIFIER", "Primitive", "Universal"],
+                                5,
+                                "id-ansip256k1",
+                            ],
+                        ],
+                    ],
+                    [
+                        ["BIT STRING", "Primitive", "Universal"],
+                        66 if len(key_) == 65 else 34,
+                        b"\x00" + key_,
+                    ],
+                ],
+            ]
+        ]
+        return encode_pem(
+            encode_parsed_asn1(parsed_data_struct[0]),
+            header=b"-----BEGIN PUBLIC KEY-----",
+            footer=b"-----END PUBLIC KEY-----",
+        )
+    else:
+        raise ValueError(
+            "key (based on len) not recognized as public nor private key data"
+        )

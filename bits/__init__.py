@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import sys
@@ -5,7 +6,13 @@ from typing import IO
 from typing import Optional
 from typing import Union
 
-from bits.utils import decode_key
+try:
+    import tomllib
+
+    HAS_TOMLLIB = True
+except ImportError:
+    HAS_TOMLLIB = False
+
 
 log = logging.getLogger(__name__)
 formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
@@ -37,6 +44,23 @@ def default_config():
         "input_format": "bin",
         "output_format": "bin",
     }
+
+
+def load_config():
+    global bitsconfig
+    bitsconfig = default_config()
+    bitsconfig_file = (
+        open(".bitsconfig.toml", "rb") if HAS_TOMLLIB else open(".bitsconfig.json")
+    )
+    bitsconfig_file_dict = (
+        tomllib.load(bitsconfig_file) if HAS_TOMLLIB else json.load(bitsconfig_file)
+    )
+    bitsconfig.update(bitsconfig_file_dict)
+    bitsconfig_file.close()
+
+
+bitsconfig = {}
+load_config()
 
 
 def read_bytes(file_: Optional[IO] = None, input_format: str = "raw") -> bytes:
