@@ -1,12 +1,15 @@
 """
 Collection of subprocess calls to openssl for convenience
 """
+import logging
 import os
 import platform
 import sys
 from subprocess import PIPE
 from subprocess import Popen
 from typing import List
+
+log = logging.getLogger(__name__)
 
 SYSTEM = platform.system()
 if SYSTEM == "Linux" or SYSTEM == "Darwin":
@@ -65,6 +68,8 @@ def sign(privkey_file: str, files: List[str] = [], stdin: bytes = None):
         cmd += " ".join(files)
     with Popen(cmd.split(), stdin=PIPE, stdout=PIPE, stderr=PIPE) as proc:
         stdout, stderr = proc.communicate(stdin)
+        if stderr:
+            log.error(stderr)
     return stdout
 
 

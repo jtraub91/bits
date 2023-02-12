@@ -98,6 +98,8 @@ def segwit_addr(
         hrp = b"bc"
     elif network == "testnet":
         hrp = b"tb"
+    elif network == "regtest":
+        hrp = b"bcrt"
     else:
         raise ValueError(f"unrecognized network: {network}")
     assert witness_version in range(17), "witness version not in [0, 16]"
@@ -150,14 +152,22 @@ def decode_segwit_addr(addr: bytes) -> tuple[bytes, int, bytes]:
 def assert_valid_segwit(
     hrp: bytes, witness_version: int, witness_program: bytes
 ) -> bool:
-    assert hrp in [b"bc", b"tb"], "Invalid human-readable part"
+    assert hrp in [b"bc", b"tb", b"bcrt"], "Invalid human-readable part"
     assert len(witness_program) in range(2, 41), "witness program length not in [2, 40]"
     if witness_version == 0:
-        # why is 20 allowed?
         assert len(witness_program) in [
             20,
             32,
         ], "length of v0 witness program not 20 or 32"
+
+
+def is_segwit_addr(addr_: bytes):
+    try:
+        hrp, witness_version, witness_program = decode_segwit_addr(addr_)
+        assert_valid_segwit(hrp, witness_version, witness_program)
+        return True
+    except AssertionError as err:
+        return False
 
 
 # added type hints and docstring to

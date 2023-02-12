@@ -79,17 +79,19 @@ def merkle_root(txns: List[bytes]) -> bytes:
     """
     merkle root from a list of transactions
     https://developer.bitcoin.org/reference/block_chain.html#merkle-trees
+
     """
-    row = txns
-    while len(row) > 1:
-        odd = len(row) % 2
-        if odd:
-            row += [row[-1]]
+    row = [d_hash(txn) for txn in txns]
+    if len(row) == 1:
+        return row[0]
+    elif len(row) % 2:
+        row += [row[-1]]
+    while len(row) >= 2:
         branches = []
-        for i in len(row) // 2:
-            branches += d_hash(row[2 * i] + row[2 * i + 1])
+        for i in range(0, len(row), 2):
+            branches.append(d_hash(row[i] + row[i + 1]))
         row = branches
-    return d_hash(row[0])
+    return row[0]
 
 
 def genesis_coinbase_tx():

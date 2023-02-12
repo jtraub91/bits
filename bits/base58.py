@@ -58,3 +58,11 @@ def base58check_decode(addr_: bytes) -> bytes:
     if checksum != checksum_check:
         raise ValueError("invalid checksum")
     return payload
+
+
+def is_base58check(addr_: bytes):
+    try:
+        base58check_decode(addr_)
+        return True
+    except Exception:
+        return False

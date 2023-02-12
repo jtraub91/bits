@@ -53,7 +53,7 @@ def point(pubkey_: bytes) -> Tuple[int]:
     """
     Return (x, y) point from SEC1 public key
     """
-    assert len(pubkey_) == 33 or len(pubkey_) == 65
+    assert len(pubkey_) == 33 or len(pubkey_) == 65, "invalid pubkey length"
     version = pubkey_[0]
     payload = pubkey_[1:]
     x = int.from_bytes(payload[:32], "big")
@@ -70,6 +70,14 @@ def point(pubkey_: bytes) -> Tuple[int]:
         raise ValueError(f"unrecognized version: {version}")
     assert point_is_on_curve(x, y), "invalid pubkey"
     return (x, y)
+
+
+def is_point(pubkey: bytes):
+    try:
+        point(pubkey)
+        return True
+    except AssertionError:
+        return False
 
 
 def compressed_pubkey(pubkey_: bytes) -> bytes:
@@ -92,16 +100,21 @@ def pubkey_hash(pubkey_: bytes) -> bytes:
     Returns pubkeyhash as used in P2PKH scriptPubKey
     e.g. RIPEMD160(SHA256(pubkey_))
     """
-    hash_256 = hashlib.sha256(pubkey_).digest()
-    ripe_hash = hashlib.new("ripemd160", hash_256).digest()
-    return ripe_hash
+    return hashlib.new("ripemd160", hashlib.sha256(pubkey_).digest()).digest()
 
 
 def script_hash(redeem_script: bytes) -> bytes:
     """
-    RIPEMD160(redeem_script)
+    HASH160(redeem_script)
     """
-    return hashlib.new("ripemd160", redeem_script).digest()
+    return hashlib.new("ripemd160", hashlib.sha256(redeem_script).digest()).digest()
+
+
+def witness_script_hash(witness_script: bytes) -> bytes:
+    """
+    HASH256(witness_script)
+    """
+    return hashlib.sha256(hashlib.sha256(witness_script).digest()).digest()
 
 
 def compact_size_uint(integer: int) -> bytes:
@@ -181,10 +194,10 @@ def to_bitcoin_address(
         "testnet",
         "regtest",
     ], f"unrecognized network: {network}"
-    assert addr_type in ["p2pkh", "p2sh"], f"unrecognized address type: {addr_type}"
-    if witness_version:
+    if witness_version is not None:
         assert witness_version in range(17), "witness version not in [0, 16]"
         return segwit_addr(payload, witness_version=witness_version, network=network)
+    assert addr_type in ["p2pkh", "p2sh"], f"unrecognized address type: {addr_type}"
     if network == "mainnet" and addr_type == "p2pkh":
         version = b"\x00"
     elif network in ["testnet", "regtest"] and addr_type == "p2pkh":
@@ -231,7 +244,7 @@ def pubkey_from_pem(pem_: bytes):
     return decoded_key
 
 
-def wif(
+def wif_encode(
     privkey_: bytes,
     compressed_pubkey: bool = True,
     network: str = "mainnet",
@@ -247,7 +260,7 @@ def wif(
     """
     if network.lower() == "mainnet":
         prefix = b"\x80"
-    elif network.lower() == "testnet":
+    elif network.lower() in ["testnet", "regtest"]:
         prefix = b"\xef"
     else:
         raise ValueError(f"unrecognized network: {network}")
@@ -257,8 +270,20 @@ def wif(
     return base58check(wif)
 
 
-def wif_decode(wif_: bytes) -> Tuple[bytes, bool]:
-    return base58check_decode(wif_)
+def wif_decode(wif_: bytes) -> Tuple[bytes, bytes, bool]:
+    """
+    Returns:
+        version, key, compressed
+    """
+    decoded = base58check_decode(wif_)
+    version = decoded[0:1]
+    key_ = decoded[1:]
+    compressed = False
+    assert len(key_) == 32 or len(key_) == 33
+    if len(key_) == 33:
+        assert key_[-1:] == b"\x01"
+        compressed = True
+    return version, key_[:32], compressed
 
 
 def pem_decode_key(pem_: bytes) -> Union[tuple[bytes, bytes], tuple[bytes]]:

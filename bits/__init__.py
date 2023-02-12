@@ -20,7 +20,7 @@ if not os.path.exists(".bits/logs"):
     os.makedirs(".bits/logs")
 fh = logging.FileHandler(".bits/logs/bits.log")
 fh.setFormatter(formatter)
-sh = logging.StreamHandler()
+sh = logging.StreamHandler(sys.stdout)
 sh.setFormatter(formatter)
 log.addHandler(fh)
 log.addHandler(sh)
