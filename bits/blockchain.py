@@ -124,7 +124,7 @@ def genesis_block():
     # https://github.com/bitcoin/bitcoin/blob/v0.1.5/main.cpp#L1495-L1498
     version: int = 1
     nTime = 1231006505
-    nBits = 0x1D00FFFF
+    nBits = b"\x1D\x00\xFF\xFF"
     nNonce = 2083236893
 
     coinbase_tx = genesis_coinbase_tx()

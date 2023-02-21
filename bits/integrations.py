@@ -24,20 +24,30 @@ def median_time() -> int:
     Returns the median time of the last 11 blocks
     """
     block_count = bits.rpc.rpc_method("getblockcount")
+    block_hash = bits.rpc.rpc_method("getblockhash", block_count)
+    block = bits.rpc.rpc_method("getblock", block_hash)
+    if block_count == 0:
+        return block["time"]
     times = []
-    for i in range(11):
+    for i in range(min(block_count, 11)):
         block_hash = bits.rpc.rpc_method("getblockhash", block_count - i)
         block = bits.rpc.rpc_method("getblock", block_hash)
         t = block["time"]
         times.append(t)
-    return sorted(times)[5]
+    times = sorted(times)
+    if len(times) % 2:
+        # odd
+        median = times[len(times) // 2]
+    else:
+        median = (times[len(times) // 2 - 1] + times[len(times) // 2]) // 2
+    return median
 
 
 def generate_funded_keys(
     count: int, compressed_pubkey: bool = False, network: str = "regtest"
 ) -> Iterator[tuple[bytes, bytes]]:
     """
-    Generate keys which receive coinbase reward sent to its uncompressed p2pkh address
+    Generate keys which receive coinbase reward sent to p2pkh address
     Args:
         count: int, number of funded keys to generate
         compressed_pubkey: bool, wether key should correspond to compressed pubkey for recv addr
@@ -104,10 +114,9 @@ def mine_block(recv_addr: Optional[bytes] = b"", network: str = "regtest"):
     merkle_root_hash = bits.blockchain.merkle_root(txns)
 
     t = int(time.time())
-    if current_block_height >= 10:
-        median_time_ = median_time()
-        if t <= median_time_:
-            t = median_time_ + 1
+    median_time_ = median_time()
+    if t <= median_time_:
+        t = median_time_ + 1
 
     nonce = 0
     new_block_header = bits.blockchain.block_header(

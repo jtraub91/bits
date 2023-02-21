@@ -8,10 +8,15 @@ import time
 from hashlib import sha256
 from typing import List
 from typing import Optional
+from typing import Tuple
 
+import bits.keys
+import bits.openssl
 import bits.script.constants
+import bits.utils
 from bits.base58 import base58check_decode
 from bits.script.utils import p2pkh_script_sig
+from bits.script.utils import p2sh_script_sig
 from bits.script.utils import scriptpubkey
 from bits.utils import compact_size_uint
 from bits.utils import d_hash
@@ -40,12 +45,38 @@ def txin(
     return prev_outpoint + compact_size_uint(len(script_sig)) + script_sig + sequence
 
 
+def txin_deser(txin_: bytes) -> Tuple[dict, bytes]:
+    txid_ = txin_[:32]
+    vout = txin_[32:36]
+    scriptsig_len, txin_prime = bits.utils.parse_compact_size_uint(txin_[36:])
+    scriptsig = txin_prime[:scriptsig_len]
+    sequence = txin_prime[scriptsig_len : scriptsig_len + 4]
+    txin_ = txin_prime[scriptsig_len + 4 :]
+    return {
+        "txid": txid_.hex(),
+        "vout": int.from_bytes(vout, "little"),
+        "scriptsig": scriptsig.hex(),
+        "sequence": sequence.hex(),
+    }, txin_
+
+
 def txout(value: int, script_pubkey: bytes) -> bytes:
     return (
         value.to_bytes(8, "little")
         + compact_size_uint(len(script_pubkey))
         + script_pubkey
     )
+
+
+def txout_deser(txout_: bytes) -> Tuple[dict, bytes]:
+    value = txout_[:8]
+    scriptpubkey_len, txout_prime = bits.utils.parse_compact_size_uint(txout_[8:])
+    scriptpubkey = txout_prime[:scriptpubkey_len]
+    txout_ = txout_prime[scriptpubkey_len:]
+    return {
+        "value": int.from_bytes(value, "little"),
+        "scriptpubkey": scriptpubkey.hex(),
+    }, txout_
 
 
 def tx(
@@ -82,20 +113,44 @@ def tx(
     )
 
 
+def tx_deser(tx_: bytes) -> Tuple[dict, bytes]:
+    deserialized_tx = {}
+    is_segwit = False
+    version = tx_[:4]
+    deserialized_tx["version"] = int.from_bytes(version, "little")
+
+    number_of_inputs, tx_prime = bits.utils.parse_compact_size_uint(tx_[4:])
+    if number_of_inputs == 0 and tx_prime:
+        assert tx_prime[0] == 1, "flag not 1"
+        is_segwit = True
+        number_of_inputs, tx_prime = bits.utils.parse_compact_size_uint(tx_prime[1:])
+    txins = []
+    for _ in range(number_of_inputs):
+        txin_, tx_prime = txin_deser(tx_prime)
+        txins.append(txin_)
+    deserialized_tx["txins"] = txins
+
+    number_of_outputs, tx_prime = bits.utils.parse_compact_size_uint(tx_prime)
+    txouts = []
+    for _ in range(number_of_outputs):
+        txout_, tx_prime = txout_deser(tx_prime)
+        txouts.append(txout_)
+    deserialized_tx["txouts"] = txouts
+
+    if is_segwit:
+        number_of_witnesses, tx_prime = bits.utils.parse_compact_size_uint(tx_prime)
+        script_witnesses, tx_prime = bits.utils.parse_script_witness(tx_prime)
+        deserialized_tx["witnesses"] = script_witnesses
+
+    locktime = tx_prime[:4]
+    deserialized_tx["locktime"] = int.from_bytes(locktime, "little")
+
+    tx_prime = tx_prime[4:]
+    return deserialized_tx, tx_prime
+
+
 def txid(tx_: bytes) -> str:
     return d_hash(tx_)[::-1].hex()  # rpc byte order
-
-
-# SegWit
-def wtxid(
-    tx_: bytes, witness: bytes, marker: bytes = b"\x00", flag: bytes = b"\x01"
-) -> bytes:
-    # https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki
-    # if all txins are non-witness program, wxtid == txid
-    # returns:
-    #   d_hash([nVersion][marker][flag][txins][txouts][witness][nLockTime])
-
-    return
 
 
 def coinbase_txin(
@@ -163,64 +218,53 @@ def coinbase_tx(
 
 
 def send_tx(
-    from_addr: bytes,
-    to_data: list,
-    from_key: bytes = b"",
-    to_addr_type: str = "p2pkh",
+    from_: bytes,
+    to_: bytes,
+    scriptsig: Optional[bytes] = b"",
     miner_fee: int = 1000,
 ) -> bytes:
     """
-    Create raw tx to send all funds (accounting for miner fee) from from_addr to various destinations
+    Create raw transaction which sends all funds from addr to addr
     Assumes p2pkh for from_addr
     Requires rpc bitcoind node
     Args:
-        from_addr: bytes, sends from this addr
-        to_data: list, addr type inferred per bits.script.utils.scriptpubkey function
-        from_key: bytes, private key wif encoded
+        from_: bytes, send from this output descriptor
+        to_: bytes, send to this output descriptor
+        scriptsig: bytes, list of keys (wif-encoded)
         miner_fee: int, amount (in satoshis) to include as miner fee
     """
-    from_addr_txoutset = bits.rpc.rpc_method(
-        "scantxoutset", "start", f'["addr({from_addr.decode("utf8")})"]'
-    )
-    txins = []
-    for utxo in from_addr_txoutset["unspents"]:
-        txid = bytes.fromhex(utxo["txid"])[::-1]
-        from_addr_scriptsig = bytes.fromhex(utxo["scriptPubKey"])
-        vout = utxo["vout"]
-        txins.append(txin(outpoint(txid, vout), from_addr_scriptsig))
-    total_amount = int(from_addr_txoutset["total_amount"] * 1e8)
+    if bits.utils.is_point(from_):
+        from_txoutset = from_txoutset = bits.rpc.rpc_method(
+            "scantxoutset", "start", f'["pk({from_.hex()})"]'
+        )
+    elif bits.base58.is_base58check(from_) or bits.bips.bip173.is_segwit_addr(from_):
+        from_txoutset = bits.rpc.rpc_method(
+            "scantxoutset", "start", f'["addr({from_.decode("utf8")})"]'
+        )
+    else:
+        # raw scriptpubkey
+        from_txoutset = bits.rpc.rpc_method(
+            "scantxoutset", "start", f'["raw({from_.hex()})"]'
+        )
 
-    to_data_scriptpubkey = scriptpubkey(to_data, network=bits.bitsconfig["network"])
-    txouts = [txout(total_amount - miner_fee, to_data_scriptpubkey)]
+    txins = []
+    for utxo in from_txoutset["unspents"]:
+        txid = bytes.fromhex(utxo["txid"])[::-1]
+        from_scriptsig = bytes.fromhex(utxo["scriptPubKey"])
+        vout = utxo["vout"]
+        txins.append(txin(outpoint(txid, vout), from_scriptsig))
+    total_amount = int(from_txoutset["total_amount"] * 1e8)
+
+    to_scriptpubkey = scriptpubkey(to_)
+    txouts = [txout(total_amount - miner_fee, to_scriptpubkey)]
 
     tx_ = tx(txins, txouts)
 
-    if from_key:
-        # write key bytes as local tmp file for openssl signing
-        _, key, compressed = wif_decode(from_key)
-
-        timestamp = int(time.time() * 1000)
-        sk_filename = f".bits/tmp/signing_key_{timestamp}.pem"
-        with open(sk_filename, "wb") as file_:
-            file_.write(pem_encode_key(key))
-
-        # single hash since openssl does another
-        sigdata = s_hash(tx_ + bits.script.constants.SIGHASH_ALL.to_bytes(4, "little"))
-
-        # sign raw tx
-        sig = bits.openssl.sign(sk_filename, stdin=sigdata)
-        sig = ensure_sig_low_s(sig)
-
-        # remove tmp file
-        os.remove(sk_filename)
-
-        from_addr_scriptsig = p2pkh_script_sig(
-            sig, bits.keys.pub(key, compressed=compressed)
-        )
+    if scriptsig:
         txins = []
-        for utxo in from_addr_txoutset["unspents"]:
+        for utxo in from_txoutset["unspents"]:
             txid = bytes.fromhex(utxo["txid"])[::-1]
             vout = utxo["vout"]
-            txins.append(txin(outpoint(txid, vout), from_addr_scriptsig))
+            txins.append(txin(outpoint(txid, vout), scriptsig))
         tx_ = tx(txins, txouts)
     return tx_

@@ -20,9 +20,10 @@ if not os.path.exists(".bits/logs"):
     os.makedirs(".bits/logs")
 fh = logging.FileHandler(".bits/logs/bits.log")
 fh.setFormatter(formatter)
-sh = logging.StreamHandler(sys.stdout)
-sh.setFormatter(formatter)
 log.addHandler(fh)
+sh = logging.StreamHandler()
+sh.setLevel(logging.ERROR)
+sh.setFormatter(formatter)
 log.addHandler(sh)
 
 
@@ -70,7 +71,7 @@ def read_bytes(file_: Optional[IO] = None, input_format: str = "raw") -> bytes:
         input_format: str, "raw", "hex", or "bin"
     """
     if input_format == "raw":
-        data = file_.buffer.read() if file_ else sys.stdin.buffer.read()
+        data = file_.buffer.read().strip() if file_ else sys.stdin.buffer.read().strip()
     elif input_format == "hex":
         data = file_.read().strip() if file_ else sys.stdin.read().strip()
         data = bytes.fromhex(data)

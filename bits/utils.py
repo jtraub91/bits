@@ -1,11 +1,15 @@
 import hashlib
 import math
+import os
 import re
+import stat
+import time
 from typing import List
 from typing import Optional
 from typing import Tuple
 from typing import Union
 
+import bits.script.constants
 from bits.base58 import base58check
 from bits.base58 import base58check_decode
 from bits.bips.bip173 import segwit_addr
@@ -72,9 +76,9 @@ def point(pubkey_: bytes) -> Tuple[int]:
     return (x, y)
 
 
-def is_point(pubkey: bytes):
+def is_point(pubkey_: bytes):
     try:
-        point(pubkey)
+        point(pubkey_)
         return True
     except AssertionError:
         return False
@@ -157,6 +161,14 @@ def parse_compact_size_uint(payload: bytes) -> Tuple[int, bytes]:
     return integer, payload
 
 
+def hash160(msg: bytes) -> bytes:
+    return hashlib.new("ripemd160", hashlib.sha256(msg).digest()).digest()
+
+
+def ripemd160(msg: bytes) -> bytes:
+    return hashlib.new("ripemd160", msg).digest()
+
+
 def s_hash(msg: bytes) -> bytes:
     """
     Single sha256 hash of msg
@@ -164,10 +176,18 @@ def s_hash(msg: bytes) -> bytes:
     return hashlib.sha256(msg).digest()
 
 
+def sha256(msg: bytes) -> bytes:
+    return hashlib.sha256(msg).digest()
+
+
 def d_hash(msg: bytes) -> bytes:
     """
     Double sha256 hash of msg
     """
+    return hashlib.sha256(hashlib.sha256(msg).digest()).digest()
+
+
+def hash256(msg: bytes) -> bytes:
     return hashlib.sha256(hashlib.sha256(msg).digest()).digest()
 
 
@@ -244,29 +264,62 @@ def pubkey_from_pem(pem_: bytes):
     return decoded_key
 
 
+WIF_NETWORK_BASE = {"mainnet": 0x80, "testnet": 0xEF, "regtest": 0xEF}
+WIF_SCRIPT_OFFSET = {
+    "p2pkh": 0,
+    "p2wpkh": 1,
+    "p2sh-p2wpkh": 2,
+    "p2sh": 5,
+    "p2wsh": 6,
+    "p2sh-p2wsh": 7,
+}
+WIF_TYPE_COMBINATIONS = {
+    ("mainnet", "p2pkh"): 0x80,
+    ("mainnet", "p2wpkh"): 0x81,
+    ("mainnet", "p2sh-p2wpkh"): 0x82,
+    ("mainnet", "p2sh"): 0x85,
+    ("mainnet", "p2wsh"): 0x86,
+    ("mainnet", "p2sh-p2wsh"): 0x87,
+    ("testnet", "p2pkh"): 0xEF,
+    ("testnet", "p2wpkh"): 0xF0,
+    ("testnet", "p2sh-p2wpkh"): 0xF1,
+    ("testnet", "p2sh"): 0xF4,
+    ("testnet", "p2wsh"): 0xF5,
+    ("testnet", "p2sh-p2wsh"): 0xF6,
+}
+WIF_TYPE_COMBINATIONS_MAP = {value: key for key, value in WIF_TYPE_COMBINATIONS.items()}
+
+
 def wif_encode(
     privkey_: bytes,
-    compressed_pubkey: bool = True,
+    addr_type: str = "p2pkh",
     network: str = "mainnet",
+    compressed_pubkey: bool = True,
+    redeem_script: bytes = b"",
 ) -> bytes:
     """
     WIF encoding
     # https://en.bitcoin.it/wiki/Wallet_import_format
     # https://river.com/learn/terms/w/wallet-import-format-wif/
+
+    ** Extends electrum WIF spec to include redeemscript or other script data
+        at suffix
+
     Args:
         privkey_: bytes, private key
         compressed_pubkey: bool, corresponds to a compressed pubkey
         network: str, mainnet or testnet
     """
-    if network.lower() == "mainnet":
-        prefix = b"\x80"
-    elif network.lower() in ["testnet", "regtest"]:
-        prefix = b"\xef"
-    else:
-        raise ValueError(f"unrecognized network: {network}")
+    if len(privkey_) != 32:
+        raise ValueError("private key length not 32 bytes")
+    prefix = (WIF_NETWORK_BASE[network] + WIF_SCRIPT_OFFSET[addr_type]).to_bytes(
+        1, "big"
+    )
     wif = prefix + privkey_
     if compressed_pubkey:
         wif += b"\x01"
+    elif redeem_script:
+        wif += redeem_script
     return base58check(wif)
 
 
@@ -276,8 +329,11 @@ def wif_decode(wif_: bytes) -> Tuple[bytes, bytes, bool]:
         version, key, compressed
     """
     decoded = base58check_decode(wif_)
-    version = decoded[0:1]
-    key_ = decoded[1:]
+    version = decoded[0]
+
+    key_ = decoded[1:33]
+    addtl_data = decoded[33:]
+
     compressed = False
     assert len(key_) == 32 or len(key_) == 33
     if len(key_) == 33:
@@ -388,3 +444,101 @@ def pem_encode_key(key_: bytes) -> bytes:
         raise ValueError(
             "key (based on len) not recognized as public nor private key data"
         )
+
+
+def der_encode_sig(r: int, s: int) -> bytes:
+    # https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki#der-encoding
+    r_number_of_bytes = (r.bit_length() + 7) // 8
+    r_bytes = r.to_bytes(r_number_of_bytes, "big")
+    if r_bytes[0] >= 0x80:
+        r_bytes = b"\x00" + r_bytes
+
+    s_number_of_bytes = (s.bit_length() + 7) // 8
+    s_bytes = s.to_bytes(s_number_of_bytes, "big")
+    if s_bytes[0] >= 0x80:
+        s_bytes += b"\x00" + s_bytes
+
+    signature_asn1_data_struct = [
+        [
+            ["SEQUENCE (OF)", "Constructed", "Universal"],
+            len(r_bytes) + len(s_bytes) + 4,
+            [
+                [
+                    ["INTEGER", "Primitive", "Universal"],
+                    len(r_bytes),
+                    r_bytes,
+                ],
+                [
+                    ["INTEGER", "Primitive", "Universal"],
+                    len(s_bytes),
+                    s_bytes,
+                ],
+            ],
+        ]
+    ]
+    return encode_parsed_asn1(signature_asn1_data_struct[0])
+
+
+def der_decode_sig(der: bytes) -> Tuple[int, int]:
+    parsed = parse_asn1(der)
+    r = int.from_bytes(parsed[0][2][0][2], "big")
+    s = int.from_bytes(parsed[0][2][1][2], "big")
+    return r, s
+
+
+def openssl_sig(
+    key: bytes, msg: bytes, sighash_flag: int = bits.script.constants.SIGHASH_ALL
+):
+    """
+    Create signature
+    Args:
+        sigdata: bytes, data to sign
+        key: bytes, signing key
+        sighash_flag: int, SIGHASH flag to append to sigdata
+    Returns:
+        signature
+    """
+    # TODO: overcome possibility for overwritten files
+    #  take hash of key / compute pubkey, is that secure?
+    timestamp = int(time.time() * 1e9)
+    key_filename = f".bits/tmp/key_{timestamp}.pem"
+    with open(key_filename, "wb") as key_file:
+        key_file.write(pem_encode_key(key))
+    os.chmod(key_filename, stat.S_IREAD)
+    sigdata = s_hash(msg + sighash_flag.to_bytes(4, "little"))
+    sig = bits.openssl.sign(key_filename, stdin=sigdata)
+    os.remove(key_filename)
+    sig = ensure_sig_low_s(sig)
+    return sig + sighash_flag.to_bytes(1, "little")
+
+
+def sig(
+    key: bytes,
+    msg: bytes,
+    sighash_flag: Optional[int] = None,
+) -> bytes:
+    if sighash_flag is not None:
+        msg += sighash_flag.to_bytes(4, "little")
+    sigdata = hash256(msg)
+    r, s = bits.ecmath.sign(privkey_int(key), int.from_bytes(sigdata, "big"))
+    signature_der = der_encode_sig(r, s)
+    if sighash_flag is not None:
+        signature_der += sighash_flag.to_bytes(1, "little")
+    return signature_der
+
+
+def sig_verify(
+    sig_: bytes,
+    pubkey_: bytes,
+    msg: bytes,
+) -> str:
+    sighash_flag = sig_[-1]
+    r, s = der_decode_sig(sig_[:-1])
+    msg_digest = hash256(msg + sighash_flag.to_bytes(4, "little"))
+    try:
+        result = bits.ecmath.verify(
+            r, s, point(pubkey_), int.from_bytes(msg_digest, "big")
+        )
+    except AssertionError as err:
+        return err.args[0]
+    return "OK"

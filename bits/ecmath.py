@@ -1,7 +1,7 @@
 """
 Elliptic curve math
 """
-import math
+import secrets
 from typing import Tuple
 
 # http://www.secg.org/sec2-v2.pdf - pg 13
@@ -181,9 +181,50 @@ def point_scalar_mul(
     # https://en.wikipedia.org//wiki/Elliptic_curve_point_multiplication
     # https://en.wikipedia.org/wiki/Elliptic_curve_point_multiplication#Double-and-add
     result = None
-    bit_depth = math.ceil(math.log2(k))
+    bit_depth = k.bit_length()
     for bit_no in reversed(range(bit_depth)):
         result = point_add(result, result)  # double
         if k & (2**bit_no):
             result = point_add(result, P)  # add
     return result
+
+
+def sign(
+    key: int,
+    digest: int,
+    N: int = SECP256K1_N,
+    G: Tuple[int, int] = (SECP256K1_Gx, SECP256K1_Gy),
+) -> Tuple[int, int]:
+    # https://en.bitcoin.it/wiki/Elliptic_Curve_Digital_Signature_Algorithm
+    r = 0
+    s = 0
+    while not r or not s:
+        k = secrets.randbelow(N)
+        while not k:
+            k = secrets.randbelow(N)
+        x, y = point_scalar_mul(k, G)
+        r = x % N
+        if r:
+            s = div_mod_p(add_mod_p(digest % N, mul_mod_p(r, key, p=N), p=N), k, p=N)
+            if s > SECP256K1_N // 2 or s < 1:
+                # s = N - s
+                s = sub_mod_p(0, s, p=N)
+    return (r, s)
+
+
+def verify(
+    r: int,
+    s: int,
+    point: Tuple[int, int],
+    digest: int,
+    N: int = SECP256K1_N,
+    G: Tuple[int, int] = (SECP256K1_Gx, SECP256K1_Gy),
+) -> bool:
+    assert r in range(1, N), "r out of range [1, N)"
+    assert s in range(1, N), "s out of range [1, N)"
+    u1 = div_mod_p(digest, s, p=N)
+    u2 = div_mod_p(r, s, p=N)
+    x, y = point_add(point_scalar_mul(u1, G), point_scalar_mul(u2, point))
+    assert point_is_on_curve(x, y), "point is not on curve"
+    assert r == x % N, "invalid signature"
+    return True
