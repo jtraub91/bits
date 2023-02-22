@@ -21,48 +21,66 @@ from typing import Union
 
 def witness_message(
     txins: List[bytes],
-    outpoint_txin_index: int,
-    outpoint_value: Union[int, float],
-    outpoint_scriptpubkey: bytes,
+    txin_index: int,
+    txin_value: Union[int, float],
+    scriptcode: bytes,
     txouts: List[bytes],
     version: int = 1,
     locktime: int = 0,
     sighash_flag: Optional[int] = None,
 ) -> bytes:
     """
+    Generate witness message (pre-imagehash) from txins, txouts, outpoint info, and other tx details
+    Hashprevouts, hashsequence, scriptcode, hashoutputs, etc. calculated as necessary
+    Note that even though it is provided as input,
+        the full txin is not serialized as per the traditional signature digest algorithm.
     Args:
-        txins: list[bytes], transaction inputs
-        outpoint_txin_index: int, index corresponding to txins for the outpoint we are signing
-        outpoint_value: int, value of outpoint in which we are signing, in satoshis
-        txouts: list[bytes], transaction outputs
-        version: int, transaction version
-        locktime: int, transactionlocktime
+        txins: list[bytes], inputs
+        txin_index: int, index corresponding to txins for the outpoint we are signing
+        txin_value: int, value of outpoint in which we are signing, in satoshis
+        scriptcode: bytes, scriptcode of the input
+            if p2wpkh, scriptcode = OP_DUP OP_HASH160 <witness-program> OP_EQUALVERIFY OP_CHECKSIG
+            if p2wsh, scriptcode = <witness-script>
+                see tests/unit/test_bip143.py for handling of OP_CODESEPARATOR in witness script
+        txouts: list[bytes], outputs
+        version: int, version
+        locktime: int, locktime
     """
     outpoints = [txin[:36] for txin in txins]
-    hash_prevouts = hashlib.sha256(
-        hashlib.sha256(b"".join(outpoints)).digest()
-    ).digest()
+
+    anyone_can_pay = sighash_flag & 0x80
+    if anyone_can_pay:
+        hash_prevouts = b"\x00" * 32
+    else:
+        hash_prevouts = hashlib.sha256(
+            hashlib.sha256(b"".join(outpoints)).digest()
+        ).digest()
 
     sequences = [txin[-4:] for txin in txins]
-    hash_sequence = hashlib.sha256(
-        hashlib.sha256(b"".join(sequences)).digest()
-    ).digest()
-
-    outpoint = outpoints[outpoint_txin_index]
-    assert (
-        outpoint_scriptpubkey[0] == 0
-    ), "outpoint_scriptpubkey is not v0 witness program"
-    if outpoint_scriptpubkey[1] == 20:
-        # p2wpkh
-        scriptcode = b"\x19\x76\xa9\x14" + outpoint_scriptpubkey[2:] + b"\x88\xac"
-    elif outpoint_scriptpubkey[1] == 32:
-        # p2wsh
-        raise NotImplementedError("p2wsh scriptcode")
+    if sighash_flag in [0x02, 0x03, 0x82, 0x83]:
+        # SIGHASH_NONE, SIGHASH_SINGLE, SIGHASH_NONE|SIGHASH_ANYONECANPAY, SIGHASH_SINGLE|SIGHASH_ANYONECANPAY
+        hash_sequence = b"\x00" * 32
     else:
-        raise ValueError("outpoint scriptpubkey not identified as p2wpkh nor p2wsh")
-    sequence = sequences[outpoint_txin_index]
+        hash_sequence = hashlib.sha256(
+            hashlib.sha256(b"".join(sequences)).digest()
+        ).digest()
 
-    hash_outputs = hashlib.sha256(hashlib.sha256(b"".join(txouts)).digest()).digest()
+    outpoint = outpoints[txin_index]
+    sequence = sequences[txin_index]
+
+    if sighash_flag & 0x7F not in [0x02, 0x03]:
+        # not SIGHASH_NONE or SIGHASH_SINGLE
+        hash_outputs = hashlib.sha256(
+            hashlib.sha256(b"".join(txouts)).digest()
+        ).digest()
+    elif sighash_flag & 0x7F == 0x03 and txin_index + 1 < len(txouts):
+        # SIGHASH_SINGLE
+        # "If sighash type is SINGLE and the input index is smaller than the number of outputs, hashOutputs is the double SHA256 of the output amount with scriptPubKey of the same index as the input;"
+        raise NotImplementedError(
+            "sighash type is SINGLE and the input index is smaller than the number of outputs"
+        )
+    else:
+        hash_outputs = b"\x00" * 32
 
     msg = (
         version.to_bytes(4, "little")
@@ -70,7 +88,7 @@ def witness_message(
         + hash_sequence
         + outpoint
         + scriptcode
-        + int(outpoint_value).to_bytes(8, "little")
+        + int(txin_value).to_bytes(8, "little")
         + sequence
         + hash_outputs
         + locktime.to_bytes(4, "little")

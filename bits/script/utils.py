@@ -257,3 +257,37 @@ def script(args: list[str]) -> bytes:
             scriptbytes += op_push
             scriptbytes += data
     return scriptbytes
+
+
+OP_INT_MAP = {
+    op: getattr(constants, op) for op in dir(constants) if op.startswith("OP_")
+}
+INT_OP_MAP = {value: key for key, value in OP_INT_MAP.items()}
+
+
+def decode_script(scriptbytes: bytes) -> list[str]:
+    decoded = []
+    while scriptbytes:
+        if scriptbytes[0] in range(1, 0x4C):
+            push = scriptbytes[0]
+            decoded.append(scriptbytes[1 : 1 + push].hex())
+            scriptbytes = scriptbytes[1 + push :]
+        else:
+            op_int = scriptbytes[0]
+            op = INT_OP_MAP[op_int]
+            scriptbytes = scriptbytes[1:]
+            if op == "OP_PUSHDATA1":
+                push = scriptbytes[0]
+                decoded.append(scriptbytes[1 : 1 + push].hex())
+                scriptbytes = scriptbytes[1 + push :]
+            elif op == "OP_PUSHDATA2":
+                push = int.from_bytes(scriptbytes[:2], "little")
+                decoded.append(scriptbytes[2 : 2 + push].hex())
+                scriptbytes = scriptbytes[2 + push :]
+            elif op == "OP_PUSHDATA4":
+                push = int.from_bytes(scriptbytes[:4], "little")
+                decoded.append(scriptbytes[4 : 4 + push].hex())
+                scriptbytes = scriptbytes[4 + push :]
+            else:
+                decoded.append(op)
+    return decoded
