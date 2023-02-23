@@ -4,5 +4,5 @@ ipdb
 pip-chill
 pre-commit
 pylint
-pytest
+pytest-cov
 reorder-python-imports

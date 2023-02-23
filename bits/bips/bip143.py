@@ -57,8 +57,9 @@ def witness_message(
         ).digest()
 
     sequences = [txin[-4:] for txin in txins]
-    if sighash_flag in [0x02, 0x03, 0x82, 0x83]:
-        # SIGHASH_NONE, SIGHASH_SINGLE, SIGHASH_NONE|SIGHASH_ANYONECANPAY, SIGHASH_SINGLE|SIGHASH_ANYONECANPAY
+    if sighash_flag in [0x02, 0x03, 0x81, 0x82, 0x83]:
+        # SIGHASH_NONE, SIGHASH_SINGLE, SIGHASH_ALL|SIGHASH_ANYONECANPAY,
+        # SIGHASH_NONE|SIGHASH_ANYONECANPAY, SIGHASH_SINGLE|SIGHASH_ANYONECANPAY
         hash_sequence = b"\x00" * 32
     else:
         hash_sequence = hashlib.sha256(
@@ -73,12 +74,13 @@ def witness_message(
         hash_outputs = hashlib.sha256(
             hashlib.sha256(b"".join(txouts)).digest()
         ).digest()
-    elif sighash_flag & 0x7F == 0x03 and txin_index + 1 < len(txouts):
+    elif sighash_flag & 0x7F == 0x03 and txin_index < len(txouts):
         # SIGHASH_SINGLE
-        # "If sighash type is SINGLE and the input index is smaller than the number of outputs, hashOutputs is the double SHA256 of the output amount with scriptPubKey of the same index as the input;"
-        raise NotImplementedError(
-            "sighash type is SINGLE and the input index is smaller than the number of outputs"
-        )
+        # "If sighash type is SINGLE and the input index is smaller than the number of outputs,
+        # hashOutputs is the double SHA256 of the output amount with scriptPubKey of the same index as the input;"
+        hash_outputs = hashlib.sha256(
+            hashlib.sha256(txouts[txin_index]).digest()
+        ).digest()
     else:
         hash_outputs = b"\x00" * 32
 
