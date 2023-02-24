@@ -1,2 +1,18 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bits"
+version = "0.1.0"
+authors = [{name = "Jason Traub", email = "jtraub91@gmail.com"}]
+requires-python = ">=3.7"
+
+[project.scripts]
+bits = "bits.cli:main"
+
 [tool.pytest.ini_options]
-addopts = "--cov=bits"
+addopts = [
+    "--cov=bits",
+    "--doctest-modules"
+]

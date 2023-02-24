@@ -1,5 +1,5 @@
 """
-Test expected mempoolaccept response on local bitcoind node via rpc for various transaction types 
+Test spenditure of various transaction type via testmempoolaccept response on local bitcoind node via rpc
 """
 import os
 import time
@@ -7,7 +7,6 @@ import time
 import pytest
 
 import bits.keys
-import bits.openssl
 from bits.base58 import base58check_decode
 from bits.integrations import generate_funded_keys
 from bits.integrations import mine_block
@@ -171,7 +170,7 @@ def test_multisig(funded_keys_101):
             miner_fee=MINER_FEE,
         )
 
-        # testmempoolaccept spenditure multisih
+        # testmempoolaccept spenditure multisig
         ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
         assert ret[0]["allowed"] == True, ret
 
@@ -246,7 +245,7 @@ def test_p2sh_multisig(funded_keys_101):
             miner_fee=MINER_FEE,
         )
 
-        # testmempoolaccept spenditure multisih
+        # testmempoolaccept spenditure multisig
         ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
         assert ret[0]["allowed"] == True, ret
 
@@ -277,6 +276,7 @@ def test_p2wpkh(funded_keys_101):
     mine_block()
 
     tx_ = send_tx(addr_1, addr_0, miner_fee=MINER_FEE)
+    # TODO: test spenditure
 
 
 def test_p2wsh(funded_keys_101):
@@ -318,6 +318,7 @@ def test_p2wsh(funded_keys_101):
         assert ret[0]["allowed"] == True, ret
         bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
         mine_block()
+        # TODO: test spenditure
 
 
 def test_p2sh_p2wpkh(funded_keys_101):
@@ -346,6 +347,7 @@ def test_p2sh_p2wpkh(funded_keys_101):
     assert ret[0]["allowed"] == True, ret
     bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
     mine_block()
+    # TODO: test spenditure
 
 
 def test_p2sh_p2wsh(funded_keys_101):
@@ -395,3 +397,4 @@ def test_p2sh_p2wsh(funded_keys_101):
         assert ret[0]["allowed"] == True, ret
         bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
         mine_block()
+        # TODO: test spenditure

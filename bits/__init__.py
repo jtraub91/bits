@@ -60,10 +60,6 @@ def load_config():
     bitsconfig_file.close()
 
 
-bitsconfig = {}
-load_config()
-
-
 def read_bytes(file_: Optional[IO] = None, input_format: str = "raw") -> bytes:
     """
     Read from optional file or stdin and convert to bytes
@@ -98,3 +94,7 @@ def print_bytes(data: bytes, output_format: str = "raw"):
         print(format(int.from_bytes(data, "big"), format_spec))
     else:
         raise ValueError(f"unrecognized output format: {output_format}")
+
+
+bitsconfig = {}
+load_config()

@@ -4,8 +4,8 @@ https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#test-vectors
 import pytest
 
 import bits.bips.bip32 as bip32
-from bits.wallet.utils import derive_from_path
-from bits.wallet.utils import get_xpub
+from bits.wallet.hd import derive_from_path
+from bits.wallet.hd import get_xpub
 
 
 @pytest.mark.parametrize(

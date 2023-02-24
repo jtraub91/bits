@@ -8,9 +8,11 @@ from typing import Tuple
 from bits.script.utils import p2pk_script_pubkey
 from bits.tx import coinbase_txin
 from bits.tx import tx
+from bits.tx import tx_deser
 from bits.tx import txout
 from bits.utils import compact_size_uint
 from bits.utils import d_hash
+from bits.utils import parse_compact_size_uint
 
 
 COIN = 100000000  # satoshis / bitcoin
@@ -121,17 +123,26 @@ def genesis_coinbase_tx():
 
 
 def genesis_block():
+    """
+    Hard coded genesis block - mainnet
+    >>> gb = genesis_block()
+    >>> header = gb[:80]
+    >>> import hashlib
+    >>> hashlib.sha256(hashlib.sha256(header).digest()).digest()[::-1].hex()
+    '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f'
+    """
+
     # https://github.com/bitcoin/bitcoin/blob/v0.1.5/main.cpp#L1495-L1498
     version: int = 1
     nTime = 1231006505
-    nBits = b"\x1D\x00\xFF\xFF"
+    nBits = 0x1D00FFFF
     nNonce = 2083236893
 
     coinbase_tx = genesis_coinbase_tx()
     merkle_ = merkle_root([coinbase_tx])
-
     return block_ser(
-        block_header(1, NULL_32, merkle_, nTime, nBits, nNonce), [coinbase_tx]
+        block_header(1, NULL_32, merkle_, nTime, nBits.to_bytes(4, "little"), nNonce),
+        [coinbase_tx],
     )
 
 
@@ -139,6 +150,14 @@ def block_ser(blk_hdr: bytes, txns: List[bytes]) -> bytes:
     return blk_hdr + compact_size_uint(len(txns)) + b"".join(txns)
 
 
-def block_deser(block: bytes) -> Tuple[bytes, List[bytes]]:
-    # return block_header_, txns
-    raise NotImplementedError
+def block_deser(block: bytes) -> Tuple[bytes, List[dict]]:
+    header = block[:80]
+    number_of_txns, block_prime = parse_compact_size_uint(block[80:])
+    txns = []
+    while block_prime:
+        deserialized_tx, block_prime = tx_deser(block_prime)
+        txns.append(deserialized_tx)
+    assert (
+        len(txns) == number_of_txns
+    ), "error during parsing - number of txns does not match"
+    return header, txns

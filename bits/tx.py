@@ -11,7 +11,6 @@ from typing import Optional
 from typing import Tuple
 
 import bits.keys
-import bits.openssl
 import bits.script.constants
 import bits.utils
 from bits.base58 import base58check_decode
@@ -166,7 +165,7 @@ def coinbase_txin(
             (now required per BIP34)
 
     """
-    if block_height:
+    if block_height is not None:
         # "minimally encoded serialized CScript"
         if block_height <= 16:
             op = getattr(bits.script.constants, f"OP_{block_height}")

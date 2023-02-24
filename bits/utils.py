@@ -486,32 +486,6 @@ def der_decode_sig(der: bytes) -> Tuple[int, int]:
     return r, s
 
 
-def openssl_sig(
-    key: bytes, msg: bytes, sighash_flag: int = bits.script.constants.SIGHASH_ALL
-):
-    """
-    Create signature
-    Args:
-        sigdata: bytes, data to sign
-        key: bytes, signing key
-        sighash_flag: int, SIGHASH flag to append to sigdata
-    Returns:
-        signature
-    """
-    # TODO: overcome possibility for overwritten files
-    #  take hash of key / compute pubkey, is that secure?
-    timestamp = int(time.time() * 1e9)
-    key_filename = f".bits/tmp/key_{timestamp}.pem"
-    with open(key_filename, "wb") as key_file:
-        key_file.write(pem_encode_key(key))
-    os.chmod(key_filename, stat.S_IREAD)
-    sigdata = s_hash(msg + sighash_flag.to_bytes(4, "little"))
-    sig = bits.openssl.sign(key_filename, stdin=sigdata)
-    os.remove(key_filename)
-    sig = ensure_sig_low_s(sig)
-    return sig + sighash_flag.to_bytes(1, "little")
-
-
 def sig(
     key: bytes,
     msg: bytes,

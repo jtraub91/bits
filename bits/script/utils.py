@@ -19,16 +19,25 @@ log = logging.getLogger(__name__)
 
 def scriptpubkey(data: bytes) -> bytes:
     """
-    Create scriptpubkey by inferring input data addr type.
+    Create scriptpubkey by inferring input data type.
     Returns identity if data not identified as pubkey, base58check, nor segwit
 
-    >>> scriptpubkey(bytes.fromhex("02726b45a5b1b506015dc926630b2627454d635d87eeb72bb7d5476d545d6769f9"))  # p2pk
-
-    >>> scriptpubkey(b"1GhhwzPms6aKhzK5EcSYdeJ8T35BvAsn7y")  # p2pkh
-
-    >>> scriptpubkey(b"3djjfdfkj)  # p2sh
-
-    >>> scriptpubkey(b"bc1q4s7tflrwuenru6tuwsa26rvflk8tfs2lk5gysg")    # p2wpkh
+    >>> # p2pk
+    >>> scriptpubkey(bytes.fromhex("025a058ec9fb35845ce07b6ec4929b443132b2fce2bb154e3aa66c19b851b0c449")).hex()
+    '21025a058ec9fb35845ce07b6ec4929b443132b2fce2bb154e3aa66c19b851b0c449ac'
+    >>> # p2pkh
+    >>> scriptpubkey(b"1A4wionHnAtthCbCb9CTmDJaKuEPNXZp8R").hex()
+    '76a91463780efe21b54d462d399b4c5b9902235aa570ec88ac'
+    >>> # p2sh
+    >>> scriptpubkey(b"3PSFZTX6WxhFTmPBLnCh6gwxomb4vvxSpP").hex()
+    'a914ee87e9344a5ef0f83a0aa250256a3cc394ab750387'
+    >>> # p2wpkh
+    >>> scriptpubkey(b"bc1qvduqal3pk4x5vtfendx9hxgzydd22u8v0pzd7h").hex()
+    '001463780efe21b54d462d399b4c5b9902235aa570ec'
+    >>> # TODO: p2wsh
+    >>> # raw
+    >>> scriptpubkey(bytes.fromhex("5221024c9b21035e4823d6f09d5a948201d14086d854dfa5bba828c06f5131d9cfe14f2103fe0b5ca0ab60705b21a00cbd9900026f282c7188427123e87e0dc344ce742eb02102528e776c2bf0be68f4503151fd036c9cb720c4977f6f5b0248d5472c654aebe453ae")).hex()
+    '5221024c9b21035e4823d6f09d5a948201d14086d854dfa5bba828c06f5131d9cfe14f2103fe0b5ca0ab60705b21a00cbd9900026f282c7188427123e87e0dc344ce742eb02102528e776c2bf0be68f4503151fd036c9cb720c4977f6f5b0248d5472c654aebe453ae'
     """
     # data is either pubkey, base58check, or segwit
     if is_point(data):
@@ -227,7 +236,9 @@ def script(args: list[str]) -> bytes:
     Generic script
     Args:
         args: list, script ops / data
-    >>> script(["OP_2", "03ffe6319b68b781d654e32b7b068e946eef2b0f094ba9eeb84308c6c58af71208", "03377714f72611b81ee5dfbe6f52bfe0e9b1f6827ca00b6ab90d899720b1df00fd", "02726b45a5b1b506015dc926630b2627454d635d87eeb72bb7d5476d545d6769f9", "OP_3"])
+
+    >>> script(["OP_2", "024c9b21035e4823d6f09d5a948201d14086d854dfa5bba828c06f5131d9cfe14f", "03fe0b5ca0ab60705b21a00cbd9900026f282c7188427123e87e0dc344ce742eb0", "02528e776c2bf0be68f4503151fd036c9cb720c4977f6f5b0248d5472c654aebe4", "OP_3", "OP_CHECKMULTISIG"]).hex()
+    '5221024c9b21035e4823d6f09d5a948201d14086d854dfa5bba828c06f5131d9cfe14f2103fe0b5ca0ab60705b21a00cbd9900026f282c7188427123e87e0dc344ce742eb02102528e776c2bf0be68f4503151fd036c9cb720c4977f6f5b0248d5472c654aebe453ae'
     """
     scriptbytes = b""
     for arg in args:

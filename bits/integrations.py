@@ -10,7 +10,7 @@ import bits.blockchain
 import bits.keys
 import bits.rpc
 from bits.script.utils import null_data_script_pubkey
-from bits.script.utils import p2pkh_script_pubkey
+from bits.script.utils import scriptpubkey
 from bits.utils import d_hash
 from bits.utils import pubkey_hash
 from bits.utils import to_bitcoin_address
@@ -77,7 +77,7 @@ def mine_block(recv_addr: Optional[bytes] = b"", network: str = "regtest"):
     """
     Retrieve all raw mempool transactions and submit in a block
     Args:
-        recv_addr: Optional[bytes], p2pkh addr to receive block reward
+        recv_addr: Optional[bytes], addr to receive block reward
     """
     current_block_height = bits.rpc.rpc_method("getblockcount")
     current_block_hash = bits.rpc.rpc_method("getblockhash", current_block_height)
@@ -98,8 +98,7 @@ def mine_block(recv_addr: Optional[bytes] = b"", network: str = "regtest"):
     ]
 
     if recv_addr:
-        pk_hash = bits.base58.base58check_decode(recv_addr)[1:]
-        script_pubkey = p2pkh_script_pubkey(pk_hash)
+        script_pubkey = scriptpubkey(recv_addr)
     else:
         script_pubkey = null_data_script_pubkey(recv_addr)
 
