@@ -3,18 +3,12 @@ Utils for various integrations with local bitcoind node
 """
 import logging
 import time
-from typing import Iterator
-from typing import Optional
+import typing
 
 import bits.blockchain
 import bits.keys
 import bits.rpc
-from bits.script.utils import null_data_script_pubkey
-from bits.script.utils import scriptpubkey
-from bits.utils import d_hash
-from bits.utils import pubkey_hash
-from bits.utils import to_bitcoin_address
-from bits.utils import wif_encode
+import bits.script
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +39,7 @@ def median_time() -> int:
 
 def generate_funded_keys(
     count: int, compressed_pubkey: bool = False, network: str = "regtest"
-) -> Iterator[tuple[bytes, bytes]]:
+) -> typing.Iterator[tuple[bytes, bytes]]:
     """
     Generate keys which receive coinbase reward sent to p2pkh address
     Args:
@@ -53,17 +47,17 @@ def generate_funded_keys(
         compressed_pubkey: bool, wether key should correspond to compressed pubkey for recv addr
         network: str, bitcoin network
     Returns:
-        iteration of tuples (key, addr)
+        iterator of tuples (key, addr)
     """
     keys_addrs = []
     for i in range(count):
         key = bits.keys.key()
         pubkey = bits.keys.pub(key, compressed=compressed_pubkey)
-        wif_encoded_key = wif_encode(
-            key, compressed_pubkey=compressed_pubkey, network=network
+        wif_encoded_key = bits.wif_encode(
+            key, network=network, data=b"\x01" if compressed_pubkey else b""
         )
-        pk_hash = pubkey_hash(pubkey)
-        addr = to_bitcoin_address(pk_hash, addr_type="p2pkh", network=network)
+        pk_hash = bits.hash160(pubkey)
+        addr = bits.to_bitcoin_address(pk_hash, addr_type="p2pkh", network=network)
 
         mine_block(addr, network=network)
 
@@ -73,11 +67,11 @@ def generate_funded_keys(
         yield key_addr
 
 
-def mine_block(recv_addr: Optional[bytes] = b"", network: str = "regtest"):
+def mine_block(recv_addr: bytes, network: str = "regtest"):
     """
     Retrieve all raw mempool transactions and submit in a block
     Args:
-        recv_addr: Optional[bytes], addr to receive block reward
+        recv_addr: bytes, addr to receive block reward
     """
     current_block_height = bits.rpc.rpc_method("getblockcount")
     current_block_hash = bits.rpc.rpc_method("getblockhash", current_block_height)
@@ -97,10 +91,7 @@ def mine_block(recv_addr: Optional[bytes] = b"", network: str = "regtest"):
         bits.rpc.rpc_method("getrawtransaction", txid) for txid in mempool_txids
     ]
 
-    if recv_addr:
-        script_pubkey = scriptpubkey(recv_addr)
-    else:
-        script_pubkey = null_data_script_pubkey(recv_addr)
+    script_pubkey = bits.script.scriptpubkey(recv_addr)
 
     txns = [
         bits.tx.coinbase_tx(
@@ -126,7 +117,7 @@ def mine_block(recv_addr: Optional[bytes] = b"", network: str = "regtest"):
         prev_nbits,
         nonce,
     )
-    new_block_hash = d_hash(new_block_header)
+    new_block_hash = bits.hash256(new_block_header)
 
     log.info(f"Mining block {current_block_height + 1}...")
     while int.from_bytes(new_block_hash, "little") > tgt_threshold:
@@ -139,7 +130,7 @@ def mine_block(recv_addr: Optional[bytes] = b"", network: str = "regtest"):
             prev_nbits,
             nonce,
         )
-        new_block_hash = d_hash(new_block_header)
+        new_block_hash = bits.hash256(new_block_header)
 
     new_block = bits.blockchain.block_ser(
         new_block_header,

@@ -1,18 +1,9 @@
 import logging
-import re
-from typing import List
+import typing
 
-import bits.script.constants as constants
-from bits.base58 import base58check_decode
-from bits.base58 import BITCOIN_ALPHABET
-from bits.base58 import is_base58check
-from bits.bips.bip173 import bech32_chars
-from bits.bips.bip173 import decode_segwit_addr
-from bits.bips.bip173 import is_segwit_addr
-from bits.utils import is_point
-from bits.utils import pubkey_hash
-from bits.utils import script_hash
-from bits.utils import witness_script_hash
+import bits.base58
+from bits.bips import bip173
+from bits.script import constants
 
 log = logging.getLogger(__name__)
 
@@ -40,10 +31,10 @@ def scriptpubkey(data: bytes) -> bytes:
     '5221024c9b21035e4823d6f09d5a948201d14086d854dfa5bba828c06f5131d9cfe14f2103fe0b5ca0ab60705b21a00cbd9900026f282c7188427123e87e0dc344ce742eb02102528e776c2bf0be68f4503151fd036c9cb720c4977f6f5b0248d5472c654aebe453ae'
     """
     # data is either pubkey, base58check, or segwit
-    if is_point(data):
+    if bits.is_point(data):
         return p2pk_script_pubkey(data)
-    elif is_base58check(data):
-        decoded = base58check_decode(data)
+    elif bits.base58.is_base58check(data):
+        decoded = bits.base58.base58check_decode(data)
         version, payload = decoded[0:1], decoded[1:]
         if version in [b"\x00", b"\x6f"]:
             # addr_type = "p2pkh"
@@ -54,9 +45,9 @@ def scriptpubkey(data: bytes) -> bytes:
         else:
             raise ValueError(f"unrecognized base58check version byte: {version}")
         return script_pubkey
-    elif is_segwit_addr(data):
+    elif bip173.is_segwit_addr(data):
         # segwit
-        hrp, witness_version, witness_program = decode_segwit_addr(data)
+        hrp, witness_version, witness_program = bip173.decode_segwit_addr(data)
         assert hrp in [b"bc", b"tb", b"bcrt"], "unrecognized hrp"
         if len(witness_program) == 20:
             return p2wpkh_script_pubkey(
@@ -117,7 +108,7 @@ def p2sh_script_pubkey(script_hash: bytes) -> bytes:
     )
 
 
-def p2sh_script_sig(sigs: List[bytes], redeem_script: bytes) -> bytes:
+def p2sh_script_sig(sigs: typing.List[bytes], redeem_script: bytes) -> bytes:
     """
     https://github.com/bitcoin/bips/blob/master/bip-0016.mediawiki#specification
 
@@ -129,7 +120,7 @@ def p2sh_script_sig(sigs: List[bytes], redeem_script: bytes) -> bytes:
     return script_sig
 
 
-def multisig_script_pubkey(m: int, pubkeys: List[bytes]) -> bytes:
+def multisig_script_pubkey(m: int, pubkeys: typing.List[bytes]) -> bytes:
     """
     m-of-n multisig, n implied by length of pubkeys list
     Args:
@@ -152,7 +143,7 @@ def multisig_script_pubkey(m: int, pubkeys: List[bytes]) -> bytes:
     return script_pubkey
 
 
-def multisig_script_sig(sigs: List[bytes]) -> bytes:
+def multisig_script_sig(sigs: typing.List[bytes]) -> bytes:
     len_w_sigs = [len(sig).to_bytes(1, "big") + sig for sig in sigs]
     return constants.OP_0.to_bytes(1, "big") + b"".join(len_w_sigs)
 
@@ -165,11 +156,11 @@ def null_data_script_pubkey(data: bytes) -> bytes:
     return constants.OP_RETURN.to_bytes(1, "big") + len(data).to_bytes(1, "big") + data
 
 
-def p2sh_multisig_script_pubkey(m: int, pubkeys: List[bytes]) -> bytes:
-    return p2sh_script_pubkey(script_hash(multisig_script_pubkey(m, pubkeys)))
+def p2sh_multisig_script_pubkey(m: int, pubkeys: typing.List[bytes]) -> bytes:
+    return p2sh_script_pubkey(bits.script_hash(multisig_script_pubkey(m, pubkeys)))
 
 
-def p2sh_multisig_script_sig(sigs: List[bytes], redeem_script: bytes) -> bytes:
+def p2sh_multisig_script_sig(sigs: typing.List[bytes], redeem_script: bytes) -> bytes:
     # return multisig_script_sig(sigs) + redeem_script
     sigs_str = [sig.hex() for sig in sigs]
     return script(["OP_0"] + sigs_str + [redeem_script.hex()])
@@ -208,7 +199,7 @@ def p2wsh_script_sig() -> bytes:
 
 def p2sh_p2wpkh_script_pubkey(pk_hash: bytes, witness_version: int = 0) -> bytes:
     return p2sh_script_pubkey(
-        script_hash(p2wpkh_script_pubkey(pk_hash, witness_version=witness_version))
+        bits.script_hash(p2wpkh_script_pubkey(pk_hash, witness_version=witness_version))
     )
 
 
@@ -219,9 +210,10 @@ def p2sh_p2wpkh_script_sig(redeem_script):
 
 def p2sh_p2wsh_script_pubkey(witness_script: bytes, witness_version: int = 0):
     return p2sh_script_pubkey(
-        script_hash(
+        bits.script_hash(
             p2wsh_script_pubkey(
-                witness_script_hash(witness_script), witness_version=witness_version
+                bits.witness_script_hash(witness_script),
+                witness_version=witness_version,
             )
         )
     )
@@ -231,16 +223,16 @@ def p2sh_p2wsh_script_sig(witness_script: bytes):
     return p2sh_script_sig([], witness_script)
 
 
-def script(args: list[str]) -> bytes:
+def script(args: list[str], witness: bool = False) -> bytes:
     """
     Generic script
     Args:
         args: list, script ops / data
-
+        witness: bool, wether witness script
     >>> script(["OP_2", "024c9b21035e4823d6f09d5a948201d14086d854dfa5bba828c06f5131d9cfe14f", "03fe0b5ca0ab60705b21a00cbd9900026f282c7188427123e87e0dc344ce742eb0", "02528e776c2bf0be68f4503151fd036c9cb720c4977f6f5b0248d5472c654aebe4", "OP_3", "OP_CHECKMULTISIG"]).hex()
     '5221024c9b21035e4823d6f09d5a948201d14086d854dfa5bba828c06f5131d9cfe14f2103fe0b5ca0ab60705b21a00cbd9900026f282c7188427123e87e0dc344ce742eb02102528e776c2bf0be68f4503151fd036c9cb720c4977f6f5b0248d5472c654aebe453ae'
     """
-    scriptbytes = b""
+    scriptbytes = bits.compact_size_uint(len(args)) if witness else b""
     for arg in args:
         # arg is either OP or data
         if arg.startswith("OP_"):
@@ -249,7 +241,7 @@ def script(args: list[str]) -> bytes:
         else:
             data = bytes.fromhex(arg)
             data_len = len(data)
-            if data_len > 0x4B:
+            if not witness and data_len > 0x4B:
                 data_len_min_bytes = (data_len.bit_length() + 7) // 8
                 if data_len_min_bytes == 1:
                     no_bytes = 1
@@ -276,12 +268,26 @@ OP_INT_MAP = {
 INT_OP_MAP = {value: key for key, value in OP_INT_MAP.items()}
 
 
-def decode_script(scriptbytes: bytes) -> list[str]:
+def decode_script(
+    scriptbytes: bytes, witness: bool = False
+) -> typing.Union[list[str], typing.Tuple[list[str], bytes]]:
     decoded = []
+    if witness:
+        witness_stack_len, scriptbytes = bits.parse_compact_size_uint(scriptbytes)
+
     while scriptbytes:
-        if scriptbytes[0] in range(1, 0x4C):
+        if witness:
             push = scriptbytes[0]
-            decoded.append(scriptbytes[1 : 1 + push].hex())
+            data = scriptbytes[1 : 1 + push]
+            decoded.append(data.hex())
+            scriptbytes = scriptbytes[1 + push :]
+            witness_stack_len -= 1
+            if not witness_stack_len:
+                return decoded, scriptbytes
+        elif scriptbytes[0] in range(1, 0x4C):
+            push = scriptbytes[0]
+            data = scriptbytes[1 : 1 + push]
+            decoded.append(data.hex())
             scriptbytes = scriptbytes[1 + push :]
         else:
             op_int = scriptbytes[0]
@@ -301,4 +307,8 @@ def decode_script(scriptbytes: bytes) -> list[str]:
                 scriptbytes = scriptbytes[4 + push :]
             else:
                 decoded.append(op)
+            if witness:
+                witness_stack_len -= 1
+            if witness and not witness_stack_len:
+                return decoded, scriptbytes
     return decoded

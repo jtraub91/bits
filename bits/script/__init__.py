@@ -1,19 +1,22 @@
-# from .utils import p2pk_script_pubkey
-# from .utils import p2pk_script_sig
-# from .utils import p2pkh_script_pubkey
-# from .utils import p2pkh_script_sig
-# from .utils import p2sh_multisig_script_pubkey
-# from .utils import p2sh_multisig_script_sig
-# from .utils import p2sh_p2wpkh_script_pubkey
-# from .utils import p2sh_p2wpkh_script_sig
-# from .utils import p2sh_p2wsh_script_pubkey
-# from .utils import p2sh_p2wsh_script_sig
-# from .utils import p2sh_script_pubkey
-# from .utils import p2sh_script_sig
-# from .utils import p2wpkh_script_pubkey
-# from .utils import p2wpkh_script_sig
-# from .utils import p2wsh_script_pubkey
-# from .utils import p2wsh_script_sig
-# from .utils import script
-# from .utils import scriptpubkey
-# from .utils import scriptsig
+from .utils import decode_script
+from .utils import multisig_script_pubkey
+from .utils import multisig_script_sig
+from .utils import null_data_script_pubkey
+from .utils import p2pk_script_pubkey
+from .utils import p2pk_script_sig
+from .utils import p2pkh_script_pubkey
+from .utils import p2pkh_script_sig
+from .utils import p2sh_multisig_script_pubkey
+from .utils import p2sh_multisig_script_sig
+from .utils import p2sh_p2wpkh_script_pubkey
+from .utils import p2sh_p2wpkh_script_sig
+from .utils import p2sh_p2wsh_script_pubkey
+from .utils import p2sh_p2wsh_script_sig
+from .utils import p2sh_script_pubkey
+from .utils import p2sh_script_sig
+from .utils import p2wpkh_script_pubkey
+from .utils import p2wpkh_script_sig
+from .utils import p2wsh_script_pubkey
+from .utils import p2wsh_script_sig
+from .utils import script
+from .utils import scriptpubkey

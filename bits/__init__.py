@@ -6,6 +6,27 @@ from typing import IO
 from typing import Optional
 from typing import Union
 
+from .utils import compact_size_uint
+from .utils import compute_point
+from .utils import d_hash
+from .utils import hash160
+from .utils import hash256
+from .utils import is_point
+from .utils import parse_compact_size_uint
+from .utils import pem_encode_key
+from .utils import point
+from .utils import pubkey
+from .utils import pubkey_hash
+from .utils import ripemd160
+from .utils import script_hash
+from .utils import sha256
+from .utils import sig
+from .utils import sig_verify
+from .utils import to_bitcoin_address
+from .utils import wif_decode
+from .utils import wif_encode
+from .utils import witness_script_hash
+
 try:
     import tomllib
 
@@ -22,7 +43,7 @@ fh = logging.FileHandler(".bits/logs/bits.log")
 fh.setFormatter(formatter)
 log.addHandler(fh)
 sh = logging.StreamHandler()
-sh.setLevel(logging.ERROR)
+sh.setLevel(logging.DEBUG)
 sh.setFormatter(formatter)
 log.addHandler(sh)
 
@@ -79,19 +100,26 @@ def read_bytes(file_: Optional[IO] = None, input_format: str = "raw") -> bytes:
     return data
 
 
-def print_bytes(data: bytes, output_format: str = "raw"):
+def write_bytes(data: bytes, file_: Optional[IO] = None, output_format: str = "raw"):
     """
-    Print bytes to console
+    Write bytes to outfile or stdout
     Args:
         data: bytes, bytes to print
     """
     if output_format == "raw":
-        sys.stdout.buffer.write(data)
+        if file_ is not None:
+            file_.buffer.write(data)
+        else:
+            sys.stdout.buffer.write(data)
     elif output_format == "bin" or output_format == "hex":
         format_spec = (
             f"0{len(data) * 2}x" if output_format == "hex" else f"0{len(data) * 8}b"
         )
-        print(format(int.from_bytes(data, "big"), format_spec))
+        formatted_data = format(int.from_bytes(data, "big"), format_spec)
+        if file_ is not None:
+            file_.write(formatted_data)
+        else:
+            print(formatted_data)
     else:
         raise ValueError(f"unrecognized output format: {output_format}")
 

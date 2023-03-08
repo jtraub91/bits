@@ -1,25 +1,20 @@
 """
 BIP32, BIP39, BIP43, BIP44
 """
-import hashlib
-import json
 import secrets
 from typing import Tuple
-from typing import Union
 
+import bits
 import bits.bips.bip32 as bip32
 import bits.bips.bip39 as bip39
 import bits.bips.bip43 as bip43
 from bits.base58 import base58check
 from bits.base58 import base58check_decode
-from bits.base58 import base58decode
-from bits.utils import point
-from bits.utils import pubkey_hash
 
 
-def get_xpub(xprv_: bytes):
+def get_xpub(xkey: bytes):
     """
-    Return xpub from xprv
+    Return xpub from xprv (or xpub)
     Args:
         xprv_: bytes, serialized extended private key
     """
@@ -30,10 +25,11 @@ def get_xpub(xprv_: bytes):
         child_no,
         chaincode,
         key,
-    ) = bip32.deserialized_extended_key(xprv_)
-    K = bip32.point(key)
+    ) = bip32.deserialized_extended_key(xkey)
+    if type(key) is int:
+        key = bip32.point(key)
     return bip32.serialized_extended_key(
-        K, chaincode, depth, parent_key_fingerprint, child_no
+        key, chaincode, depth, parent_key_fingerprint, child_no
     )
 
 
@@ -69,9 +65,15 @@ def derive_from_path(
             raise ValueError("version mismatch")
         return master_extended_key
     elif path.startswith("m/"):
+        if version not in [
+            bip32.VERSION_PRIVATE_MAINNET,
+            bip32.VERSION_PRIVATE_TESTNET,
+        ]:
+            raise ValueError("version mismatch")
         ckd = bip32.CKDpriv
     elif path.startswith("M/"):
-        raise NotImplementedError
+        if version not in [bip32.VERSION_PUBLIC_MAINNET, bip32.VERSION_PUBLIC_TESTNET]:
+            raise ValueError("version mismatch")
         ckd = bip32.CKDpub
     else:
         raise ValueError("path must start with m or M")
@@ -94,18 +96,24 @@ def derive_from_path(
     ]
     key_tree = [master_extended_key]
 
-    for depth, child_no in enumerate(path_tree, start=1):
-        parent = key_tree[depth - 1]
-        _, _, _, _, parent_chaincode, parent_key = bip32.deserialized_extended_key(
-            parent
-        )
+    for child_no in path_tree:
+        parent = key_tree[-1]
+        (
+            _,
+            parent_depth,
+            _,
+            _,
+            parent_chaincode,
+            parent_key,
+        ) = bip32.deserialized_extended_key(parent)
+        depth = int.from_bytes(parent_depth, "big") + 1
         child = ckd(parent_key, parent_chaincode, child_no)
         if public:
-            parent_key_fingerprint = pubkey_hash(bip32.ser_p(parent_key))[:4]
+            parent_key_fingerprint = bits.pubkey_hash(bip32.ser_p(parent_key))[:4]
         else:
-            parent_key_fingerprint = pubkey_hash(bip32.ser_p(bip32.point(parent_key)))[
-                :4
-            ]
+            parent_key_fingerprint = bits.pubkey_hash(
+                bip32.ser_p(bip32.point(parent_key))
+            )[:4]
         child_ser = bip32.serialized_extended_key(
             child[0],
             child[1],
@@ -151,14 +159,14 @@ def derive_child(xkey: str, index: int) -> str:
         k_p = int.from_bytes(key_parent[1:], "big")
         key, chain_code = bip32.CKDpriv(k_p, chain_code_parent, index)
         key_data = b"\x00" + int.to_bytes(key, 32, "big")
-        parent_key_fingerprint = pubkey_hash(bip32.ser_p(bip32.point(k_p)))[:4]
+        parent_key_fingerprint = bits.pubkey_hash(bip32.ser_p(bip32.point(k_p)))[:4]
     elif key_parent.startswith(b"\x02") or key_parent.startswith(b"\x03"):
         if not xkey.startswith("xpub"):
             raise ValueError("decoded key is public, expected private")
-        x, y = point(key_parent)
+        x, y = bits.point(key_parent)
         key, chain_code = bip32.CKDpub((x, y), chain_code_parent, index)
         key_data = bip32.ser_p(key)
-        parent_key_fingerprint = pubkey_hash(key_parent)[:4]
+        parent_key_fingerprint = bits.pubkey_hash(key_parent)[:4]
     else:
         raise ValueError(f"key version byte: {key[0]}")
 
@@ -181,7 +189,7 @@ def p2pkh(xpub):
     pubkey_ = payload[-33:]  # last 33 bytes is pubkey in SEC1 compressed form
 
     version = b"\x00"
-    pkh = pubkey_hash(pubkey_)
+    pkh = bits.pubkey_hash(pubkey_)
     return base58check(version + pkh).decode("ascii")
 
 
@@ -266,20 +274,9 @@ class HD:
         )
         return xprv.decode("ascii"), xpub.decode("ascii")
 
-    def get_address_from_path(self, path, type="p2pkh"):
-        return
-
     def scan_for_utxo(self):
         """
         Scan blockchain for utxo owned by this wallet
         https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#address-gap-limit
-        """
-        return
-
-    def print_tree(self, all: bool = False):
-        """
-        Return cached tree of se
-        Args:
-            all: bool, print keys and balances of all cached derivation paths
         """
         return

@@ -1,29 +1,12 @@
 import hashlib
-import math
-import os
-import re
-import stat
-import time
-from typing import List
-from typing import Optional
-from typing import Tuple
-from typing import Union
+import typing
 
+import bits.base58
+import bits.ecmath
+import bits.keys
+import bits.pem
 import bits.script.constants
-from bits.base58 import base58check
-from bits.base58 import base58check_decode
-from bits.bips.bip173 import segwit_addr
-from bits.ecmath import point_is_on_curve
-from bits.ecmath import point_scalar_mul
-from bits.ecmath import SECP256K1_Gx
-from bits.ecmath import SECP256K1_Gy
-from bits.ecmath import SECP256K1_N
-from bits.ecmath import sub_mod_p
-from bits.ecmath import y_from_x
-from bits.pem import decode_pem
-from bits.pem import encode_parsed_asn1
-from bits.pem import encode_pem
-from bits.pem import parse_asn1
+from bits.bips import bip173
 
 
 def pubkey(x: int, y: int, compressed=False) -> bytes:
@@ -41,19 +24,21 @@ def pubkey(x: int, y: int, compressed=False) -> bytes:
 def privkey_int(privkey_: bytes) -> int:
     assert len(privkey_) == 32
     p = int.from_bytes(privkey_, "big")
-    assert p > 0 and p < SECP256K1_N, f"private key not in range(1, N): {p}"
+    assert p > 0 and p < bits.ecmath.SECP256K1_N, f"private key not in range(1, N): {p}"
     return p
 
 
-def compute_point(privkey_: bytes) -> Tuple[int]:
+def compute_point(privkey_: bytes) -> typing.Tuple[int]:
     """
     Compute (x, y) public key point from private key
     """
     k = privkey_int(privkey_)
-    return point_scalar_mul(k, (SECP256K1_Gx, SECP256K1_Gy))
+    return bits.ecmath.point_scalar_mul(
+        k, (bits.ecmath.SECP256K1_Gx, bits.ecmath.SECP256K1_Gy)
+    )
 
 
-def point(pubkey_: bytes) -> Tuple[int]:
+def point(pubkey_: bytes) -> typing.Tuple[int]:
     """
     Return (x, y) point from SEC1 public key
     """
@@ -63,16 +48,16 @@ def point(pubkey_: bytes) -> Tuple[int]:
     x = int.from_bytes(payload[:32], "big")
     if version == 2:
         # compressed, y
-        y = y_from_x(x)[0]
+        y = bits.ecmath.y_from_x(x)[0]
     elif version == 3:
         # compressed, -y
-        y = y_from_x(x)[1]
+        y = bits.ecmath.y_from_x(x)[1]
     elif version == 4:
         # uncompressed
         y = int.from_bytes(payload[32:], "big")
     else:
         raise ValueError(f"unrecognized version: {version}")
-    assert point_is_on_curve(x, y), "invalid pubkey"
+    assert bits.ecmath.point_is_on_curve(x, y), "invalid pubkey"
     return (x, y)
 
 
@@ -116,9 +101,9 @@ def script_hash(redeem_script: bytes) -> bytes:
 
 def witness_script_hash(witness_script: bytes) -> bytes:
     """
-    HASH256(witness_script)
+    SHA256(witness_script)
     """
-    return hashlib.sha256(hashlib.sha256(witness_script).digest()).digest()
+    return hashlib.sha256(witness_script).digest()
 
 
 def compact_size_uint(integer: int) -> bytes:
@@ -137,7 +122,7 @@ def compact_size_uint(integer: int) -> bytes:
         return b"\xff" + integer.to_bytes(8, "little")
 
 
-def parse_compact_size_uint(payload: bytes) -> Tuple[int, bytes]:
+def parse_compact_size_uint(payload: bytes) -> typing.Tuple[int, bytes]:
     """
     This function expects a compact size uint at the beginning of payload.
     Since compact size uints are variable in size, this function
@@ -195,7 +180,7 @@ def to_bitcoin_address(
     payload: bytes,
     addr_type: str = "p2pkh",
     network: str = "mainnet",
-    witness_version: Optional[int] = None,
+    witness_version: typing.Optional[int] = None,
 ) -> bytes:
     """
     Encode payload as bitcoin address invoice (optional segwit)
@@ -216,7 +201,9 @@ def to_bitcoin_address(
     ], f"unrecognized network: {network}"
     if witness_version is not None:
         assert witness_version in range(17), "witness version not in [0, 16]"
-        return segwit_addr(payload, witness_version=witness_version, network=network)
+        return bip173.segwit_addr(
+            payload, witness_version=witness_version, network=network
+        )
     assert addr_type in ["p2pkh", "p2sh"], f"unrecognized address type: {addr_type}"
     if network == "mainnet" and addr_type == "p2pkh":
         version = b"\x00"
@@ -226,7 +213,7 @@ def to_bitcoin_address(
         version = b"\x05"
     elif network in ["testnet", "regtest"] and addr_type == "p2sh":
         version = b"\xc4"
-    return base58check(version + payload)
+    return bits.base58.base58check(version + payload)
 
 
 def ensure_sig_low_s(sig_: bytes) -> bytes:
@@ -241,18 +228,18 @@ def ensure_sig_low_s(sig_: bytes) -> bytes:
 
     Essentially just use s = N - s if s > N / 2
     """
-    parsed = parse_asn1(sig_)
+    parsed = bits.pem.parse_asn1(sig_)
     # r_val = int.from_bytes(parsed[0][2][0][2], "big")
     r_len = parsed[0][2][0][1]
     s_val = int.from_bytes(parsed[0][2][1][2], "big")
     s_len = parsed[0][2][1][1]
-    if s_val > SECP256K1_N // 2 or s_val < 1:
+    if s_val > bits.ecmath.SECP256K1_N // 2 or s_val < 1:
         # s_val = SECP256K1_N - s_val
-        s_val = sub_mod_p(0, s_val, p=SECP256K1_N)
+        s_val = bits.ecmath.sub_mod_p(0, s_val, p=bits.ecmath.SECP256K1_N)
         parsed[0][2][1][2] = s_val.to_bytes(32, "big")
         parsed[0][2][1][1] = 32
         parsed[0][1] = 32 + r_len + 4
-        encoded = encode_parsed_asn1(parsed[0])
+        encoded = bits.pem.encode_parsed_asn1(parsed[0])
         return encoded
     return sig_
 
@@ -269,6 +256,8 @@ WIF_SCRIPT_OFFSET = {
     "p2pkh": 0,
     "p2wpkh": 1,
     "p2sh-p2wpkh": 2,
+    "p2pk": 3,
+    "multisig": 4,
     "p2sh": 5,
     "p2wsh": 6,
     "p2sh-p2wsh": 7,
@@ -277,12 +266,16 @@ WIF_TYPE_COMBINATIONS = {
     ("mainnet", "p2pkh"): 0x80,
     ("mainnet", "p2wpkh"): 0x81,
     ("mainnet", "p2sh-p2wpkh"): 0x82,
+    ("mainnet", "p2pk"): 0x83,
+    ("mainnet", "multisig"): 0x84,
     ("mainnet", "p2sh"): 0x85,
     ("mainnet", "p2wsh"): 0x86,
     ("mainnet", "p2sh-p2wsh"): 0x87,
     ("testnet", "p2pkh"): 0xEF,
     ("testnet", "p2wpkh"): 0xF0,
     ("testnet", "p2sh-p2wpkh"): 0xF1,
+    ("testnet", "p2pk"): 0xF2,
+    ("testnet", "multisig"): 0xF3,
     ("testnet", "p2sh"): 0xF4,
     ("testnet", "p2wsh"): 0xF5,
     ("testnet", "p2sh-p2wsh"): 0xF6,
@@ -294,62 +287,80 @@ def wif_encode(
     privkey_: bytes,
     addr_type: str = "p2pkh",
     network: str = "mainnet",
-    compressed_pubkey: bool = True,
-    redeem_script: bytes = b"",
+    data: bytes = b"",
 ) -> bytes:
     """
     WIF encoding
-    # https://en.bitcoin.it/wiki/Wallet_import_format
-    # https://river.com/learn/terms/w/wallet-import-format-wif/
 
-    ** Extends electrum WIF spec to include redeemscript or other script data
+    ** Extended WIF spec to include redeemscript or other script data
         at suffix
 
     Args:
         privkey_: bytes, private key
-        compressed_pubkey: bool, corresponds to a compressed pubkey
-        network: str, mainnet or testnet
+        addr_type: str, address type. choices => [
+            "p2pkh",
+            "p2wpkh",
+            "p2sh-p2wpkh",
+            "p2pk",
+            "multisig",
+            "p2sh",
+            "p2wsh",
+            "p2sh-p2wsh"
+        ]
+        network: str, e.g. mainnet, testnet, or regtest
+        data: bytes, appended to key prior to base58check encoding.
+            For p2(w)sh address types, supply redeem script.
+            For p2pk(h) address types, use 0x01 to associate WIF key with a compressed
+                pubkey, omit for uncompressed pubkey.
+            For multsig, supply redeem script
+            For p2wpkh & p2sh-p2wpkh, data shall be omitted since compressed pubkey
+                (and redeem_script) are implied
+            For p2sh-p2wsh, supply witness_script
     """
-    if len(privkey_) != 32:
-        raise ValueError("private key length not 32 bytes")
+    privkey_int(privkey_)  # key validation
     prefix = (WIF_NETWORK_BASE[network] + WIF_SCRIPT_OFFSET[addr_type]).to_bytes(
         1, "big"
     )
     wif = prefix + privkey_
-    if compressed_pubkey:
-        wif += b"\x01"
-    elif redeem_script:
-        wif += redeem_script
-    return base58check(wif)
+    if data:
+        wif += data
+    return bits.base58.base58check(wif)
 
 
-def wif_decode(wif_: bytes) -> Tuple[bytes, bytes, bool]:
+def wif_decode(
+    wif_: bytes, return_dict=False
+) -> typing.Union[typing.Tuple[bytes, bytes, bytes], dict]:
     """
     Returns:
-        version, key, compressed
+        version, key, data
     """
-    decoded = base58check_decode(wif_)
-    version = decoded[0]
-
+    decoded = bits.base58.base58check_decode(wif_)
+    version = decoded[0:1]
     key_ = decoded[1:33]
     addtl_data = decoded[33:]
+    network, addr_type = WIF_TYPE_COMBINATIONS_MAP[int.from_bytes(version, "big")]
 
-    compressed = False
-    assert len(key_) == 32 or len(key_) == 33
-    if len(key_) == 33:
-        assert key_[-1:] == b"\x01"
-        compressed = True
-    return version, key_[:32], compressed
+    if return_dict:
+        decoded = {
+            "version": version.hex(),
+            "network": network,
+            "addr_type": addr_type,
+            "key": key_.hex(),
+            "data": addtl_data.hex(),
+        }
+        return decoded
+    else:
+        return version, key_, addtl_data
 
 
-def pem_decode_key(pem_: bytes) -> Union[tuple[bytes, bytes], tuple[bytes]]:
+def pem_decode_key(pem_: bytes) -> typing.Union[tuple[bytes, bytes], tuple[bytes]]:
     """
     Decode from pem / der encoded EC private / public key
     Returns:
         (privkey, pubkey) or pubkey, respectively
     """
-    decoded = decode_pem(pem_)
-    parsed = parse_asn1(decoded)
+    decoded = bits.pem.decode_pem(pem_)
+    parsed = bits.pem.parse_asn1(decoded)
     if parsed[0][2][0][2] == b"\x01":
         return parsed[0][2][1][2], parsed[0][2][3][2][0][2][1:]
     elif parsed[0][2][0][2][0][2] == "id-ecPublicKey":
@@ -400,8 +411,8 @@ def pem_encode_key(key_: bytes) -> bytes:
                 ],
             ]
         ]
-        return encode_pem(
-            encode_parsed_asn1(parsed_data_struct[0]),
+        return bits.pem.encode_pem(
+            bits.pem.encode_parsed_asn1(parsed_data_struct[0]),
             header=b"-----BEGIN EC PRIVATE KEY-----",
             footer=b"-----END EC PRIVATE KEY-----",
         )
@@ -435,8 +446,8 @@ def pem_encode_key(key_: bytes) -> bytes:
                 ],
             ]
         ]
-        return encode_pem(
-            encode_parsed_asn1(parsed_data_struct[0]),
+        return bits.pem.encode_pem(
+            bits.pem.encode_parsed_asn1(parsed_data_struct[0]),
             header=b"-----BEGIN PUBLIC KEY-----",
             footer=b"-----END PUBLIC KEY-----",
         )
@@ -476,11 +487,11 @@ def der_encode_sig(r: int, s: int) -> bytes:
             ],
         ]
     ]
-    return encode_parsed_asn1(signature_asn1_data_struct[0])
+    return bits.pem.encode_parsed_asn1(signature_asn1_data_struct[0])
 
 
-def der_decode_sig(der: bytes) -> Tuple[int, int]:
-    parsed = parse_asn1(der)
+def der_decode_sig(der: bytes) -> typing.Tuple[int, int]:
+    parsed = bits.pem.parse_asn1(der)
     r = int.from_bytes(parsed[0][2][0][2], "big")
     s = int.from_bytes(parsed[0][2][1][2], "big")
     return r, s
@@ -489,26 +500,54 @@ def der_decode_sig(der: bytes) -> Tuple[int, int]:
 def sig(
     key: bytes,
     msg: bytes,
-    sighash_flag: Optional[int] = None,
+    sighash_flag: typing.Optional[int] = None,
+    msg_preimage: bool = False,
 ) -> bytes:
-    if sighash_flag is not None:
+    """
+    Create DER encoded Bitcoin signature from message, optional sighash_flag
+
+    Sighash_flag gets appended to msg, this data is then hashed with HASH256,
+        signed, and DER-encoded
+
+    Args:
+        key: bytes, private key
+        msg: bytes,
+        sighash_flag: Optional[int], appended to msg before HASH256
+        msg_preimage: whether msg is pre-image or not
+            pre-image already has 4 byte sighash flag appended
+            if msg_preimage, msg is still hashed, and 1 byte sighash_flag still appended
+            after signing/der-encoding
+    Returns:
+        bytes, signature(HASH256(msg + sighash_flag))
+    """
+    if not msg_preimage and sighash_flag is not None:
         msg += sighash_flag.to_bytes(4, "little")
+    elif msg_preimage and sighash_flag is not None:
+        sh_flag = int.from_bytes(msg[-4:], "little")
+        assert (
+            sh_flag == sighash_flag
+        ), "sighash_flag parsed from msg preimage does not match provided sighash_flag argument"
+    elif msg_preimage:
+        sh_flag = int.from_bytes(msg[-4:], "little")
     sigdata = hash256(msg)
     r, s = bits.ecmath.sign(privkey_int(key), int.from_bytes(sigdata, "big"))
     signature_der = der_encode_sig(r, s)
     if sighash_flag is not None:
         signature_der += sighash_flag.to_bytes(1, "little")
+    elif msg_preimage:
+        # if msg_preimage=True (msg preimage contains sighash flag) and sighash_flag not provided as arg
+        signature_der += sh_flag.to_bytes(1, "little")
     return signature_der
 
 
 def sig_verify(
-    sig_: bytes,
-    pubkey_: bytes,
-    msg: bytes,
+    sig_: bytes, pubkey_: bytes, msg: bytes, msg_preimage: bool = False
 ) -> str:
     sighash_flag = sig_[-1]
     r, s = der_decode_sig(sig_[:-1])
-    msg_digest = hash256(msg + sighash_flag.to_bytes(4, "little"))
+    if not msg_preimage:
+        msg += sighash_flag.to_bytes(4, "little")
+    msg_digest = hash256(msg)
     try:
         result = bits.ecmath.verify(
             r, s, point(pubkey_), int.from_bytes(msg_digest, "big")

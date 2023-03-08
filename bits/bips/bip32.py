@@ -10,6 +10,7 @@ from typing import Union
 from bits.base58 import base58check
 from bits.base58 import base58check_decode
 from bits.ecmath import add_mod_p
+from bits.ecmath import point_add
 from bits.ecmath import point_scalar_mul
 from bits.ecmath import SECP256K1_Gx
 from bits.ecmath import SECP256K1_Gy
@@ -73,7 +74,7 @@ def CKDpriv(k_parent: int, c_parent: bytes, i: int) -> Tuple[int, bytes]:
     e.g. CKDpriv
     CKDpriv(CKDpriv(CKDpriv(m, 3'), 2), 5) == m/3'/2/5
     """
-    if i >= 2**31:
+    if i >= HARDENED_OFFSET:
         # hardened child
         msg = b"\x00" + ser_256(k_parent) + ser_32(i)
         I = hmac.new(c_parent, msg, digestmod=hashlib.sha512).digest()
@@ -98,21 +99,21 @@ def CKDpriv(k_parent: int, c_parent: bytes, i: int) -> Tuple[int, bytes]:
 def CKDpub(K_parent: Tuple[int], c_parent: bytes, i: int) -> Tuple[Tuple[int], bytes]:
     """
     public parent to public child
-    WIP
     """
-    if i >= 2**31:
-        raise ValueError(f"This function is not defined for hardened children")
+    if i >= HARDENED_OFFSET:
+        raise ValueError("This function is not defined for hardened children")
     else:
         # normal child
         msg = ser_p(K_parent) + ser_32(i)
         I = hmac.new(c_parent, msg, digestmod=hashlib.sha512).digest()
     I_L = I[:32]
     I_R = I[32:]
-    K_i = point(parse_256(I_L)) + K_parent  # + is point addition ! TODO implement
+
+    K_i = point_add(point(parse_256(I_L)), K_parent)
     c_i = I_R
 
     assert parse_256(I_L) < SECP256K1_N
-    # and assert K_i is not point at infinity
+    # TODO: assert K_i is not point at infinity
     return K_i, c_i
 
 
@@ -130,6 +131,9 @@ def to_master_key(seed: bytes) -> Tuple[int, bytes]:
 
     Args:
         seed: seed of chosen length (between 128 and 512 bits)
+
+    Returns:
+        key: int, chaincode: bytes
     """
     I = hmac.new(b"Bitcoin seed", seed, digestmod=hashlib.sha512).digest()
     master_secret_key = int.from_bytes(I[:32], "big")
@@ -193,8 +197,8 @@ def root_serialized_extended_key(
 
 
 def deserialized_extended_key(
-    xkey: Union[bytes, str]
-) -> Tuple[bytes, bytes, bytes, bytes, bytes, Union[int, Tuple[int, int]]]:
+    xkey: Union[bytes, str], return_dict: bool = False
+) -> Union[Tuple[bytes, bytes, bytes, bytes, bytes, Union[int, Tuple[int, int]]], dict]:
     """
     De-serialize extended key. Checks for invalid keys
     """
@@ -233,4 +237,16 @@ def deserialized_extended_key(
         elif prefix != b"\x00":
             raise ValueError(f"invalid prvkey prefix {prefix.hex()}")
         key = privkey_int(ser_key[1:])
+    if return_dict:
+        if version in [VERSION_PRIVATE_MAINNET, VERSION_PRIVATE_TESTNET]:
+            key = ser_256(key)
+        else:
+            key = ser_p(key)
+        return {
+            "version": version.hex(),
+            "depth": int.from_bytes(depth, "big"),
+            "parent_key_fingerprint": parent_key_fingerprint.hex(),
+            "child_no": int.from_bytes(child_no, "big"),
+            "key": key.hex(),
+        }
     return version, depth, parent_key_fingerprint, child_no, chaincode, key

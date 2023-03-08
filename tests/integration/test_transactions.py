@@ -1,40 +1,10 @@
 """
 Test spenditure of various transaction type via testmempoolaccept response on local bitcoind node via rpc
 """
-import os
-import time
-
-import pytest
-
+import bits.integrations
 import bits.keys
-from bits.base58 import base58check_decode
-from bits.integrations import generate_funded_keys
-from bits.integrations import mine_block
-from bits.script.constants import SIGHASH_ALL
-from bits.script.utils import multisig_script_pubkey
-from bits.script.utils import multisig_script_sig
-from bits.script.utils import p2pk_script_sig
-from bits.script.utils import p2pkh_script_pubkey
-from bits.script.utils import p2pkh_script_sig
-from bits.script.utils import p2sh_multisig_script_pubkey
-from bits.script.utils import p2sh_multisig_script_sig
-from bits.script.utils import p2sh_p2wpkh_script_pubkey
-from bits.script.utils import p2wpkh_script_pubkey
-from bits.script.utils import p2wsh_script_pubkey
-from bits.tx import outpoint
-from bits.tx import send_tx
-from bits.tx import tx
-from bits.tx import txin
-from bits.tx import txout
-from bits.utils import compute_point
-from bits.utils import ensure_sig_low_s
-from bits.utils import pem_encode_key
-from bits.utils import pubkey
-from bits.utils import pubkey_hash
-from bits.utils import s_hash
-from bits.utils import script_hash
-from bits.utils import to_bitcoin_address
-from bits.utils import witness_script_hash
+import bits.script.constants
+import bits.tx
 
 
 MINER_FEE = 1000  # satoshis
@@ -45,36 +15,30 @@ def test_p2pk(funded_keys_101):
 
     key_2 = bits.keys.key()
     pubkey_2 = bits.keys.pub(key_2)
+    wif_key_2 = bits.wif_encode(key_2, addr_type="p2pk", network="regtest")
 
-    # pre-sig tx
-    tx_ = send_tx(addr_1, pubkey_2, miner_fee=MINER_FEE)
-
-    # sign
-    _, key_1, compressed_pubkey = bits.utils.wif_decode(wif_key_1)
-    pubkey_1 = bits.keys.pub(key_1, compressed=compressed_pubkey)
-    sig = bits.utils.sig(key_1, tx_, sighash_flag=SIGHASH_ALL)
-    scriptsig = p2pkh_script_sig(sig, pubkey_1)
-
-    # create tx w/ scriptsig
-    tx_ = send_tx(addr_1, pubkey_2, scriptsig=scriptsig, miner_fee=MINER_FEE)
+    tx_ = bits.tx.send_tx(
+        addr_1,
+        pubkey_2,
+        from_keys=[wif_key_1],
+        miner_fee=MINER_FEE,
+        sighash_flag=bits.script.constants.SIGHASH_ALL,
+    )
 
     # testmempoolaccept and send and mine block
     ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
     assert ret[0]["allowed"] == True, ret
     bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
-    mine_block()
+    bits.integrations.mine_block(b"")
 
-    # pre-sig tx for p2pk spenditure
-    tx_ = send_tx(pubkey_2, addr_1, miner_fee=MINER_FEE)
-
-    # sign
-    sig = bits.utils.sig(key_2, tx_, sighash_flag=SIGHASH_ALL)
-    scriptsig = p2pk_script_sig(sig)
-
-    # re-create w/ scriptsig
-    tx_ = send_tx(pubkey_2, addr_1, scriptsig=scriptsig, miner_fee=MINER_FEE)
-
-    # testmempoolaccept spenditure p2pk
+    # test spenditure p2pk
+    tx_ = bits.tx.send_tx(
+        pubkey_2,
+        addr_1,
+        from_keys=[wif_key_2],
+        miner_fee=MINER_FEE,
+        sighash_flag=bits.script.constants.SIGHASH_ALL,
+    )
     ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
     assert ret[0]["allowed"] == True, ret
 
@@ -84,168 +48,116 @@ def test_p2pkh(funded_keys_101):
 
     key_2 = bits.keys.key()
     pubkey_2 = bits.keys.pub(key_2)
-    addr_2 = to_bitcoin_address(
-        pubkey_hash(pubkey_2), addr_type="p2pkh", network="regtest"
+    addr_2 = bits.to_bitcoin_address(
+        bits.pubkey_hash(pubkey_2), addr_type="p2pkh", network="regtest"
     )
-
-    # pre-sig tx
-    tx_ = send_tx(addr_1, addr_2, miner_fee=MINER_FEE)
-
-    # sign
-    _, key_1, compressed_pubkey = bits.utils.wif_decode(wif_key_1)
-    pubkey_1 = bits.keys.pub(key_1, compressed=compressed_pubkey)
-    sig = bits.utils.sig(key_1, tx_, sighash_flag=SIGHASH_ALL)
-    scriptsig = p2pkh_script_sig(sig, pubkey_1)
+    wif_key_2 = bits.wif_encode(key_2, addr_type="p2pkh", network="regtest")
 
     # create tx w/ scriptsig
-    tx_ = send_tx(addr_1, addr_2, scriptsig=scriptsig, miner_fee=MINER_FEE)
+    tx_ = bits.tx.send_tx(
+        addr_1,
+        addr_2,
+        from_keys=[wif_key_1],
+        miner_fee=MINER_FEE,
+        sighash_flag=bits.script.constants.SIGHASH_ALL,
+    )
 
     # testmempoolaccept and send and mine block
     ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
     assert ret[0]["allowed"] == True, ret
     bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
-    mine_block()
+    bits.integrations.mine_block(b"")
 
-    # pre-sig tx for p2pkh spenditure
-    tx_ = send_tx(addr_2, addr_1, miner_fee=MINER_FEE)
-
-    # sign
-    sig = bits.utils.sig(key_2, tx_, sighash_flag=SIGHASH_ALL)
-    scriptsig = p2pkh_script_sig(sig, pubkey_2)
-
-    # re-create w/ scriptsig
-    tx_ = send_tx(addr_2, addr_1, scriptsig=scriptsig, miner_fee=MINER_FEE)
-
-    # testmempoolaccept spenditure p2pkh
+    # test spenditure p2pkh
+    tx_ = bits.tx.send_tx(
+        addr_2,
+        addr_1,
+        from_keys=[wif_key_2],
+        miner_fee=MINER_FEE,
+        sighash_flag=bits.script.constants.SIGHASH_ALL,
+    )
     ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
     assert ret[0]["allowed"] == True, ret
 
 
 def test_multisig(funded_keys_101):
+    # note: does not test *all* permutations of valid sigs for m of n multisig
     keys = [bits.keys.key() for i in range(3)]
     pubkeys = [bits.keys.pub(key) for key in keys]
+
     for m in range(1, 4):
         wif_key_1, addr_1 = next(funded_keys_101)
 
-        # pre-sig tx
-        tx_ = send_tx(
+        tx_ = bits.tx.send_tx(
             addr_1,
-            multisig_script_pubkey(m, pubkeys),
-            miner_fee=MINER_FEE,
-        )
-
-        # sign
-        _, key_1, compressed_pubkey = bits.utils.wif_decode(wif_key_1)
-        pubkey_1 = bits.keys.pub(key_1, compressed=compressed_pubkey)
-        sig = bits.utils.sig(key_1, tx_, sighash_flag=SIGHASH_ALL)
-        scriptsig = p2pkh_script_sig(sig, pubkey_1)
-
-        # re-create tx w/ scriptsig
-        tx_ = send_tx(
-            addr_1,
-            multisig_script_pubkey(m, pubkeys),
-            scriptsig=scriptsig,
+            bits.script.multisig_script_pubkey(m, pubkeys),
+            from_keys=[wif_key_1],
+            sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
         )
 
         ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
         assert ret[0]["allowed"] == True, ret
         bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
-        mine_block()
+        bits.integrations.mine_block(b"")
 
-        # pre-sig for multisig spenditure
-        tx_ = send_tx(multisig_script_pubkey(m, pubkeys), addr_1, miner_fee=MINER_FEE)
-
-        # sign (note: this does not do all permutations of valid sigs for m of n multisig)
-        sigs = [
-            bits.utils.sig(keys[i], tx_, sighash_flag=SIGHASH_ALL) for i in range(m)
+        # test spenditure multisig
+        from_wif_keys = [
+            bits.wif_encode(key, addr_type="multisig", network="regtest")
+            for key in keys[:m]
         ]
-        scriptsig = multisig_script_sig(sigs)
-
-        # re-create w/ scriptsig
-        tx_ = send_tx(
-            multisig_script_pubkey(m, pubkeys),
+        tx_ = bits.tx.send_tx(
+            bits.script.multisig_script_pubkey(m, pubkeys),
             addr_1,
-            scriptsig=scriptsig,
+            from_keys=from_wif_keys,
+            sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
         )
-
-        # testmempoolaccept spenditure multisig
         ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
         assert ret[0]["allowed"] == True, ret
 
 
 def test_p2sh_multisig(funded_keys_101):
+    # note: does not test *all* permutations of valid sigs for m of n p2sh-multisig
     keys = [bits.keys.key() for i in range(3)]
     pubkeys = [bits.keys.pub(key) for key in keys]
+
     for m in range(1, 4):
         wif_key_1, addr_1 = next(funded_keys_101)
 
-        # pre-sig tx
-        tx_ = send_tx(
-            addr_1,
-            to_bitcoin_address(
-                script_hash(multisig_script_pubkey(m, pubkeys)),
-                addr_type="p2sh",
-                network="regtest",
-            ),
-            miner_fee=MINER_FEE,
+        redeem_script = bits.script.multisig_script_pubkey(m, pubkeys)
+        to_addr = bits.to_bitcoin_address(
+            bits.script_hash(redeem_script),
+            addr_type="p2sh",
+            network="regtest",
         )
-
-        # sign
-        _, key_1, compressed_pubkey = bits.utils.wif_decode(wif_key_1)
-        pubkey_1 = bits.keys.pub(key_1, compressed=compressed_pubkey)
-        sig = bits.utils.sig(key_1, tx_, sighash_flag=SIGHASH_ALL)
-        scriptsig = p2pkh_script_sig(sig, pubkey_1)
-
-        # re-create tx w/ scriptsig
-        tx_ = send_tx(
+        to_wif_keys = [
+            bits.wif_encode(
+                key, addr_type="p2sh", network="regtest", data=redeem_script
+            )
+            for key in keys[:m]
+        ]
+        tx_ = bits.tx.send_tx(
             addr_1,
-            to_bitcoin_address(
-                script_hash(multisig_script_pubkey(m, pubkeys)),
-                addr_type="p2sh",
-                network="regtest",
-            ),
-            scriptsig=scriptsig,
+            to_addr,
+            from_keys=[wif_key_1],
+            sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
         )
 
         ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
         assert ret[0]["allowed"] == True, ret
         bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
-        mine_block()
+        bits.integrations.mine_block(b"")
 
-        # pre-sig for p2sh-multisig spenditure (note scriptsig is redeem script)
-        tx_ = send_tx(
-            to_bitcoin_address(
-                script_hash(multisig_script_pubkey(m, pubkeys)),
-                addr_type="p2sh",
-                network="regtest",
-            ),
+        # test spenditure multisig
+        tx_ = bits.tx.send_tx(
+            to_addr,
             addr_1,
-            scriptsig=multisig_script_pubkey(m, pubkeys),
+            from_keys=to_wif_keys,
+            sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
         )
-
-        # sign (note: this does not do all permutations of valid sigs for m of n multisig)
-        sigs = [
-            bits.utils.sig(keys[i], tx_, sighash_flag=SIGHASH_ALL) for i in range(m)
-        ]
-        scriptsig = p2sh_multisig_script_sig(sigs, multisig_script_pubkey(m, pubkeys))
-
-        # re-create w/ scriptsig
-        tx_ = send_tx(
-            to_bitcoin_address(
-                script_hash(multisig_script_pubkey(m, pubkeys)),
-                addr_type="p2sh",
-                network="regtest",
-            ),
-            addr_1,
-            scriptsig=scriptsig,
-            miner_fee=MINER_FEE,
-        )
-
-        # testmempoolaccept spenditure multisig
         ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
         assert ret[0]["allowed"] == True, ret
 
@@ -254,147 +166,165 @@ def test_p2wpkh(funded_keys_101):
     wif_key_0, addr_0 = next(funded_keys_101)
 
     key_1 = bits.keys.key()
-    addr_1 = to_bitcoin_address(
-        pubkey_hash(bits.keys.pub(key_1, compressed=True)),
+    addr_1 = bits.to_bitcoin_address(
+        bits.pubkey_hash(bits.keys.pub(key_1, compressed=True)),
         witness_version=0,
         network="regtest",
     )
+    wif_key_1 = bits.wif_encode(key_1, addr_type="p2wpkh", network="regtest")
 
-    tx_ = send_tx(addr_0, addr_1, miner_fee=MINER_FEE)
-
-    # sign
-    _, key_0, compressed_pubkey = bits.utils.wif_decode(wif_key_0)
-    pubkey_0 = bits.keys.pub(key_0, compressed=compressed_pubkey)
-    sig = bits.utils.sig(key_0, tx_, sighash_flag=SIGHASH_ALL)
-    scriptsig = p2pkh_script_sig(sig, pubkey_0)
-
-    tx_ = send_tx(addr_0, addr_1, scriptsig=scriptsig, miner_fee=MINER_FEE)
-
+    tx_ = bits.tx.send_tx(
+        addr_0,
+        addr_1,
+        from_keys=[wif_key_0],
+        sighash_flag=bits.script.constants.SIGHASH_ALL,
+        miner_fee=MINER_FEE,
+    )
     ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
     assert ret[0]["allowed"] == True, ret
     bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
-    mine_block()
+    bits.integrations.mine_block(b"")
 
-    tx_ = send_tx(addr_1, addr_0, miner_fee=MINER_FEE)
-    # TODO: test spenditure
+    tx_ = bits.tx.send_tx(
+        addr_1,
+        addr_0,
+        from_keys=[wif_key_1],
+        sighash_flag=bits.script.constants.SIGHASH_ALL,
+        miner_fee=MINER_FEE,
+    )
+    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+    assert ret[0]["allowed"] == True, ret
 
 
 def test_p2wsh(funded_keys_101):
     keys = [bits.keys.key() for i in range(3)]
-    pubkeys = [bits.keys.pub(key) for key in keys]
+    pubkeys = [bits.keys.pub(key, compressed=True) for key in keys]
     for m in range(1, 4):
         wif_key_0, addr_0 = next(funded_keys_101)
 
-        tx_ = send_tx(
-            addr_0,
-            to_bitcoin_address(
-                witness_script_hash(multisig_script_pubkey(m, pubkeys)),
-                addr_type="p2sh",
-                witness_version=0,
-                network="regtest",
-            ),
-            miner_fee=MINER_FEE,
+        redeem_script = bits.script.multisig_script_pubkey(m, pubkeys)
+        to_addr = bits.to_bitcoin_address(
+            bits.witness_script_hash(redeem_script),
+            addr_type="p2sh",
+            witness_version=0,
+            network="regtest",
         )
+        to_wif_keys = [
+            bits.wif_encode(
+                key, addr_type="p2wsh", network="regtest", data=redeem_script
+            )
+            for key in keys[:m]
+        ]
 
-        # sign
-        _, key_0, compressed_pubkey = bits.utils.wif_decode(wif_key_0)
-        pubkey_0 = bits.keys.pub(key_0, compressed=compressed_pubkey)
-        sig = bits.utils.sig(key_0, tx_, sighash_flag=SIGHASH_ALL)
-        scriptsig = p2pkh_script_sig(sig, pubkey_0)
-
-        tx_ = send_tx(
+        tx_ = bits.tx.send_tx(
             addr_0,
-            to_bitcoin_address(
-                witness_script_hash(multisig_script_pubkey(m, pubkeys)),
-                addr_type="p2sh",
-                witness_version=0,
-                network="regtest",
-            ),
-            scriptsig=scriptsig,
+            to_addr,
+            from_keys=[wif_key_0],
+            sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
         )
 
         ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
         assert ret[0]["allowed"] == True, ret
         bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
-        mine_block()
-        # TODO: test spenditure
+        bits.integrations.mine_block(b"")
+
+        # test spenditure p2wsh
+        tx_ = bits.tx.send_tx(
+            to_addr,
+            addr_0,
+            from_keys=to_wif_keys,
+            sighash_flag=bits.script.constants.SIGHASH_ALL,
+            miner_fee=MINER_FEE,
+        )
+        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+        assert ret[0]["allowed"] == True, ret
 
 
 def test_p2sh_p2wpkh(funded_keys_101):
     wif_key_0, addr_0 = next(funded_keys_101)
 
     key_1 = bits.keys.key()
-    pk_hash_1 = pubkey_hash(bits.keys.pub(key_1, compressed=True))
-    addr_1 = to_bitcoin_address(
-        script_hash(p2wpkh_script_pubkey(pk_hash_1, witness_version=0)),
+    pk_hash_1 = bits.pubkey_hash(bits.keys.pub(key_1, compressed=True))
+    redeem_script = bits.script.p2wpkh_script_pubkey(pk_hash_1, witness_version=0)
+    addr_1 = bits.to_bitcoin_address(
+        bits.script_hash(redeem_script),
         addr_type="p2sh",
         network="regtest",
     )
+    wif_key_1 = bits.wif_encode(
+        key_1, addr_type="p2sh-p2wpkh", network="regtest", data=redeem_script
+    )
 
-    tx_ = send_tx(addr_0, addr_1, miner_fee=MINER_FEE)
+    tx_ = bits.tx.send_tx(
+        addr_0,
+        addr_1,
+        from_keys=[wif_key_0],
+        sighash_flag=bits.script.constants.SIGHASH_ALL,
+        miner_fee=MINER_FEE,
+    )
 
-    # sign
-    _, key_0, compressed_pubkey = bits.utils.wif_decode(wif_key_0)
-    pubkey_0 = bits.keys.pub(key_0, compressed=compressed_pubkey)
-    sig = bits.utils.sig(key_0, tx_, sighash_flag=SIGHASH_ALL)
-    scriptsig = p2pkh_script_sig(sig, pubkey_0)
-
-    tx_ = send_tx(addr_0, addr_1, scriptsig=scriptsig, miner_fee=MINER_FEE)
-
-    #
     ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
     assert ret[0]["allowed"] == True, ret
     bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
-    mine_block()
-    # TODO: test spenditure
+    bits.integrations.mine_block(b"")
+
+    # test spenditure p2sh-p2wpkh
+    tx_ = bits.tx.send_tx(
+        addr_1,
+        addr_0,
+        from_keys=[wif_key_1],
+        sighash_flag=bits.script.constants.SIGHASH_ALL,
+        miner_fee=MINER_FEE,
+    )
+    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+    assert ret[0]["allowed"] == True, ret
 
 
 def test_p2sh_p2wsh(funded_keys_101):
     keys = [bits.keys.key() for i in range(3)]
-    pubkeys = [bits.keys.pub(key) for key in keys]
+    pubkeys = [bits.keys.pub(key, compressed=True) for key in keys]
     for m in range(1, 4):
         wif_key_0, addr_0 = next(funded_keys_101)
 
-        tx_ = send_tx(
-            addr_0,
-            to_bitcoin_address(
-                script_hash(
-                    p2wsh_script_pubkey(
-                        witness_script_hash(multisig_script_pubkey(m, pubkeys)),
-                        witness_version=0,
-                    )
-                ),
-                addr_type="p2sh",
-                network="regtest",
-            ),
-            miner_fee=MINER_FEE,
+        witness_script = bits.script.multisig_script_pubkey(m, pubkeys)
+        redeem_script = bits.script.p2wsh_script_pubkey(
+            bits.witness_script_hash(witness_script),
+            witness_version=0,
         )
-
-        # sign
-        _, key_0, compressed_pubkey = bits.utils.wif_decode(wif_key_0)
-        pubkey_0 = bits.keys.pub(key_0, compressed=compressed_pubkey)
-        sig = bits.utils.sig(key_0, tx_, sighash_flag=SIGHASH_ALL)
-        scriptsig = p2pkh_script_sig(sig, pubkey_0)
-
-        tx_ = send_tx(
-            addr_0,
-            to_bitcoin_address(
-                script_hash(
-                    p2wsh_script_pubkey(
-                        witness_script_hash(multisig_script_pubkey(m, pubkeys)),
-                        witness_version=0,
-                    )
-                ),
-                addr_type="p2sh",
+        addr_1 = bits.to_bitcoin_address(
+            bits.script_hash(redeem_script), addr_type="p2sh", network="regtest"
+        )
+        addr_1_from_keys = [
+            bits.wif_encode(
+                key,
+                addr_type="p2sh-p2wsh",
                 network="regtest",
-            ),
-            scriptsig=scriptsig,
+                data=witness_script,
+            )
+            for key in keys[:m]
+        ]
+
+        tx_ = bits.tx.send_tx(
+            addr_0,
+            addr_1,
+            from_keys=[wif_key_0],
+            sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
         )
 
         ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
         assert ret[0]["allowed"] == True, ret
         bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
-        mine_block()
-        # TODO: test spenditure
+        bits.integrations.mine_block(b"")
+
+        # test spenditure p2sh-p2wsh
+        tx_ = bits.tx.send_tx(
+            addr_1,
+            addr_0,
+            from_keys=addr_1_from_keys,
+            sighash_flag=bits.script.constants.SIGHASH_ALL,
+            miner_fee=MINER_FEE,
+        )
+        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+        assert ret[0]["allowed"] == True, ret

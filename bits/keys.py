@@ -1,15 +1,13 @@
 import secrets
 
-from bits.ecmath import SECP256K1_N
-from bits.utils import compute_point
-from bits.utils import pubkey as pubkey_
+import bits.ecmath
 
 
 def key() -> bytes:
     """
     Generate a private key
     """
-    return secrets.randbelow(SECP256K1_N).to_bytes(32, "big")
+    return secrets.randbelow(bits.ecmath.SECP256K1_N).to_bytes(32, "big")
 
 
 def pub(privkey: bytes, compressed: bool = False) -> bytes:
@@ -18,5 +16,5 @@ def pub(privkey: bytes, compressed: bool = False) -> bytes:
     Args:
         privkey: bytes, private key
     """
-    x, y = compute_point(privkey)
-    return pubkey_(x, y, compressed=compressed)
+    x, y = bits.compute_point(privkey)
+    return bits.pubkey(x, y, compressed=compressed)
