@@ -7,21 +7,25 @@ https://en.bitcoin.it/wiki/Network
 https://en.bitcoin.it/wiki/Protocol_documentation
 """
 import asyncio
+import base64
+import binascii
 import json
 import logging
 import os
 import socket
 import time
+import xmlrpc.server
 from collections import deque
 from threading import Event
 from threading import Thread
 from typing import List
+from typing import Optional
 from typing import Tuple
 from typing import Union
 
+import bits
 from bits.blockchain import genesis_block
 from bits.utils import compact_size_uint
-from bits.utils import d_hash
 from bits.utils import parse_compact_size_uint
 
 
@@ -138,8 +142,8 @@ def recv_msg(sock: socket.socket) -> Tuple[bytes, bytes, bytes]:
         raise ValueError(
             f"payload_size ({payload_size}) does not match length of payload ({len(payload)})"
         )
-    if checksum != d_hash(payload)[:4]:
-        raise ValueError(f"checksum failed. {checksum} != {d_hash(payload)[:4]}")
+    if checksum != bits.hash256(payload)[:4]:
+        raise ValueError(f"checksum failed. {checksum} != {bits.hash256(payload)[:4]}")
     if start_bytes != MAGIC_START_BYTES:
         raise ValueError(
             f"network mismatch - {start_bytes} not equal to magic start bytes {MAGIC_START_BYTES}"
@@ -164,7 +168,7 @@ def msg_ser(
     while len(command) < 12:
         command += b"\x00"
     payload_size = len(payload).to_bytes(4, "little")
-    checksum = d_hash(payload)[:4]
+    checksum = bits.hash256(payload)[:4]
     return start_bytes + command + payload_size + checksum + payload
 
 
@@ -484,6 +488,43 @@ def write_blocks_to_disk(blocks: List[bytes], datadir: str):
     dat_file.close()
 
 
+def auth_request_handler_factory(username: str, password: str):
+    """
+    Return subclass of SimpleXMLRPCRequestHandler for checking Basic Auth
+    Args:
+        username: str, basic auth username
+        password: str, basic auth password
+    Returns:
+        BasicAuthRequestHandler
+    """
+
+    class BasicAuthRequestHandler(xmlrpc.server.SimpleXMLRPCRequestHandler):
+        @classmethod
+        def parse_request(request):
+            if xmlrpc.server.SimpleXMLRPCRequestHandler.parse_request(request):
+                auth_header_value = request.headers.get("Authorization")
+                if not auth_header_value:
+                    request.send_error(401, "No Authorization Header")
+                    return False
+                auth_type, b64value = auth_header_value.split()
+                if auth_type != "Basic":
+                    request.send_error(401, "Only Basic Authorization supported")
+                    return False
+                try:
+                    decoded = base64.b64decode(b64value)
+                except binascii.Error:
+                    request.send_error(401, "base64 decode error")
+                    return False
+                auth_user, auth_password = decoded.decode("utf8").split(":")
+                if auth_user != username or auth_password != password:
+                    request.send_error(401, "Authentication error")
+                    return False
+                return True
+            return False
+
+    return BasicAuthRequestHandler
+
+
 class PeerThread(Thread):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -501,6 +542,10 @@ class Node:
         services: int = NODE_NETWORK,
         relay: bool = True,
         datadir: str = ".bits/blocks",
+        serve_rpc: bool = False,
+        rpc_bind: Tuple[str, int] = (),
+        rpc_username: Optional[str] = None,
+        rpc_password: Optional[str] = None,
     ):
         self._msg_queue = deque([])
         self._registered_commands_to_handle = [b"version", b"verack", b"ping"]
@@ -513,20 +558,26 @@ class Node:
         self.relay = relay
         self.datadir = datadir
 
+        self.serve_rpc = serve_rpc
+        self.rpc_bind = rpc_bind
+        self.rpc_username = rpc_username
+        self.rpc_password = rpc_password
+        self.rpc_server = None
+        self._rpc_thread = None
+
     def recv_loop(self, peer_no: int):
         """
         Recv loop; receive msg, add to msg queue
         """
         log.debug(f"peer {peer_no} enter recv_loop")
         while not self._peer_threads[peer_no].exit_event.is_set():
-            log.info("recv_msg...")
             try:
                 start_bytes, command, payload = recv_msg(self._peer_sockets[peer_no])
             except TimeoutError:
                 continue
             assert start_bytes == MAGIC_START_BYTES
             log.info(
-                f"received {len(start_bytes + command + payload)} bytes. command: {command}"
+                f"received {len(start_bytes + command + payload)} bytes from peer {peer_no}. command: {command}"
             )
             log.debug(f"payload: {payload}")
             payload = parse_payload(command, payload)
@@ -572,11 +623,29 @@ class Node:
         )
         self._peer_threads[peer_no].start()
 
+    def start_rpc_server(self):
+        def hello_world():
+            return "hello world"
+
+        with xmlrpc.server.SimpleXMLRPCServer(
+            self.rpc_bind,
+            requestHandler=auth_request_handler_factory(
+                self.rpc_username, self.rpc_password
+            ),
+        ) as server:
+            self.rpc_server = server
+            self.rpc_server.register_function(hello_world)
+            log.info("Starting RPC server...")
+            self.rpc_server.serve_forever()
+
     def start(self):
         for seed in self.seeds:
             host, port = seed.split(":")
             port = int(port)
             self.connect_peer(host, port)
+        if self.serve_rpc:
+            self._rpc_thread = Thread(target=self.start_rpc_server)
+            self._rpc_thread.start()
 
     def ibd(self):
         """
@@ -585,7 +654,7 @@ class Node:
         gb = genesis_block()
         write_blocks_to_disk([gb], self.datadir)
         msg = msg_ser(
-            MAGIC_START_BYTES, b"getblocks", getblocks_payload([d_hash(gb[:80])])
+            MAGIC_START_BYTES, b"getblocks", getblocks_payload([bits.hash256(gb[:80])])
         )
         self._peer_sockets[0].sendall(msg)
 
@@ -648,3 +717,5 @@ class Node:
     def stop(self):
         for peer_no in self._peer_threads:
             self._peer_threads[peer_no].exit()  # should close socket too
+        if self.serve_rpc:
+            self.rpc_server.shutdown()

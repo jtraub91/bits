@@ -1,18 +1,11 @@
 """
-blockchain lulz
+blockchain lulz :P
 """
 import os
-from typing import List
-from typing import Tuple
+import typing
 
-from bits.script.utils import p2pk_script_pubkey
-from bits.tx import coinbase_txin
-from bits.tx import tx
-from bits.tx import tx_deser
-from bits.tx import txout
-from bits.utils import compact_size_uint
-from bits.utils import d_hash
-from bits.utils import parse_compact_size_uint
+import bits.script
+import bits.tx
 
 
 COIN = 100000000  # satoshis / bitcoin
@@ -47,7 +40,6 @@ def difficulty(target: int, network: str = "mainnet") -> float:
     """
     difficulty = difficulty_1_target / current_target
     https://en.bitcoin.it/wiki/Difficulty
-
     """
     if network == "mainnet" or network == "testnet":
         return MAX_TARGET / target
@@ -65,8 +57,26 @@ def block_header(
     nBits: bytes,
     nNonce: int,
 ) -> bytes:
-    """ """
+    """
+    Create serialized block header from args
+
     # https://developer.bitcoin.org/reference/block_chain.html#block-headers
+
+    Args:
+        version: int, block version
+        prev_blockheaderhash: bytes, hash of previous block header
+        merkle_root_hash: bytes, merkle root hash
+        ntime: int, Unix epoch time
+        nBits: int, nBits encoding of target threshold
+        nNonce: int, arbitrary number
+    Returns:
+        block header
+
+    >>> merkle_root_hash = bytes.fromhex("3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a")
+    >>> nBits = (0x1D00FFFF).to_bytes(4, "little")
+    >>> bits.hash256(block_header(1, NULL_32, merkle_root_hash, 1231006505, nBits, 2083236893)).hex()
+    '6fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000'
+    """
     return (
         version.to_bytes(4, "little")
         + prev_blockheaderhash
@@ -77,13 +87,12 @@ def block_header(
     )
 
 
-def merkle_root(txns: List[bytes]) -> bytes:
+def merkle_root(txns: typing.List[bytes]) -> bytes:
     """
     merkle root from a list of transactions
     https://developer.bitcoin.org/reference/block_chain.html#merkle-trees
-
     """
-    row = [d_hash(txn) for txn in txns]
+    row = [bits.hash256(txn) for txn in txns]
     if len(row) == 1:
         return row[0]
     elif len(row) % 2:
@@ -91,7 +100,7 @@ def merkle_root(txns: List[bytes]) -> bytes:
     while len(row) >= 2:
         branches = []
         for i in range(0, len(row), 2):
-            branches.append(d_hash(row[i] + row[i + 1]))
+            branches.append(bits.hash256(row[i] + row[i + 1]))
         row = branches
     return row[0]
 
@@ -115,9 +124,9 @@ def genesis_coinbase_tx():
         + len(psz_timestamp).to_bytes(1, "little")  # OP_PUSH_69
         + psz_timestamp
     )
-    coinbase_tx = tx(
-        [coinbase_txin(coinbase_script)],
-        [txout(50 * COIN, p2pk_script_pubkey(satoshis_pk))],
+    coinbase_tx = bits.tx.tx(
+        [bits.tx.coinbase_txin(coinbase_script)],
+        [bits.tx.txout(50 * COIN, bits.script.p2pk_script_pubkey(satoshis_pk))],
     )
     return coinbase_tx
 
@@ -131,7 +140,6 @@ def genesis_block():
     >>> hashlib.sha256(hashlib.sha256(header).digest()).digest()[::-1].hex()
     '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f'
     """
-
     # https://github.com/bitcoin/bitcoin/blob/v0.1.5/main.cpp#L1495-L1498
     version: int = 1
     nTime = 1231006505
@@ -146,16 +154,16 @@ def genesis_block():
     )
 
 
-def block_ser(blk_hdr: bytes, txns: List[bytes]) -> bytes:
-    return blk_hdr + compact_size_uint(len(txns)) + b"".join(txns)
+def block_ser(blk_hdr: bytes, txns: typing.List[bytes]) -> bytes:
+    return blk_hdr + bits.compact_size_uint(len(txns)) + b"".join(txns)
 
 
-def block_deser(block: bytes) -> Tuple[bytes, List[dict]]:
+def block_deser(block: bytes) -> typing.Tuple[bytes, typing.List[dict]]:
     header = block[:80]
-    number_of_txns, block_prime = parse_compact_size_uint(block[80:])
+    number_of_txns, block_prime = bits.parse_compact_size_uint(block[80:])
     txns = []
     while block_prime:
-        deserialized_tx, block_prime = tx_deser(block_prime)
+        deserialized_tx, block_prime = bits.tx.tx_deser(block_prime)
         txns.append(deserialized_tx)
     assert (
         len(txns) == number_of_txns

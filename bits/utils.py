@@ -12,6 +12,8 @@ from bits.bips import bip173
 def pubkey(x: int, y: int, compressed=False) -> bytes:
     """
     Returns SEC1 pubkey from point (x, y)
+
+    >>> pubkey()
     """
     if compressed:
         prefix = b"\x02" if y % 2 == 0 else b"\x03"
@@ -31,6 +33,8 @@ def privkey_int(privkey_: bytes) -> int:
 def compute_point(privkey_: bytes) -> typing.Tuple[int]:
     """
     Compute (x, y) public key point from private key
+
+    >>> compute_point()
     """
     k = privkey_int(privkey_)
     return bits.ecmath.point_scalar_mul(
@@ -41,6 +45,8 @@ def compute_point(privkey_: bytes) -> typing.Tuple[int]:
 def point(pubkey_: bytes) -> typing.Tuple[int]:
     """
     Return (x, y) point from SEC1 public key
+
+    >>> point()
     """
     assert len(pubkey_) == 33 or len(pubkey_) == 65, "invalid pubkey length"
     version = pubkey_[0]
@@ -154,22 +160,8 @@ def ripemd160(msg: bytes) -> bytes:
     return hashlib.new("ripemd160", msg).digest()
 
 
-def s_hash(msg: bytes) -> bytes:
-    """
-    Single sha256 hash of msg
-    """
-    return hashlib.sha256(msg).digest()
-
-
 def sha256(msg: bytes) -> bytes:
     return hashlib.sha256(msg).digest()
-
-
-def d_hash(msg: bytes) -> bytes:
-    """
-    Double sha256 hash of msg
-    """
-    return hashlib.sha256(hashlib.sha256(msg).digest()).digest()
 
 
 def hash256(msg: bytes) -> bytes:

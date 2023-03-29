@@ -26,6 +26,9 @@ def add_mod_p(
 ) -> int:
     """
     x + y (mod p)
+
+    >>> add_mod_p(SECP256K1_P - 1, 3)
+    2
     """
     if x < 0 or x >= p:
         raise ValueError(f"{x} not in integer set of order {p}")
@@ -37,6 +40,9 @@ def add_mod_p(
 def sub_mod_p(x: int, y: int, p: int = SECP256K1_P) -> int:
     """
     x - y (mod p)
+
+    >>> hex(sub_mod_p(0, 1))
+    '0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2e'
     """
     if x < 0 or x >= p:
         raise ValueError(f"{x} not in integer set of order {p}")

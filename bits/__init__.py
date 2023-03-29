@@ -1,3 +1,5 @@
+__version__ = "0.1.0"
+
 import json
 import logging
 import os
@@ -6,9 +8,15 @@ from typing import IO
 from typing import Optional
 from typing import Union
 
+try:
+    import tomllib
+
+    HAS_TOMLLIB = True
+except ImportError:
+    HAS_TOMLLIB = False
+
 from .utils import compact_size_uint
 from .utils import compute_point
-from .utils import d_hash
 from .utils import hash160
 from .utils import hash256
 from .utils import is_point
@@ -27,13 +35,6 @@ from .utils import wif_decode
 from .utils import wif_encode
 from .utils import witness_script_hash
 
-try:
-    import tomllib
-
-    HAS_TOMLLIB = True
-except ImportError:
-    HAS_TOMLLIB = False
-
 
 log = logging.getLogger(__name__)
 formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
@@ -42,10 +43,9 @@ if not os.path.exists(".bits/logs"):
 fh = logging.FileHandler(".bits/logs/bits.log")
 fh.setFormatter(formatter)
 log.addHandler(fh)
-sh = logging.StreamHandler()
-sh.setLevel(logging.DEBUG)
-sh.setFormatter(formatter)
-log.addHandler(sh)
+# sh = logging.StreamHandler()
+# sh.setFormatter(formatter)
+# log.addHandler(sh)
 
 
 def set_log_level(level: str):
@@ -60,40 +60,53 @@ def default_config():
         "network": "mainnet",
         "logfile": ".bits/logs/bits.log",
         "loglevel": "info",
+        "input_format": "hex",
+        "output_format": "hex",
         "rpcurl": "",
         "rpcuser": "",
         "rpcpassword": "",
-        "input_format": "bin",
-        "output_format": "bin",
     }
 
 
 def load_config():
-    global bitsconfig
     bitsconfig = default_config()
-    bitsconfig_file = (
-        open(".bitsconfig.toml", "rb") if HAS_TOMLLIB else open(".bitsconfig.json")
-    )
-    bitsconfig_file_dict = (
-        tomllib.load(bitsconfig_file) if HAS_TOMLLIB else json.load(bitsconfig_file)
-    )
+    if HAS_TOMLLIB and os.path.exists(".bitsconfig.toml"):
+        with open(".bitsconfig.toml", "rb") as bitsconfig_file:
+            bitsconfig_file_dict = tomllib.load(bitsconfig_file)
+    else:
+        with open(".bitsconfig.json") as bitsconfig_file:
+            bitsconfig_file_dict = json.load(bitsconfig_file)
     bitsconfig.update(bitsconfig_file_dict)
-    bitsconfig_file.close()
+    return bitsconfig
 
 
 def read_bytes(file_: Optional[IO] = None, input_format: str = "raw") -> bytes:
     """
     Read from optional file or stdin and convert to bytes
+
+    Any newlines will be stripped from beginning / end for hex and bin, only.
+    Raw is read without any additional processing.
+
+    Furthermore, hex and bin will be left-zero-padded to the nearest byte, if they are
+    not provided in 8-bit multiples.
+
     Args:
+        file_: Optional[IO], optional file object - otherwise stdin is used
         input_format: str, "raw", "hex", or "bin"
+    Returns:
+        data as bytes
     """
     if input_format == "raw":
-        data = file_.buffer.read().strip() if file_ else sys.stdin.buffer.read().strip()
+        data = file_.buffer.read() if file_ else sys.stdin.buffer.read()
     elif input_format == "hex":
         data = file_.read().strip() if file_ else sys.stdin.read().strip()
+        if len(data) % 2:
+            data = "0" + data
         data = bytes.fromhex(data)
     elif input_format == "bin":
         data = file_.read().strip() if file_ else sys.stdin.read().strip()
+        if len(data) % 8:
+            data = "0" * (8 - len(data) % 8) + data
         data = int(data, 2).to_bytes(len(data) // 8, "big")
     else:
         raise ValueError(f"unrecognized input format: {input_format}")
@@ -124,5 +137,4 @@ def write_bytes(data: bytes, file_: Optional[IO] = None, output_format: str = "r
         raise ValueError(f"unrecognized output format: {output_format}")
 
 
-bitsconfig = {}
-load_config()
+bitsconfig = load_config()

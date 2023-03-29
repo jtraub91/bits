@@ -7,28 +7,28 @@ import json
 import logging
 import os
 import secrets
+import sys
 from getpass import getpass
 
 import bits.base58
-import bits.bips.bip173 as bip173
-import bits.bips.bip32 as bip32
-import bits.bips.bip39 as bip39
+import bits.blockchain
+import bits.p2p
 import bits.rpc
 import bits.script
-from bits.blockchain import genesis_block
+import bits.tx
+import bits.wallet.hd
+from bits.bips import bip173
+from bits.bips import bip32
+from bits.bips import bip39
 from bits.integrations import mine_block
-from bits.p2p import Node
-from bits.p2p import set_magic_start_bytes
-from bits.rpc import rpc_method
-from bits.tx import outpoint
-from bits.tx import send_tx
-from bits.tx import tx
-from bits.tx import txin
-from bits.tx import txout
-from bits.wallet.hd import derive_from_path
-from bits.wallet.hd import get_xpub
 
 log = logging.getLogger(__name__)
+
+
+class RawDescriptionDefaultsHelpFormatter(
+    argparse.RawDescriptionHelpFormatter, argparse.ArgumentDefaultsHelpFormatter
+):
+    pass
 
 
 def catch_exception(fun):
@@ -95,6 +95,8 @@ def add_input_arguments(
 ):
     parser.add_argument(
         "--in-file",
+        "-in",
+        "-i",
         type=argparse.FileType("r"),
         # https://github.com/python/cpython/issues/58364
         help=in_file_help,
@@ -136,6 +138,8 @@ def add_output_arguments(
     """
     parser.add_argument(
         "--out-file",
+        "-out",
+        "-o",
         type=argparse.FileType("w"),
         help=out_file_help,
     )
@@ -164,26 +168,34 @@ def add_output_arguments(
 
 @catch_exception
 def main():
-    bits_desc = """
-The bits command (with no sub-command) accepts input and writes output, in either 
-raw binary, binary string, or hexadecimal string format. The format of the input and 
-output can be specified independently, using the following command options, making it 
-able to be used as a converter between formats. If in_file / out_file is not 
-specified, respectively, stdin / stdout will be used.
-    """
     parser = argparse.ArgumentParser(
         prog="bits",
-        usage=argparse.SUPPRESS,
-        description=bits_desc,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=f"""
+Convert input bits to bytes. 
+
+Input and output formats can be specified independently, such that this command may 
+be used as a converter between formats.
+
+Examples:
+    $ head -c 32 /dev/urandom | bits -1 -0x 
+
+    $ echo 1001 | bits -1b -0b
+
+    $ echo hello world | bits -1 -0""",
+        formatter_class=RawDescriptionDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "-v", "-V", "--version", action="version", version=bits.__version__
     )
     add_input_arguments(parser)
     add_output_arguments(parser)
 
     sub_parser = parser.add_subparsers(
         dest="subcommand",
-        metavar="<subcommand>",
-        description="Use bits <subcommand> -h for help on each command",
+        metavar="[subcommand]",
+        # formatter_class=RawDescriptionDefaultsHelpFormatter,
+        description="""
+Use bits <subcommand> -h for help on each command""",
     )
 
     key_parser = sub_parser.add_parser(
@@ -193,8 +205,7 @@ specified, respectively, stdin / stdout will be used.
 Generate Bitcoin private key integer.
 
 This command support PEM encoded EC private key output, via the -0pem flag, for 
-compatibility with external tools, e.g. openssl, if needed.
-        """,
+compatibility with external tools, e.g. openssl, if needed.""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     key_parser_mutually_exclusive_output_group = add_output_arguments(key_parser)
@@ -210,12 +221,11 @@ compatibility with external tools, e.g. openssl, if needed.
         help="calculate public key",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description="""
-Calculate public key from private key. If the public key is provided as input, this 
+Calculate public key from private key integer. If the public key is provided as input, this 
 sub-command may be used to compress / un-compress the key via the use of the -X flag.
 
 This command support PEM encoded EC public key output, via the -0pem flag, for 
-compatibility with external tools, e.g. openssl, if needed.
-        """,
+compatibility with external tools, e.g. openssl, if needed.""",
     )
     pubkey_parser.add_argument(
         "-X", "--compressed", action="store_true", help="output compressed pubkey"
@@ -229,10 +239,17 @@ compatibility with external tools, e.g. openssl, if needed.
         help="output file format - PEM encoded public key",
     )
 
-    wif_parser = sub_parser.add_parser("wif", help="encode WIF key")
+    wif_parser = sub_parser.add_parser(
+        "wif",
+        formatter_class=RawDescriptionDefaultsHelpFormatter,
+        help="encode WIF key",
+        description="""
+Encode a private key in eWIF (enhanced wallet import format).""",
+    )
     wif_parser.add_argument(
         "--addr-type",
         "-T",
+        metavar="addr_type",
         default="p2pkh",
         choices=[
             "p2pkh",
@@ -244,12 +261,11 @@ compatibility with external tools, e.g. openssl, if needed.
             "p2wsh",
             "p2sh-p2wsh",
         ],
-        help="address type",
+        help="Address type. Valid choices are p2pkh, p2wpkh, p2pk, multisig, p2sh-p2wpkh, p2sh, p2wsh, or p2sh-p2wsh.",
     )
     wif_parser.add_argument(
         "--data",
         "-D",
-        default="",
         type=bytes.fromhex,
         help="additional data to append to WIF key before base58check encoding",
     )
@@ -264,8 +280,13 @@ compatibility with external tools, e.g. openssl, if needed.
 
     addr_parser = sub_parser.add_parser(
         "addr",
-        help="base58check and segwit Bitcoin addresses",
-        description="Output standard address types from scripthash or pubkeyhash",
+        help="Encode Bitcoin addresses",
+        formatter_class=RawDescriptionDefaultsHelpFormatter,
+        description="""
+Encode Legacy or Segwit Bitcoin addresses from input payload. For p2pkh and p2sh, the 
+input payload shall be the pubkeyhash (i.e. hash160(pubkey)) or scripthash (i.e. hash160(script)), 
+respectively. Likewise, for witness v0 p2wpkh and p2wsh the input payload shall be pubkeyhash 
+(i.e. hash160(pubkey)) or witness scripthash (i.e. hash256(script)), respectively.""",
     )
     addr_parser.add_argument(
         "-T",
@@ -275,16 +296,19 @@ compatibility with external tools, e.g. openssl, if needed.
             "p2pkh",
             "p2sh",
         ],
+        metavar="addr_type",
         help="""
-        address invoice type. 
-        ignored when --witness-version is present
+Address type. Valid choices are p2pkh or p2sh. Ignored when --witness-version is present.
         """,
     )
     addr_parser.add_argument(
         "--witness-version",
         type=int,
-        help="witness version for native segwit addresses",
+        help="""
+Witness version for native Segwit addresses. 
+Use of this option implies a Segwit address and addr_type (-T) is ignored.""",
         choices=range(17),
+        metavar="witness_version",
     )
     add_common_arguments(addr_parser, include_log_level=False)
     add_input_arguments(addr_parser)
@@ -296,16 +320,43 @@ compatibility with external tools, e.g. openssl, if needed.
 
     mnemonic_parser = sub_parser.add_parser(
         "mnemonic",
-        help="mnemonic seed",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help="Generate and convert mnemonic phrases",
+        formatter_class=RawDescriptionDefaultsHelpFormatter,
         description="""
-The bits mnemonic command with no further options will generate a new mnemonic seed phrase.
-When operating in this mode, the --strength argument can be used to specify the 
+Generate or convert mnemonic phrase.
+
+This command with no further options will generate a new mnemonic seed phrase.
+When operating in this mode, the --strength (-S) argument can be used to specify the 
 desired entropy strength, in bits. Alternatively, you may provide entropy bytes as input
-when using the --from-entropy flag. The --to-entropy can be used to translate the mnemonic 
-back to its orginal entropy. The --to-seed and --to-master-key flags are used to convert
-the mnemonic phrase to the seed or master key, per BIP39 / BIP32, respectively.
-        """,
+when using the --from-entropy flag. The --to-entropy flag can be used to translate the 
+mnemonic back to its orginal entropy. The --to-seed and --to-master-key flags can be 
+used to convert the mnemonic phrase to the seed or master key, per BIP39 / BIP32, respectively.
+
+Examples:
+
+    1. Generate a mnemonic
+
+        $ bits mnemonic
+
+    2. Generate a mnemonic (specify entropy strength in bits)
+
+        $ bits mnemonic -s 256
+
+    3. Generate a mnemonic from provided entropy
+
+        $ head -c 32 /dev/urandom | bits mnemonic -1 --from-entropy
+
+    4. Retrieve original entropy
+
+        $ echo <mnemonic-phrase> | bits mnemonic --to-entropy
+
+    5. Convert mnemonic to seed
+
+        $ echo <mnemonic-phrase> | bits mnemonic --to-seed
+
+    6. Convert mnemonic to master key
+
+        $ echo <mnemonic-phrase> | bits mnemonic --to-master-key""",
     )
     mnemonic_parser.add_argument(
         "--strength",
@@ -355,30 +406,49 @@ the mnemonic phrase to the seed or master key, per BIP39 / BIP32, respectively.
 
     hd_parser = sub_parser.add_parser(
         "hd",
-        help="derive extended keys",
-        usage=argparse.SUPPRESS,
+        help="Derive (or decode) extended keys",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description="""
-Derive extended keys at a particular path, e.g "m/0'/1" or "M/0/0"
-The leading m/ or M/ indicate private or public derivation, respectively.
-The extended key at which derivation starts does not need to be the root/master key.
-        """,
+Derive extended keys at a particular path, e.g "m/0'/1" or "M/0/0". 
+
+The leading m/ or M/ in path indicate private or public derivation, respectively.
+The extended key at which derivation starts need not be the root/master key.
+
+Use --dump to deserialize & decode the derived key, and output json object to stderr. 
+""",
     )
     hd_parser.add_argument("path", help="path to extended key, e.g. m/0'/1 or M/0'/1")
     hd_parser.add_argument(
-        "--xpub", default=False, action="store_true", help="output extended public key"
+        "--xpub",
+        default=False,
+        action="store_true",
+        help="Use this flag to output the extended public key",
     )
     hd_parser.add_argument(
-        "--decode", action="store_true", help="deserialize extended key and output json"
+        "--dump",
+        action="store_true",
+        help="Deserialize extended key and decode as json. Writes to stderr.",
     )
     add_common_arguments(hd_parser, include_network=False)
+    add_input_arguments(
+        hd_parser,
+        in_file_help="input data file - raw binary",
+        include_input_group=False,
+    )
 
     script_parser = sub_parser.add_parser(
         "script",
-        help="create generic scripts",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help="Create arbitrary Bitcoin Scripts",
+        formatter_class=RawDescriptionDefaultsHelpFormatter,
         description="""
-Create generic Scripts. script_args are either OP_* or data
+Create arbitrary Bitcoin Scripts. script_args shall either be OP_* or data. The script
+will be properly encoded with data push opcodes, as necessary, but since these are implied, 
+they should not be specified in script_args.
+
+Use --decode to decode raw script input to opcodes / data.
+
+Use --witness to indicate witness script encoding / decoding and to follow witness 
+script semantics (include stack size push and difference in handling data push bytes) 
 
 Standard transaction scripts:
     P2PK:
@@ -410,21 +480,46 @@ Standard transaction scripts:
     P2SH-P2WSH:
         scriptPubkey: OP_HASH160 <20-byte-script-hash> OP_EQUAL
         scriptSig: Script(OP_0 <32-byte-script-hash>)
-        witness: <redeem-script>
-        """,
+        witness: <redeem-script>""",
     )
-    script_parser.add_argument("script_args", nargs="*", help="script code")
-    script_parser.add_argument("--decode", action="store_true", help="decode script")
+    script_parser.add_argument(
+        "script_args", nargs="*", help="Script arguments, e.g. OP_* or <data>"
+    )
+    script_parser.add_argument(
+        "--decode",
+        action="store_true",
+        help="Use this flag to decode raw script input to opcodes / data.",
+    )
+    script_parser.add_argument(
+        "--witness",
+        action="store_true",
+        help="Use this flag to indicate this is a witness script and to follow witness script encoding / decoding semantics.",
+    )
     add_input_arguments(script_parser)
     add_output_arguments(script_parser)
 
     sig_parser = sub_parser.add_parser(
         "sig",
-        help="create / verify bitcoin signatures",
+        help="Create or verify bitcoin signatures",
+        formatter_class=RawDescriptionDefaultsHelpFormatter,
         description="""
-        Create or verify Bitcoin signature
-            = sig(HASH256(msg + SIGHASH_FLAG))
-        """,
+Create or verify Bitcoin signature
+
+For signing, the input file shall be the private key. For verifying, the input file shall
+be the public key.
+
+A signature (sig) is created by taking the provided msg argument (msg shall be provided 
+as a hex string), appending a 4-byte SIGHASH flag, hashing, signing, and appending the 
+single byte SIGHASH.
+
+The --msg-preimage flag can be used, to signify that the msg is the preimage and already
+has the SIGHASH flag appended. The msg is still hashed, signed, and a single byte SIGHASH
+appended.
+
+Examples:
+    $ bits sig -i <privatekey> <msg> --sighash all
+
+    $ bits sig --verify -i <publickey> <msg> --signature <sig>""",
     )
     sig_parser.add_argument(
         "msg",
@@ -459,7 +554,6 @@ Standard transaction scripts:
 
     ripemd160_parser = sub_parser.add_parser(
         "ripemd160",
-        usage=argparse.SUPPRESS,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         help="ripemd160(data)",
         description="""Calculate ripemd160 of input data""",
@@ -467,24 +561,35 @@ Standard transaction scripts:
     add_input_arguments(ripemd160_parser)
     add_output_arguments(ripemd160_parser)
 
-    sha256_parser = sub_parser.add_parser("sha256", help="sha256(data)")
+    sha256_parser = sub_parser.add_parser(
+        "sha256", help="sha256(data)", description="""Calculate sha256 of input data"""
+    )
     add_input_arguments(sha256_parser)
     add_output_arguments(sha256_parser)
 
     hash160_parser = sub_parser.add_parser(
-        "hash160", help="HASH160(data), i.e. ripemd160(sha256(data))"
+        "hash160",
+        help="HASH160(data)",
+        description="Calculate HASH160 of input data, i.e. ripemd160(sha256(data))",
     )
     add_input_arguments(hash160_parser)
     add_output_arguments(hash160_parser)
 
     hash256_parser = sub_parser.add_parser(
-        "hash256", help="HASH256(data), i.e. sha256(sha256(data))"
+        "hash256",
+        help="HASH256(data)",
+        description="Calculate HASH256 of input data, i.e. sha256(sha256(data))",
     )
     add_input_arguments(hash256_parser)
     add_output_arguments(hash256_parser)
 
     base58_parser = sub_parser.add_parser(
-        "base58", help="base58 (check) encoding / decoding"
+        "base58",
+        help="base58 (check) encoding / decoding",
+        formatter_class=RawDescriptionDefaultsHelpFormatter,
+        description="""
+        Base58(/check) encode / decode input data.
+        """,
     )
     base58_parser.add_argument(
         "--check", default=False, action="store_true", help="base58check"
@@ -500,8 +605,9 @@ Standard transaction scripts:
         include_output_group=False,
     )
 
+    # TODO: improve help / description bech32
     bech32_parser = sub_parser.add_parser(
-        "bech32", help="encode / decode bech32 / segwit data"
+        "bech32", help="encode or decode bech32 or segwit data"
     )
     bech32_segwit_mutually_exclusive_group = bech32_parser.add_mutually_exclusive_group(
         required=True
@@ -523,9 +629,22 @@ Standard transaction scripts:
 
     tx_parser = sub_parser.add_parser(
         "tx",
-        help="create transactions",
-        description="create transactions",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        help="create raw transactions",
+        formatter_class=RawDescriptionDefaultsHelpFormatter,
+        description="""
+Create raw transactions.
+
+Examples:
+
+    1. Create raw transaction
+
+        $ bits tx -txin '{"txid": "", "vout": 0, "scriptSig": ""}' -txout '{"satoshis": "", "scriptPubkey": ""}'
+
+    2. Decode raw transaction
+
+        $ echo <raw-tx> | bits tx --decode
+
+        """,
     )
     tx_parser.add_argument(
         "-txin",
@@ -557,7 +676,12 @@ Standard transaction scripts:
         "-l", "--locktime", type=int, default=0, help="transaction locktime"
     )
     tx_parser.add_argument(
-        "--script-witness", type=bytes.fromhex, help="list of witness scripts"
+        "--script-witness",
+        dest="script_witnesses",
+        action="append",
+        default=[],
+        type=bytes.fromhex,
+        help="witness script. This argument can be specified multiple times, but must appear in order corresponding to txins",
     )
     tx_parser.add_argument("--decode", action="store_true", help="decode raw tx")
     add_input_arguments(tx_parser)
@@ -595,31 +719,51 @@ Standard transaction scripts:
     )
     add_output_arguments(send_parser)
 
-    # p2p_parser = sub_parser.add_parser("p2p", help="start p2p node")
-    # p2p_parser.add_argument(
-    #     "--seeds", type=str, help="comma separated list of seed nodes"
-    # )
+    p2p_parser = sub_parser.add_parser("p2p", help="start p2p node")
+    p2p_parser.add_argument(
+        "--seeds", type=str, help="comma separated list of seed nodes"
+    )
 
-    blockchain_parser = sub_parser.add_parser("blockchain", help="blockchain utils")
+    blockchain_parser = sub_parser.add_parser(
+        "blockchain",
+        help="blockchain explorer",
+        formatter_class=RawDescriptionDefaultsHelpFormatter,
+        description="""
+Blockchain lulz
+""",
+    )
     blockchain_parser.add_argument("blockheight", type=int, help="block height")
+    blockchain_parser.add_argument(
+        "--header-only", "-H", action="store_true", help="output block header only"
+    )
     add_output_arguments(blockchain_parser)
 
-    miner_parser = sub_parser.add_parser("miner", help="Mine blocks")
-    miner_parser.add_argument(
+    mine_parser = sub_parser.add_parser(
+        "mine",
+        help="Mine blocks",
+        formatter_class=RawDescriptionDefaultsHelpFormatter,
+        description="""
+Mine blocks.
+""",
+    )
+    mine_parser.add_argument(
         "--recv-addr",
         dest="recv_addr",
         type=os.fsencode,
         help="""Address to send block reward to.""",
     )
-    miner_parser.add_argument(
+    mine_parser.add_argument(
         "--limit",
         type=int,
-        help="Set a limit of the number of blocks to mine before miner exits. Useful for generating a set number of blocks in regtest mode.",
+        help="Set a limit of the number of blocks to mine before exit. Useful in regtest mode for generating a set number of blocks",
     )
-    add_common_arguments(miner_parser)
+    add_common_arguments(mine_parser)
 
     rpc_parser = sub_parser.add_parser(
-        "rpc", help="rpc interface", description="Send command to RPC node"
+        "rpc",
+        help="rpc interface",
+        formatter_class=RawDescriptionDefaultsHelpFormatter,
+        description="Send command to RPC node",
     )
     rpc_parser.add_argument("rpc_command", help="rpc command")
     rpc_parser.add_argument("params", nargs="*", help="params for rpc_command")
@@ -634,7 +778,7 @@ Standard transaction scripts:
     update_config(args)
 
     bits.set_log_level(bits.bitsconfig["loglevel"])
-    set_magic_start_bytes(bits.bitsconfig["network"])
+    bits.p2p.set_magic_start_bytes(bits.bitsconfig["network"])
 
     if not args.subcommand:
         data = bits.read_bytes(
@@ -707,7 +851,7 @@ Standard transaction scripts:
                         else True,
                     )
                     bits.write_bytes(
-                        xprv + os.linesep.encode("utf8"),
+                        xprv,
                         args.out_file,
                         output_format="raw",
                     )
@@ -725,19 +869,17 @@ Standard transaction scripts:
             )
     elif args.subcommand == "hd":
         extended_key = bits.read_bytes(args.in_file, input_format="raw")
-        derived_key = derive_from_path(args.path, extended_key)
+        derived_key = bits.wallet.hd.derive_from_path(args.path, extended_key)
         if args.xpub:
-            derived_key = get_xpub(derived_key)
-        if args.decode:
-            print(
+            derived_key = bits.wallet.hd.get_xpub(derived_key)
+        if args.dump:
+            sys.stderr.write(
                 json.dumps(
                     bip32.deserialized_extended_key(derived_key, return_dict=True)
                 )
+                + os.linesep
             )
-            return
-        bits.write_bytes(
-            derived_key + os.linesep.encode("utf8"), args.out_file, output_format="raw"
-        )
+        bits.write_bytes(derived_key, args.out_file, output_format="raw")
     elif args.subcommand == "wif":
         if args.decode:
             wif_ = bits.read_bytes(args.in_file, input_format="raw")
@@ -753,9 +895,7 @@ Standard transaction scripts:
             data=args.data,
             network=bits.bitsconfig["network"],
         )
-        bits.write_bytes(
-            wif + os.linesep.encode("utf8"), args.out_file, output_format="raw"
-        )
+        bits.write_bytes(wif, args.out_file, output_format="raw")
     elif args.subcommand == "base58":
         if args.decode:
             data = bits.read_bytes(args.in_file, input_format="raw")
@@ -860,9 +1000,7 @@ Standard transaction scripts:
             witness_version=args.witness_version,
             network=bits.bitsconfig["network"],
         )
-        bits.write_bytes(
-            addr + os.linesep.encode("ascii"), args.out_file, output_format="raw"
-        )
+        bits.write_bytes(addr, args.out_file, output_format="raw")
     elif args.subcommand == "tx":
         if args.decode:
             raw_tx = bits.read_bytes(
@@ -879,13 +1017,15 @@ Standard transaction scripts:
             txid_ = bytes.fromhex(txin_dict["txid"])[::-1]
             # use script pub key as script sig for signing
             script_sig = bytes.fromhex(txin_dict["scriptSig"])
-            txin_ = txin(outpoint(txid_, txin_dict["vout"]), script_sig)
+            txin_ = bits.tx.txin(bits.tx.outpoint(txid_, txin_dict["vout"]), script_sig)
             txins.append(txin_)
         txouts = [
-            txout(txout_dict["satoshis"], bytes.fromhex(txout_dict["scriptPubKey"]))
+            bits.tx.txout(
+                txout_dict["satoshis"], bytes.fromhex(txout_dict["scriptPubKey"])
+            )
             for txout_dict in args.txouts
         ]
-        tx_ = tx(
+        tx_ = bits.tx.tx(
             txins,
             txouts,
             version=args.version,
@@ -898,11 +1038,11 @@ Standard transaction scripts:
             scriptbytes = bits.read_bytes(
                 args.in_file, input_format=bits.bitsconfig["input_format"]
             )
-            decoded = bits.script.decode_script(scriptbytes)
+            decoded = bits.script.decode_script(scriptbytes, witness=args.witness)
             print(json.dumps(decoded))
             return
         bits.write_bytes(
-            bits.script.utils.script(args.script_args),
+            bits.script.script(args.script_args, witness=args.witness),
             args.out_file,
             output_format=bits.bitsconfig["output_format"],
         )
@@ -920,6 +1060,7 @@ Standard transaction scripts:
                     args.signature, pubkey_, args.msg, msg_preimage=args.msg_preimage
                 )
             )
+            return
         key = bits.read_bytes(
             args.in_file, input_format=bits.bitsconfig["input_format"]
         )
@@ -938,7 +1079,7 @@ Standard transaction scripts:
         sighash_flag = getattr(bits.script.constants, f"SIGHASH_{args.sighash.upper}")
         if args.anyone_can_pay:
             sighash_flag |= bits.script.constants.SIGHASH_ANYONECANPAY
-        tx_ = send_tx(
+        tx_ = bits.tx.send_tx(
             args.from_,
             args.to_,
             from_keys=from_keys,
@@ -958,7 +1099,7 @@ Standard transaction scripts:
         else:
             print("Transaction not sent.")
             return
-    elif args.subcommand == "miner":
+    elif args.subcommand == "mine":
         n = 0
         while True:
             mine_block(args.recv_addr, network=bits.bitsconfig["network"])
@@ -968,22 +1109,34 @@ Standard transaction scripts:
                     f"{n} blocks mined. Reward sent to {args.recv_addr.decode('utf8')}"
                 )
                 break
-    # elif args.subcommand == "p2p":
-    #     # bits --network testnet p2p start --seeds "host1:port1,host2:port2"
-    #     if not args.seeds:
-    #         raise NotImplementedError
-    #         p2p_node = Node()
-    #     p2p_node = Node(seeds=args.seeds.split(","))
-    #     p2p_node.start()
+    elif args.subcommand == "p2p":
+        # bits p2p start --seeds "host1:port1,host2:port2"
+        seeds = (
+            args.seeds.split(",") if args.seeds else bits.bitsconfig.get("seeds", [])
+        )
+        if bits.bitsconfig.get("rpcbind"):
+            rpc_host, rpc_port = bits.bitsconfig.get("rpcbind").split(":")
+            rpc_port = int(rpc_port)
+            rpc_bind = (rpc_host, rpc_port)
+        else:
+            rpc_bind = ()
+        p2p_node = bits.p2p.Node(
+            seeds=seeds,
+            serve_rpc=bits.bitsconfig.get("serve"),
+            rpc_bind=rpc_bind,
+            rpc_username=bits.bitsconfig["rpcuser"],
+            rpc_password=bits.bitsconfig["rpcpassword"],
+        )
+        p2p_node.start()
     elif args.subcommand == "blockchain":
         if args.blockheight == 0:
             bits.write_bytes(
-                genesis_block(),
+                bits.blockchain.genesis_block(),
                 args.out_file,
                 output_format=bits.bitsconfig["output_format"],
             )
         else:
-            raise NotImplementedError
+            raise NotImplementedError("blocks > 0 not implemented per v0")
     elif args.subcommand == "rpc":
         if args.rpc_url:
             bits.bitsconfig.update({"rpcurl": args.rpc_url})
@@ -992,7 +1145,7 @@ Standard transaction scripts:
         if args.rpc_password:
             bits.bitsconfig.update({"rpcpassword": args.rpc_password})
 
-        result = rpc_method(
+        result = bits.rpc.rpc_method(
             args.rpc_command,
             *args.params,
             rpc_url=bits.bitsconfig["rpcurl"],

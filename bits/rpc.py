@@ -1,5 +1,5 @@
 """
-Connect to a trusted Bitcoin RPC full node
+RPC
 """
 import base64
 import json
@@ -18,6 +18,9 @@ log = logging.getLogger(__name__)
 def rpc_method(
     method, *params, rpc_url="", rpc_user="", rpc_password=""
 ) -> Union[dict, str]:
+    """
+    Call a method (w/ params) to bitcoind node
+    """
     if not rpc_url:
         rpc_url = bits.bitsconfig["rpcurl"]
     if not rpc_user:

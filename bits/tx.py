@@ -153,7 +153,6 @@ def coinbase_txin(
         coinbase_script: bytes, arbitrary data not exceeding 100 bytes
         block_height: bytes, block height of this block in script language
             (now required per BIP34)
-
     """
     if block_height is not None:
         # "minimally encoded serialized CScript"
