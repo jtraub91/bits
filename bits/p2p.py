@@ -25,8 +25,6 @@ from typing import Union
 
 import bits
 from bits.blockchain import genesis_block
-from bits.utils import compact_size_uint
-from bits.utils import parse_compact_size_uint
 
 
 # Magic start strings
@@ -256,7 +254,7 @@ def version_payload(
         + addr_trans_ip_addr.encode("ascii")
         + addr_trans_port.to_bytes(2, "big")
         + nonce.to_bytes(8, "little")
-        + compact_size_uint(len(user_agent))  # user_agent_bytes
+        + bits.compact_size_uint(len(user_agent))  # user_agent_bytes
         + user_agent
         + start_height.to_bytes(4, "little")
     )
@@ -280,7 +278,7 @@ def getblocks_payload(
     stop_hash = b"\x00" * 32
     return (
         protocol_version.to_bytes(4, "little")
-        + compact_size_uint(len(block_header_hashes))
+        + bits.compact_size_uint(len(block_header_hashes))
         + b"".join(block_header_hashes)
         + stop_hash
     )
@@ -293,7 +291,7 @@ def headers_payload(count: int, headers: List[bytes]) -> bytes:
         count: int, number of block headers - max of 2000
         headers: List[bytes], block headers
     """
-    payload_ = compact_size_uint(count) + b"".join(
+    payload_ = bits.compact_size_uint(count) + b"".join(
         [header + b"\x00" for header in headers]
     )
     return payload_
@@ -307,7 +305,7 @@ def getheaders_payload(
 ) -> bytes:
     return (
         protocol_version.to_bytes(4, "little")
-        + compact_size_uint(hash_count)
+        + bits.compact_size_uint(hash_count)
         + b"".join(block_header_hashes)
         + stop_hash
     )
@@ -388,7 +386,7 @@ def parse_inv_payload(payload: bytes) -> dict:
 
 
 def inv_payload(count: int, inventories: List[bytes]) -> bytes:
-    return compact_size_uint(count) + b"".join(inventories)
+    return bits.compact_size_uint(count) + b"".join(inventories)
 
 
 def inventory(type_id: str, hash: bytes) -> bytes:
@@ -431,11 +429,11 @@ def addr_payload(count: int, addrs: List[bytes]) -> bytes:
         count: int, number of ip address (max 1,000)
         addrs: List[bytes], ip addresses in network ip addr format
     """
-    return compact_size_uint(count) + b"".join(addrs)
+    return bits.compact_size_uint(count) + b"".join(addrs)
 
 
 def parse_addr_payload(payload: bytes) -> dict:
-    count, payload = parse_compact_size_uint(payload)
+    count, payload = bits.parse_compact_size_uint(payload)
     # network ip addrs have 30-byte fixed length
     network_ip_addrs = [
         parse_network_ip_addr(payload[30 * i : 30 * (i + 1)]) for i in range(count)
@@ -719,3 +717,6 @@ class Node:
             self._peer_threads[peer_no].exit()  # should close socket too
         if self.serve_rpc:
             self.rpc_server.shutdown()
+
+
+set_magic_start_bytes(bits.bitsconfig["network"])

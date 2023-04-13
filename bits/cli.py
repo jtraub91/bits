@@ -777,7 +777,6 @@ Mine blocks.
     args = parser.parse_args()
     update_config(args)
 
-    bits.set_log_level(bits.bitsconfig["loglevel"])
     bits.p2p.set_magic_start_bytes(bits.bitsconfig["network"])
 
     if not args.subcommand:

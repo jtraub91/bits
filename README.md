@@ -11,3 +11,7 @@
 ```bash
 pip install bits
 ```
+
+
+## Default configuration
+

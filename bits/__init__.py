@@ -4,9 +4,7 @@ import json
 import logging
 import os
 import sys
-from typing import IO
-from typing import Optional
-from typing import Union
+import typing
 
 try:
     import tomllib
@@ -36,51 +34,48 @@ from .utils import wif_encode
 from .utils import witness_script_hash
 
 
-log = logging.getLogger(__name__)
-formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
-if not os.path.exists(".bits/logs"):
-    os.makedirs(".bits/logs")
-fh = logging.FileHandler(".bits/logs/bits.log")
-fh.setFormatter(formatter)
-log.addHandler(fh)
-# sh = logging.StreamHandler()
-# sh.setFormatter(formatter)
-# log.addHandler(sh)
-
-
-def set_log_level(level: str):
-    if level.lower() not in ["info", "debug", "warning", "critical", "error"]:
-        raise ValueError(f"log level not supported: {level}")
-    log.setLevel(getattr(logging, level.upper()))
-    return True
+def setup_logging(bitsconfig: dict):
+    log = logging.getLogger(__name__)
+    formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
+    if not os.path.exists(bitsconfig["logfile"].split()[0]):
+        os.makedirs(bitsconfig["logfile"].split()[0])
+    fh = logging.FileHandler(bitsconfig["logfile"])
+    fh.setFormatter(formatter)
+    fh.setLevel(bitsconfig.get("logfile_loglevel", "info"))
+    log.addHandler(fh)
+    sh = logging.StreamHandler()
+    sh.setFormatter(formatter)
+    sh.setLevel(bitsconfig.get("loglevel", "error"))
+    log.addHandler(sh)
+    return log
 
 
 def default_config():
     return {
         "network": "mainnet",
-        "logfile": ".bits/logs/bits.log",
+        "logfile": os.path.join(os.path.expanduser("~"), ".bits/logs/bits.log"),
         "loglevel": "info",
         "input_format": "hex",
         "output_format": "hex",
-        "rpcurl": "",
-        "rpcuser": "",
-        "rpcpassword": "",
     }
 
 
 def load_config():
     bitsconfig = default_config()
+    bitsconfig_file_dict = {}
     if HAS_TOMLLIB and os.path.exists(".bitsconfig.toml"):
         with open(".bitsconfig.toml", "rb") as bitsconfig_file:
             bitsconfig_file_dict = tomllib.load(bitsconfig_file)
-    else:
+    elif os.path.exists(".bitsconfig.json"):
         with open(".bitsconfig.json") as bitsconfig_file:
             bitsconfig_file_dict = json.load(bitsconfig_file)
     bitsconfig.update(bitsconfig_file_dict)
     return bitsconfig
 
 
-def read_bytes(file_: Optional[IO] = None, input_format: str = "raw") -> bytes:
+def read_bytes(
+    file_: typing.Optional[typing.IO] = None, input_format: str = "raw"
+) -> bytes:
     """
     Read from optional file or stdin and convert to bytes
 
@@ -113,7 +108,9 @@ def read_bytes(file_: Optional[IO] = None, input_format: str = "raw") -> bytes:
     return data
 
 
-def write_bytes(data: bytes, file_: Optional[IO] = None, output_format: str = "raw"):
+def write_bytes(
+    data: bytes, file_: typing.Optional[typing.IO] = None, output_format: str = "raw"
+):
     """
     Write bytes to outfile or stdout
     Args:
