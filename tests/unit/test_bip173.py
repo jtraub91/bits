@@ -1,14 +1,7 @@
 import pytest
 
-from bits.bips.bip173 import assert_valid_bech32
-from bits.bips.bip173 import assert_valid_segwit
-from bits.bips.bip173 import decode_segwit_addr
-from bits.bips.bip173 import parse_bech32
-from bits.bips.bip173 import segwit_addr
-from bits.script import constants
-from bits.script.utils import p2wpkh_script_pubkey
-from bits.utils import pubkey_hash
-from bits.utils import s_hash
+import bits.script
+from bits.bips import bip173
 
 
 @pytest.mark.parametrize(
@@ -22,8 +15,8 @@ def test_example_p2wpkh(expected_addr, network):
     pubkey = bytes.fromhex(
         "0279BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798"
     )
-    pkh = pubkey_hash(pubkey)
-    assert segwit_addr(pkh, network=network) == expected_addr
+    pkh = bits.pubkey_hash(pubkey)
+    assert bip173.segwit_addr(pkh, network=network) == expected_addr
 
 
 @pytest.mark.parametrize(
@@ -40,10 +33,10 @@ def test_example_p2wsh(expected_addr, network):
     redeem_script = (
         len(pubkey).to_bytes(1, "big")
         + pubkey
-        + constants.OP_CHECKSIG.to_bytes(1, "big")
+        + bits.script.constants.OP_CHECKSIG.to_bytes(1, "big")
     )
-    sh = s_hash(redeem_script)
-    assert segwit_addr(sh, network=network) == expected_addr
+    sh = bits.sha256(redeem_script)
+    assert bip173.segwit_addr(sh, network=network) == expected_addr
 
 
 @pytest.mark.parametrize(
@@ -59,8 +52,8 @@ def test_example_p2wsh(expected_addr, network):
     ),
 )
 def test_valid_bech32(bytestring):
-    hrp, data = parse_bech32(bytestring)
-    assert_valid_bech32(hrp, data)
+    hrp, data = bip173.parse_bech32(bytestring)
+    bip173.assert_valid_bech32(hrp, data)
 
 
 @pytest.mark.parametrize(
@@ -88,8 +81,8 @@ def test_valid_bech32(bytestring):
 )
 def test_invalid_bech32(bytestring, reason):
     try:
-        hrp, data = parse_bech32(bytestring)
-        assert_valid_bech32(hrp, data)
+        hrp, data = bip173.parse_bech32(bytestring)
+        bip173.assert_valid_bech32(hrp, data)
         assert False, "valid bech32"
     except AssertionError as err:
         assert err.args[0] == reason
@@ -122,9 +115,11 @@ def test_invalid_bech32(bytestring, reason):
     ],
 )
 def test_segwit_script_pubkey(segwit_addr, expected_script_pubkey):
-    hrp, witness_version, witness_program = decode_segwit_addr(segwit_addr)
+    hrp, witness_version, witness_program = bip173.decode_segwit_addr(segwit_addr)
     assert (
-        p2wpkh_script_pubkey(witness_program, witness_version=witness_version).hex()
+        bits.script.p2wpkh_script_pubkey(
+            witness_program, witness_version=witness_version
+        ).hex()
         == expected_script_pubkey
     )
 
@@ -161,7 +156,7 @@ def test_segwit_script_pubkey(segwit_addr, expected_script_pubkey):
 )
 def test_invalid_segwit_addr(segwit_addr, reason):
     try:
-        hrp, witness_version, witness_program = decode_segwit_addr(segwit_addr)
-        assert_valid_segwit(hrp, witness_version, witness_program)
+        hrp, witness_version, witness_program = bip173.decode_segwit_addr(segwit_addr)
+        bip173.assert_valid_segwit(hrp, witness_version, witness_program)
     except AssertionError as err:
         assert err.args[0] == reason
