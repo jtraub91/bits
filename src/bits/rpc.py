@@ -22,11 +22,11 @@ def rpc_method(
     Call a method (w/ params) to bitcoind node
     """
     if not rpc_url:
-        rpc_url = bits.bitsconfig["rpcurl"]
+        rpc_url = bits.bitsconfig.get("rpcurl", "")
     if not rpc_user:
-        rpc_user = bits.bitsconfig["rpcuser"]
+        rpc_user = bits.bitsconfig.get("rpcuser", "")
     if not rpc_password:
-        rpc_password = bits.bitsconfig["rpcpassword"]
+        rpc_password = bits.bitsconfig.get("rpcpassword", "")
 
     auth = f"{rpc_user}:{rpc_password}"
     auth_b64 = base64.b64encode(auth.encode("ascii")).decode("ascii")

@@ -34,30 +34,54 @@ from .utils import wif_encode
 from .utils import witness_script_hash
 
 
-def setup_logging(bitsconfig: dict):
+def init_logging(bitsconfig: dict = {}):
+    """
+    Initialize logging
+    """
     log = logging.getLogger(__name__)
     formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
-    if not os.path.exists(bitsconfig["logfile"].split()[0]):
-        os.makedirs(bitsconfig["logfile"].split()[0])
-    fh = logging.FileHandler(bitsconfig["logfile"])
-    fh.setFormatter(formatter)
-    fh.setLevel(bitsconfig.get("logfile_loglevel", "info"))
-    log.addHandler(fh)
     sh = logging.StreamHandler()
     sh.setFormatter(formatter)
-    sh.setLevel(bitsconfig.get("loglevel", "error"))
+    sh.setLevel(logging.ERROR)
     log.addHandler(sh)
+
+    if bitsconfig:
+        # TODO: future support for config
+        if not os.path.exists(os.path.split(bitsconfig["logfile"])[0]):
+            os.makedirs(os.path.split(bitsconfig["logfile"])[0])
+
+        loglevel = bitsconfig.get("loglevel", "error")
+
+        fh = logging.FileHandler(bitsconfig["logfile"])
+        fh.setFormatter(formatter)
+
+        logfile_loglevel = bitsconfig.get("logfile_loglevel", loglevel).upper()
+        fh.setLevel(getattr(logging, logfile_loglevel))
+        log.addHandler(fh)
+
     return log
+
+
+def set_log_level(log_level: str):
+    """
+    Set log level on all handlers
+    """
+    for handler in log.handlers:
+        handler.setLevel(getattr(logging, log_level.upper()))
 
 
 def default_config():
     return {
         "network": "mainnet",
         "logfile": os.path.join(os.path.expanduser("~"), ".bits/logs/bits.log"),
-        "loglevel": "info",
+        "loglevel": "error",
         "input_format": "hex",
         "output_format": "hex",
     }
+
+
+def search_for_config():
+    raise NotImplementedError
 
 
 def load_config():
@@ -109,12 +133,16 @@ def read_bytes(
 
 
 def write_bytes(
-    data: bytes, file_: typing.Optional[typing.IO] = None, output_format: str = "raw"
+    data: bytes,
+    file_: typing.Optional[typing.IO] = None,
+    output_format: str = "raw",
 ):
     """
-    Write bytes to outfile or stdout
+    Write bytes to file_ or stdout. bin/hex output format will have newline appended
     Args:
         data: bytes, bytes to print
+        file_: Optional[IO], file object to write to, if None uses stdout
+        output_format: str, 'raw', 'bin', or 'hex'
     """
     if output_format == "raw":
         if file_ is not None:
@@ -126,12 +154,14 @@ def write_bytes(
             f"0{len(data) * 2}x" if output_format == "hex" else f"0{len(data) * 8}b"
         )
         formatted_data = format(int.from_bytes(data, "big"), format_spec)
+        formatted_data += os.linesep
         if file_ is not None:
             file_.write(formatted_data)
         else:
-            print(formatted_data)
+            sys.stdout.write(formatted_data)
     else:
         raise ValueError(f"unrecognized output format: {output_format}")
 
 
 bitsconfig = load_config()
+log = init_logging()

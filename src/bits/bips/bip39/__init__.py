@@ -2,12 +2,13 @@
 https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki
 """
 import hashlib
+import os
 import secrets
 import unicodedata
 
 
 def load_wordlist():
-    with open("bits/bips/bip39/english.txt") as file_:
+    with open(os.path.join(os.path.dirname(__file__), "english.txt")) as file_:
         english = file_.read()
     words = [word.strip() for word in english.splitlines()]
     return words

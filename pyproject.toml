@@ -11,6 +11,12 @@ requires-python = ">=3.7"
 [project.scripts]
 bits = "bits.cli:main"
 
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.pytest.ini_options]
 addopts = [
     "--cov=bits",

@@ -243,6 +243,8 @@ def pubkey_from_pem(pem_: bytes):
     return decoded_key
 
 
+# influenced by electrum
+# https://github.com/spesmilo/electrum/blob/4.4.0/electrum/bitcoin.py#L618-L625
 WIF_NETWORK_BASE = {"mainnet": 0x80, "testnet": 0xEF, "regtest": 0xEF}
 WIF_SCRIPT_OFFSET = {
     "p2pkh": 0,
@@ -283,6 +285,7 @@ def wif_encode(
 ) -> bytes:
     """
     WIF encoding
+    https://en.bitcoin.it/wiki/Wallet_import_format
 
     ** Extended WIF spec to include redeemscript or other script data
         at suffix
