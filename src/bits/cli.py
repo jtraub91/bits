@@ -816,10 +816,11 @@ Mine blocks.
     )
     rpc_parser.add_argument("rpc_command", help="rpc command")
     rpc_parser.add_argument("params", nargs="*", help="params for rpc_command")
-    rpc_parser.add_argument("-rpcurl", "--rpcurl", dest="rpc_url", help="rpc url")
-    rpc_parser.add_argument("-rpcuser", "--rpcuser", dest="rpc_user", help="rpc user")
+    rpc_parser.add_argument("-rpcurl", "--rpcurl", help="rpc url")
+    rpc_parser.add_argument("-rpcuser", "--rpcuser", help="rpc user")
+    rpc_parser.add_argument("-rpcpassword", "--rpcpassword", help="rpc password")
     rpc_parser.add_argument(
-        "-rpcpassword", "--rpcpassword", dest="rpc_password", help="rpc password"
+        "-datadir", "--datadir", help="For cookie based rpc auth, supply datadir."
     )
     add_common_arguments(rpc_parser)
 
@@ -1149,19 +1150,13 @@ Mine blocks.
         else:
             raise NotImplementedError("blocks > 0 not implemented per v0")
     elif args.subcommand == "rpc":
-        if args.rpc_url:
-            bits.bitsconfig.update({"rpcurl": args.rpc_url})
-        if args.rpc_user:
-            bits.bitsconfig.update({"rpcuser": args.rpc_user})
-        if args.rpc_password:
-            bits.bitsconfig.update({"rpcpassword": args.rpc_password})
-
         result = bits.rpc.rpc_method(
             args.rpc_command,
             *args.params,
-            rpc_url=bits.bitsconfig["rpcurl"],
-            rpc_user=bits.bitsconfig["rpcuser"],
-            rpc_password=bits.bitsconfig["rpcpassword"],
+            rpcurl=args.rpcurl,
+            rpcuser=args.rpcuser,
+            rpcpassword=args.rpcpassword,
+            datadir=args.datadir,
         )
         print(json.dumps(result) if type(result) is dict else result)
     else:

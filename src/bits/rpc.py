@@ -4,6 +4,7 @@ RPC
 import base64
 import json
 import logging
+import os
 import time
 from typing import Union
 from urllib.error import HTTPError
@@ -16,19 +17,29 @@ log = logging.getLogger(__name__)
 
 
 def rpc_method(
-    method, *params, rpc_url="", rpc_user="", rpc_password=""
+    method, *params, rpcurl="", rpcuser="", rpcpassword="", datadir=""
 ) -> Union[dict, str]:
     """
     Call a method (w/ params) to bitcoind node
     """
-    if not rpc_url:
-        rpc_url = bits.bitsconfig.get("rpcurl", "")
-    if not rpc_user:
-        rpc_user = bits.bitsconfig.get("rpcuser", "")
-    if not rpc_password:
-        rpc_password = bits.bitsconfig.get("rpcpassword", "")
+    if not rpcurl:
+        raise ValueError("rpcurl must be defined")
+    if datadir:
+        if not os.path.exists(os.path.join(datadir, ".cookie")):
+            raise ValueError(
+                f".cookie file not found in {os.path.join(datadir, '.cookie')}"
+            )
+        with open(os.path.join(datadir, ".cookie")) as cookie_file:
+            cookie = cookie_file.read()
+        auth = cookie
+    else:
+        if not (rpcuser and rpcpassword):
+            raise ValueError(
+                "rpcuser and rpcpassword must be defined for non-cookie based rpc auth. "
+                + "For cookie-based auth, please specify datadir."
+            )
+        auth = f"{rpcuser}:{rpcpassword}"
 
-    auth = f"{rpc_user}:{rpc_password}"
     auth_b64 = base64.b64encode(auth.encode("ascii")).decode("ascii")
     headers = {"Content-Type": "text/plain", "Authorization": f"Basic {auth_b64}"}
 
@@ -51,7 +62,7 @@ def rpc_method(
         "method": method,
         "params": formatted_params,
     }
-    req = Request(rpc_url, headers=headers, data=json.dumps(data).encode("ascii"))
+    req = Request(rpcurl, headers=headers, data=json.dumps(data).encode("ascii"))
     try:
         ret = urlopen(req)
         result = json.load(ret)["result"]
