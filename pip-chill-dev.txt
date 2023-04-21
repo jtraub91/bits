@@ -1,5 +1,6 @@
 bits
 black
+build
 ipdb
 pip-chill
 pre-commit
@@ -7,3 +8,4 @@ pylint
 pytest-cov
 reorder-python-imports
 sphinx
+twine
