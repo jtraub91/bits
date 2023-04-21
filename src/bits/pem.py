@@ -3,6 +3,7 @@ PEM / DER / ASN.1
 """
 import base64
 import math
+import os
 import re
 import typing
 
@@ -44,7 +45,13 @@ def encode_pem(
     header: bytes = b"-----BEGIN CERTIFICATE-----",
     footer: bytes = b"-----END CERTIFICATE-----",
 ) -> bytes:
-    return header + b"\n" + base64.encodebytes(der_) + footer + b"\n"
+    return (
+        header
+        + os.linesep.encode("utf8")
+        + base64.encodebytes(der_)
+        + footer
+        + os.linesep.encode("utf8")
+    )
 
 
 # https://letsencrypt.org/docs/a-warm-welcome-to-asn1-and-der/#tag

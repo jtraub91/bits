@@ -17,12 +17,14 @@ import bits.rpc
 import bits.script
 import bits.tx
 import bits.wallet.hd
+from bits import __version__
 from bits.bips import bip173
 from bits.bips import bip32
 from bits.bips import bip39
 from bits.integrations import mine_block
 
 log = logging.getLogger(__name__)
+log.setLevel(logging.DEBUG)
 
 
 class RawDescriptionDefaultsHelpFormatter(
@@ -37,32 +39,12 @@ def catch_exception(fun):
         try:
             return fun()
         except Exception as err:
-            log.exception(err)
+            log.debug(err, exc_info=True)
             return f"ERROR: {err}"
         except KeyboardInterrupt:
             return "keyboard interrupt."
 
     return wrapper
-
-
-def update_config(args):
-    if vars(args).get("network"):
-        bits.bitsconfig.update({"network": args.network})
-    if vars(args).get("log_level"):
-        bits.bitsconfig.update({"loglevel": args.log_level})
-
-    if args.output_format_raw:
-        bits.bitsconfig.update({"output_format": "raw"})
-    if args.output_format_bin:
-        bits.bitsconfig.update({"output_format": "bin"})
-    if args.output_format_hex:
-        bits.bitsconfig.update({"output_format": "hex"})
-    if args.input_format_raw:
-        bits.bitsconfig.update({"input_format": "raw"})
-    if args.input_format_bin:
-        bits.bitsconfig.update({"input_format": "bin"})
-    if args.input_format_hex:
-        bits.bitsconfig.update({"input_format": "hex"})
 
 
 def add_common_arguments(
@@ -76,58 +58,64 @@ def add_common_arguments(
             "-N",
             metavar="NETWORK",
             type=str,
+            default="mainnet",
             choices=["mainnet", "testnet", "regtest"],
-            help="network, e.g. 'mainnet' or 'testnet'",
+            help="network, e.g. 'mainnet', 'testnet', or 'regtest'",
         )
     if include_log_level:
         parser.add_argument(
             "-L",
             "--log-level",
-            type=str,
-            help="log level, e.g. 'info', 'debug', 'warning', etc.",
+            default="error",
+            metavar="LOG_LEVEL",
+            choices=["info", "debug", "warning", "error"],
+            help="log level, e.g. 'info', 'debug', 'warning', or 'error'",
         )
+
+
+def format_option(o):
+    format_map = {
+        "b": "bin",
+        "x": "hex",
+        "raw": "raw",
+        "bin": "bin",
+        "hex": "hex",
+        "pem": "pem",
+    }
+    return format_map[o]
 
 
 def add_input_arguments(
     parser: argparse.ArgumentParser,
     in_file_help: str = "input data file",
-    include_input_group: bool = True,
+    include_input_format: bool = True,
 ):
     parser.add_argument(
         "--in-file",
         "-in",
         "-i",
+        default="-",
         type=argparse.FileType("r"),
         # https://github.com/python/cpython/issues/58364
         help=in_file_help,
     )
-    if include_input_group:
-        input_group = parser.add_mutually_exclusive_group()
-        input_group.add_argument(
+    if include_input_format:
+        parser.add_argument(
             "-1",
-            dest="input_format_raw",
-            action="store_true",
-            help="input data file format - raw binary",
+            "--input-format",
+            metavar="INPUT_FORMAT",
+            nargs="?",
+            default="hex",
+            const="raw",
+            type=format_option,
+            help="raw binary (-1), binary string (-1b), or hexadecimal string (-1x)",
         )
-        input_group.add_argument(
-            "-1b",
-            dest="input_format_bin",
-            action="store_true",
-            help="input data file format - binary string",
-        )
-        input_group.add_argument(
-            "-1x",
-            dest="input_format_hex",
-            action="store_true",
-            help="input data file format - hexadecimal string",
-        )
-        return input_group
 
 
 def add_output_arguments(
     parser: argparse.ArgumentParser,
     out_file_help: str = "output data file",
-    include_output_group: bool = True,
+    include_output_format: bool = True,
 ):
     """
     Args:
@@ -140,111 +128,162 @@ def add_output_arguments(
         "--out-file",
         "-out",
         "-o",
+        default="-",
         type=argparse.FileType("w"),
         help=out_file_help,
     )
-    if include_output_group:
-        output_group = parser.add_mutually_exclusive_group()
-        output_group.add_argument(
+    if include_output_format:
+        parser.add_argument(
             "-0",
-            dest="output_format_raw",
-            action="store_true",
-            help="output data file format - raw binary",
+            "--output-format",
+            metavar="OUTPUT_FORMAT",
+            default="hex",
+            const="raw",
+            nargs="?",
+            type=format_option,
+            help="raw binary (-0), binary string (-0b), or hexadecimal string (-0x)",
         )
-        output_group.add_argument(
-            "-0b",
-            dest="output_format_bin",
-            action="store_true",
-            help="output data file format - binary string",
-        )
-        output_group.add_argument(
-            "-0x",
-            dest="output_format_hex",
-            action="store_true",
-            help="output data file format - hexadecimal string",
-        )
-        return output_group
 
 
 @catch_exception
 def main():
     parser = argparse.ArgumentParser(
         prog="bits",
-        description=f"""
+        description=f"""bits v{__version__} is a cli tool and pure Python library for Bitcoin.
+
+See subcommands below for managing crypto, or use base command as follows.
+
 Convert input bits to bytes. 
 
 Input and output formats can be specified independently, such that this command may 
 be used as a converter between formats.
 
 Examples:
-    $ head -c 32 /dev/urandom | bits -1 -0x 
+    $ head -c 8 /dev/urandom | bits -1 -0x 
 
     $ echo 1001 | bits -1b -0b
 
-    $ echo hello world | bits -1 -0""",
+    $ echo hello world | bits -1 -0
+
+""",
         formatter_class=RawDescriptionDefaultsHelpFormatter,
     )
     parser.add_argument(
         "-v", "-V", "--version", action="version", version=bits.__version__
     )
+    add_common_arguments(parser, include_network=False)
     add_input_arguments(parser)
     add_output_arguments(parser)
 
     sub_parser = parser.add_subparsers(
         dest="subcommand",
         metavar="[subcommand]",
-        # formatter_class=RawDescriptionDefaultsHelpFormatter,
         description="""
 Use bits <subcommand> -h for help on each command""",
     )
 
     key_parser = sub_parser.add_parser(
         "key",
-        help="generate private key",
+        help="Generate private key",
         description="""
 Generate Bitcoin private key integer.
 
-This command support PEM encoded EC private key output, via the -0pem flag, for 
-compatibility with external tools, e.g. openssl, if needed.""",
+This command support PEM encoded EC private key output, via the --output-format argument, 
+for compatibility with external tools, e.g. openssl, if needed.""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    key_parser_mutually_exclusive_output_group = add_output_arguments(key_parser)
-    key_parser_mutually_exclusive_output_group.add_argument(
-        "-0pem",
-        dest="output_format_pem",
-        action="store_true",
-        help="output file format - PEM encoded private key",
+    add_common_arguments(key_parser, include_network=False)
+    add_output_arguments(key_parser, include_output_format=False)
+    key_parser.add_argument(
+        "-0",
+        "--output-format",
+        metavar="OUTPUT_FORMAT",
+        nargs="?",
+        default="hex",
+        const="raw",
+        type=format_option,
+        help="raw binary (-0), binary string (-0b), hexadecimal string (-0x), or PEM-encoded private key (-0pem)",
     )
 
     pubkey_parser = sub_parser.add_parser(
         "pubkey",
-        help="calculate public key",
+        help="Calculate public key",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description="""
 Calculate public key from private key integer. If the public key is provided as input, this 
 sub-command may be used to compress / un-compress the key via the use of the -X flag.
 
-This command support PEM encoded EC public key output, via the -0pem flag, for 
-compatibility with external tools, e.g. openssl, if needed.""",
+This command support PEM encoded EC public key output, via the --output-format argument,
+for compatibility with external tools, e.g. openssl, if needed.""",
     )
     pubkey_parser.add_argument(
         "-X", "--compressed", action="store_true", help="output compressed pubkey"
     )
+    add_common_arguments(pubkey_parser, include_network=False)
     add_input_arguments(pubkey_parser)
-    pubkey_parser_mutually_exclusive_output_group = add_output_arguments(pubkey_parser)
-    pubkey_parser_mutually_exclusive_output_group.add_argument(
-        "-0pem",
-        dest="output_format_pem",
-        action="store_true",
-        help="output file format - PEM encoded public key",
+    add_output_arguments(pubkey_parser, include_output_format=False)
+    pubkey_parser.add_argument(
+        "-0",
+        "--output-format",
+        metavar="OUTPUT_FORMAT",
+        nargs="?",
+        default="hex",
+        const="raw",
+        type=format_option,
+        help="raw binary (-0), binary string (-0b), hexadecimal string (-0x), or PEM-encoded public key (-0pem)",
     )
 
     wif_parser = sub_parser.add_parser(
         "wif",
         formatter_class=RawDescriptionDefaultsHelpFormatter,
-        help="encode WIF key",
+        help="Encode (or decode) WIF key",
         description="""
-Encode a private key in eWIF (enhanced wallet import format).""",
+Encode (or decode) a private key in eWIF (extended wallet import format).
+
+This method builds upon extended WIF as seen in electrum wallet. The idea is that an 
+eWIF indicates the corresponding address type, as well as, all information necessary to 
+derive such, and, spend associated funds.
+
+Extended WIF is backwards compatible with normal WIF.
+
+Just as normal WIF is described as the base58check encoding of,
+
+    version byte + private key + (optional 0x01 byte indicating a compressed pubkey) 
+
+Extended WIF is defined as the base58check encoding of the following,
+
+    (version byte + address type offset) + private key + (data)
+
+Byte definitions:
+
+    version
+
+        mainnet -> 0x80
+        testnet -> 0xEF
+        regtest -> 0xEF
+
+    address type offset
+
+        p2pkh = 0,
+        p2wpkh = 1
+        p2sh-p2wpkh = 2
+        p2pk = 3
+        multisig = 4
+        p2sh = 5
+        p2wsh =  6
+        p2sh-p2wsh = 7
+
+    data
+
+        p2pkh -> 0x01 byte for compressed pubkey, omit for uncompressed
+        p2wpkh -> omit (compressed pubkey implied)
+        p2sh-p2wpkh -> omit (compressed pubkey implied)
+        p2pk -> 0x01 byte for compressed pubkey, omit for uncompressed
+        multisig -> redeem script
+        p2sh -> redeem script
+        p2wsh -> redeem script
+        p2sh-p2wsh -> witness script 
+""",
     )
     wif_parser.add_argument(
         "--addr-type",
@@ -261,13 +300,13 @@ Encode a private key in eWIF (enhanced wallet import format).""",
             "p2wsh",
             "p2sh-p2wsh",
         ],
-        help="Address type. Valid choices are p2pkh, p2wpkh, p2pk, multisig, p2sh-p2wpkh, p2sh, p2wsh, or p2sh-p2wsh.",
+        help="Address type",
     )
     wif_parser.add_argument(
         "--data",
         "-D",
         type=bytes.fromhex,
-        help="additional data to append to WIF key before base58check encoding",
+        help="additional data (hex) to append to WIF key before base58check encoding",
     )
     wif_parser.add_argument("--decode", action="store_true", help="decode wif")
     add_common_arguments(wif_parser)
@@ -275,7 +314,7 @@ Encode a private key in eWIF (enhanced wallet import format).""",
     add_output_arguments(
         wif_parser,
         out_file_help="output data file - raw binary",
-        include_output_group=False,
+        include_output_format=False,
     )
 
     addr_parser = sub_parser.add_parser(
@@ -310,20 +349,20 @@ Use of this option implies a Segwit address and addr_type (-T) is ignored.""",
         choices=range(17),
         metavar="witness_version",
     )
-    add_common_arguments(addr_parser, include_log_level=False)
+    add_common_arguments(addr_parser)
     add_input_arguments(addr_parser)
     add_output_arguments(
         addr_parser,
         out_file_help="output data file - raw binary",
-        include_output_group=False,
+        include_output_format=False,
     )
 
     mnemonic_parser = sub_parser.add_parser(
         "mnemonic",
-        help="Generate and convert mnemonic phrases",
+        help="Generate (or convert) mnemonic phrases",
         formatter_class=RawDescriptionDefaultsHelpFormatter,
         description="""
-Generate or convert mnemonic phrase.
+Generate (or convert) mnemonic phrase.
 
 This command with no further options will generate a new mnemonic seed phrase.
 When operating in this mode, the --strength (-S) argument can be used to specify the 
@@ -340,7 +379,7 @@ Examples:
 
     2. Generate a mnemonic (specify entropy strength in bits)
 
-        $ bits mnemonic -s 256
+        $ bits mnemonic -S 256
 
     3. Generate a mnemonic from provided entropy
 
@@ -360,7 +399,7 @@ Examples:
     )
     mnemonic_parser.add_argument(
         "--strength",
-        "-s",
+        "-S",
         metavar="STRENGTH",
         type=int,
         default=256,
@@ -420,6 +459,7 @@ Use --dump to deserialize & decode the derived key, and output json object to st
     hd_parser.add_argument("path", help="path to extended key, e.g. m/0'/1 or M/0'/1")
     hd_parser.add_argument(
         "--xpub",
+        "-xpub",
         default=False,
         action="store_true",
         help="Use this flag to output the extended public key",
@@ -427,13 +467,13 @@ Use --dump to deserialize & decode the derived key, and output json object to st
     hd_parser.add_argument(
         "--dump",
         action="store_true",
-        help="Deserialize extended key and decode as json. Writes to stderr.",
+        help="Deserialize extended key and decode as json. Write to stderr.",
     )
     add_common_arguments(hd_parser, include_network=False)
     add_input_arguments(
         hd_parser,
         in_file_help="input data file - raw binary",
-        include_input_group=False,
+        include_input_format=False,
     )
 
     script_parser = sub_parser.add_parser(
@@ -495,6 +535,7 @@ Standard transaction scripts:
         action="store_true",
         help="Use this flag to indicate this is a witness script and to follow witness script encoding / decoding semantics.",
     )
+    add_common_arguments(script_parser, include_network=False)
     add_input_arguments(script_parser)
     add_output_arguments(script_parser)
 
@@ -549,6 +590,7 @@ Examples:
         action="store_true",
         help="indicates msg is pre-image, i.e. already has 4-byte sighash_flag appended. msg is still hashed, signed, then single-byte sighash_flag appended",
     )
+    add_common_arguments(sig_parser, include_network=False)
     add_input_arguments(sig_parser)
     add_output_arguments(sig_parser)
 
@@ -558,12 +600,14 @@ Examples:
         help="ripemd160(data)",
         description="""Calculate ripemd160 of input data""",
     )
+    add_common_arguments(ripemd160_parser, include_network=False)
     add_input_arguments(ripemd160_parser)
     add_output_arguments(ripemd160_parser)
 
     sha256_parser = sub_parser.add_parser(
         "sha256", help="sha256(data)", description="""Calculate sha256 of input data"""
     )
+    add_common_arguments(sha256_parser, include_network=False)
     add_input_arguments(sha256_parser)
     add_output_arguments(sha256_parser)
 
@@ -572,6 +616,7 @@ Examples:
         help="HASH160(data)",
         description="Calculate HASH160 of input data, i.e. ripemd160(sha256(data))",
     )
+    add_common_arguments(hash160_parser, include_network=False)
     add_input_arguments(hash160_parser)
     add_output_arguments(hash160_parser)
 
@@ -580,6 +625,7 @@ Examples:
         help="HASH256(data)",
         description="Calculate HASH256 of input data, i.e. sha256(sha256(data))",
     )
+    add_common_arguments(hash256_parser, include_network=False)
     add_input_arguments(hash256_parser)
     add_output_arguments(hash256_parser)
 
@@ -588,7 +634,7 @@ Examples:
         help="base58 (check) encoding / decoding",
         formatter_class=RawDescriptionDefaultsHelpFormatter,
         description="""
-        Base58(/check) encode / decode input data.
+        Base58(/check) encode (or decode) input data.
         """,
     )
     base58_parser.add_argument(
@@ -597,17 +643,16 @@ Examples:
     base58_parser.add_argument(
         "--decode", action="store_true", help="decode base58(check) input"
     )
-    add_common_arguments(base58_parser)
+    add_common_arguments(base58_parser, include_network=False)
     add_input_arguments(base58_parser)
     add_output_arguments(
         base58_parser,
         out_file_help="output data file - raw binary",
-        include_output_group=False,
+        include_output_format=False,
     )
 
-    # TODO: improve help / description bech32
     bech32_parser = sub_parser.add_parser(
-        "bech32", help="encode or decode bech32 or segwit data"
+        "bech32", help="Encode (or decode) bech32 or segwit data"
     )
     bech32_segwit_mutually_exclusive_group = bech32_parser.add_mutually_exclusive_group(
         required=True
@@ -623,7 +668,7 @@ Examples:
     bech32_segwit_mutually_exclusive_group.add_argument(
         "--decode", action="store_true", help="Decode input data"
     )
-    add_common_arguments(bech32_parser)
+    add_common_arguments(bech32_parser, include_network=False)
     add_input_arguments(bech32_parser)
     add_output_arguments(bech32_parser)
 
@@ -684,6 +729,7 @@ Examples:
         help="witness script. This argument can be specified multiple times, but must appear in order corresponding to txins",
     )
     tx_parser.add_argument("--decode", action="store_true", help="decode raw tx")
+    add_common_arguments(tx_parser, include_network=False)
     add_input_arguments(tx_parser)
     add_output_arguments(tx_parser)
 
@@ -715,14 +761,16 @@ Examples:
     add_input_arguments(
         send_parser,
         in_file_help="wif unlocking key for from_ address",
-        include_input_group=False,
+        include_input_format=False,
     )
+    add_common_arguments(send_parser, include_network=False)
     add_output_arguments(send_parser)
 
     p2p_parser = sub_parser.add_parser("p2p", help="start p2p node")
     p2p_parser.add_argument(
         "--seeds", type=str, help="comma separated list of seed nodes"
     )
+    add_common_arguments(p2p_parser)
 
     blockchain_parser = sub_parser.add_parser(
         "blockchain",
@@ -736,6 +784,7 @@ Blockchain lulz
     blockchain_parser.add_argument(
         "--header-only", "-H", action="store_true", help="output block header only"
     )
+    add_common_arguments(blockchain_parser)
     add_output_arguments(blockchain_parser)
 
     mine_parser = sub_parser.add_parser(
@@ -767,39 +816,30 @@ Mine blocks.
     )
     rpc_parser.add_argument("rpc_command", help="rpc command")
     rpc_parser.add_argument("params", nargs="*", help="params for rpc_command")
-    rpc_parser.add_argument("-rpcurl", "--rpcurl", dest="rpc_url", help="rpc url")
-    rpc_parser.add_argument("-rpcuser", "--rpcuser", dest="rpc_user", help="rpc user")
+    rpc_parser.add_argument("-rpcurl", "--rpcurl", help="rpc url")
+    rpc_parser.add_argument("-rpcuser", "--rpcuser", help="rpc user")
+    rpc_parser.add_argument("-rpcpassword", "--rpcpassword", help="rpc password")
     rpc_parser.add_argument(
-        "-rpcpassword", "--rpcpassword", dest="rpc_password", help="rpc password"
+        "-datadir", "--datadir", help="For cookie based rpc auth, supply datadir."
     )
     add_common_arguments(rpc_parser)
 
     args = parser.parse_args()
-    update_config(args)
-
-    bits.p2p.set_magic_start_bytes(bits.bitsconfig["network"])
+    bits.set_log_level(args.log_level)
 
     if not args.subcommand:
-        data = bits.read_bytes(
-            args.in_file, input_format=bits.bitsconfig["input_format"]
-        )
-        bits.write_bytes(
-            data, args.out_file, output_format=bits.bitsconfig["output_format"]
-        )
+        data = bits.read_bytes(args.in_file, input_format=args.input_format)
+        bits.write_bytes(data, args.out_file, output_format=args.output_format)
     elif args.subcommand == "key":
         # generate Bitcoin secret key
         privkey = bits.keys.key()
-        if args.output_format_pem:
+        if args.output_format == "pem":
             privkey = bits.pem_encode_key(privkey)
             bits.write_bytes(privkey, args.out_file, output_format="raw")
             return
-        bits.write_bytes(
-            privkey, args.out_file, output_format=bits.bitsconfig["output_format"]
-        )
+        bits.write_bytes(privkey, args.out_file, output_format=args.output_format)
     elif args.subcommand == "pubkey":
-        data = bits.read_bytes(
-            args.in_file, input_format=bits.bitsconfig["input_format"]
-        )
+        data = bits.read_bytes(args.in_file, input_format=args.input_format)
         if len(data) == 32:
             # privkey
             pk = bits.keys.pub(data, compressed=args.compressed)
@@ -809,33 +849,35 @@ Mine blocks.
             pk = bits.pubkey(x, y, compressed=args.compressed)
         else:
             raise ValueError("data not recognized as private or public key")
-        if args.output_format_pem:
+        if args.output_format == "pem":
             pk = bits.pem_encode_key(pk)
             bits.write_bytes(pk, args.out_file, output_format="raw")
             return
         bits.write_bytes(
             pk,
             args.out_file,
-            output_format=bits.bitsconfig["output_format"],
+            output_format=args.output_format,
         )
     elif args.subcommand == "mnemonic":
         if args.from_entropy:
-            entropy = bits.read_bytes(
-                args.in_file, input_format=bits.bitsconfig["input_format"]
-            )
+            entropy = bits.read_bytes(args.in_file, input_format=args.input_format)
             mnemonic = bip39.calculate_mnemonic_phrase(entropy)
             bits.write_bytes(
-                mnemonic.encode("utf8") + os.linesep.encode("utf8"),
+                (mnemonic + os.linesep).encode("utf8"),
                 args.out_file,
                 output_format="raw",
             )
         elif args.to_entropy or args.to_seed or args.to_master_key:
-            mnemonic = bits.read_bytes(args.in_file, input_format="raw").decode("utf8")
+            mnemonic = (
+                bits.read_bytes(args.in_file, input_format="raw").decode("utf8").strip()
+            )
+            # sanitize mnemonic to remove extra whitespace between words
+            mnemonic = " ".join(mnemonic.split())
             if args.to_entropy:
                 bits.write_bytes(
                     bip39.to_entropy(mnemonic),
                     args.out_file,
-                    output_format=bits.bitsconfig["output_format"],
+                    output_format=args.output_format,
                 )
             elif args.to_seed or args.to_master_key:
                 passphrase = getpass(prompt="passphrase: ")
@@ -845,9 +887,7 @@ Mine blocks.
                     xprv = bip32.root_serialized_extended_key(
                         key,
                         chaincode,
-                        testnet=False
-                        if bits.bitsconfig["network"] == "mainnet"
-                        else True,
+                        testnet=False if args.network == "mainnet" else True,
                     )
                     bits.write_bytes(
                         xprv,
@@ -855,9 +895,7 @@ Mine blocks.
                         output_format="raw",
                     )
                     return
-                bits.write_bytes(
-                    seed, args.out_file, output_format=bits.bitsconfig["output_format"]
-                )
+                bits.write_bytes(seed, args.out_file, output_format=args.output_format)
         else:
             entropy = secrets.token_bytes(args.strength // 8)
             mnemonic = bip39.calculate_mnemonic_phrase(entropy)
@@ -885,14 +923,12 @@ Mine blocks.
             decoded = bits.wif_decode(wif_, return_dict=True)
             print(json.dumps(decoded))
             return
-        privkey_ = bits.read_bytes(
-            args.in_file, input_format=bits.bitsconfig["input_format"]
-        )
+        privkey_ = bits.read_bytes(args.in_file, input_format=args.input_format)
         wif = bits.utils.wif_encode(
             privkey_,
             addr_type=args.addr_type,
             data=args.data,
-            network=bits.bitsconfig["network"],
+            network=args.network,
         )
         bits.write_bytes(wif, args.out_file, output_format="raw")
     elif args.subcommand == "base58":
@@ -902,11 +938,9 @@ Mine blocks.
                 decoded = bits.base58.base58check_decode(data)
             else:
                 decoded = bits.base58.base58decode(data)
-            bits.write_bytes(decoded, output_format=bits.bitsconfig["output_format"])
+            bits.write_bytes(decoded, output_format=args.output_format)
             return
-        data = bits.read_bytes(
-            args.in_file, input_format=bits.bitsconfig["input_format"]
-        )
+        data = bits.read_bytes(args.in_file, input_format=args.input_format)
         if args.check:
             encoded = bits.base58.base58check(data)
         else:
@@ -939,14 +973,12 @@ Mine blocks.
                     }
                 )
             return
-        data_input = bits.read_bytes(
-            args.in_file, input_format=bits.bitsconfig["input_format"]
-        )
+        data_input = bits.read_bytes(args.in_file, input_format=args.input_format)
         if args.witness_version is not None:
             addr = bip173.segwit_addr(
                 data,
                 witness_version=args.witness_version,
-                network=bits.bitsconfig["network"],
+                network=args.network,
             )
             bits.write_bytes(args.out_file, output_format="raw")
         elif args.hrp is not None:
@@ -954,57 +986,45 @@ Mine blocks.
             bits.write_bytes(encoded_data, output_format="raw")
         return
     elif args.subcommand == "ripemd160":
-        data = bits.read_bytes(
-            args.in_file, input_format=bits.bitsconfig["input_format"]
-        )
+        data = bits.read_bytes(args.in_file, input_format=args.input_format)
         bits.write_bytes(
             bits.ripemd160(data),
             args.out_file,
-            output_format=bits.bitsconfig["output_format"],
+            output_format=args.output_format,
         )
     elif args.subcommand == "sha256":
-        data = bits.read_bytes(
-            args.in_file, input_format=bits.bitsconfig["input_format"]
-        )
+        data = bits.read_bytes(args.in_file, input_format=args.input_format)
         bits.write_bytes(
             bits.sha256(data),
             args.out_file,
-            output_format=bits.bitsconfig["output_format"],
+            output_format=args.output_format,
         )
     elif args.subcommand == "hash160":
-        data = bits.read_bytes(
-            args.in_file, input_format=bits.bitsconfig["input_format"]
-        )
+        data = bits.read_bytes(args.in_file, input_format=args.input_format)
         bits.write_bytes(
             bits.hash160(data),
             args.out_file,
-            output_format=bits.bitsconfig["output_format"],
+            output_format=args.output_format,
         )
     elif args.subcommand == "hash256":
-        data = bits.read_bytes(
-            args.in_file, input_format=bits.bitsconfig["input_format"]
-        )
+        data = bits.read_bytes(args.in_file, input_format=args.input_format)
         bits.write_bytes(
             bits.hash256(data),
             args.out_file,
-            output_format=bits.bitsconfig["output_format"],
+            output_format=args.output_format,
         )
     elif args.subcommand == "addr":
-        payload = bits.read_bytes(
-            args.in_file, input_format=bits.bitsconfig["input_format"]
-        )
+        payload = bits.read_bytes(args.in_file, input_format=args.input_format)
         addr = bits.to_bitcoin_address(
             payload,
             addr_type=args.type,
             witness_version=args.witness_version,
-            network=bits.bitsconfig["network"],
+            network=args.network,
         )
         bits.write_bytes(addr, args.out_file, output_format="raw")
     elif args.subcommand == "tx":
         if args.decode:
-            raw_tx = bits.read_bytes(
-                args.in_file, input_format=bits.bitsconfig["input_format"]
-            )
+            raw_tx = bits.read_bytes(args.in_file, input_format=args.input_format)
             decoded_tx, tx_prime = bits.tx.tx_deser(raw_tx)
             if tx_prime:
                 log.warning(f"leftover tx data after deserialization: {tx_prime.hex()}")
@@ -1034,16 +1054,14 @@ Mine blocks.
         return tx_.hex()
     elif args.subcommand == "script":
         if args.decode:
-            scriptbytes = bits.read_bytes(
-                args.in_file, input_format=bits.bitsconfig["input_format"]
-            )
+            scriptbytes = bits.read_bytes(args.in_file, input_format=args.input_format)
             decoded = bits.script.decode_script(scriptbytes, witness=args.witness)
             print(json.dumps(decoded))
             return
         bits.write_bytes(
             bits.script.script(args.script_args, witness=args.witness),
             args.out_file,
-            output_format=bits.bitsconfig["output_format"],
+            output_format=args.output_format,
         )
     elif args.subcommand == "sig":
         if args.verify:
@@ -1051,27 +1069,21 @@ Mine blocks.
                 raise ValueError(
                     "--verify flag present without signature provided via --signature"
                 )
-            pubkey_ = bits.read_bytes(
-                args.in_file, input_format=bits.bitsconfig["input_format"]
-            )
+            pubkey_ = bits.read_bytes(args.in_file, input_format=args.input_format)
             print(
                 bits.sig_verify(
                     args.signature, pubkey_, args.msg, msg_preimage=args.msg_preimage
                 )
             )
             return
-        key = bits.read_bytes(
-            args.in_file, input_format=bits.bitsconfig["input_format"]
-        )
+        key = bits.read_bytes(args.in_file, input_format=args.input_format)
         sighash_flag = getattr(bits.script.constants, f"SIGHASH_{args.sighash.upper()}")
         if args.anyone_can_pay:
             sighash_flag |= bits.script.constants.SIGHASH_ANYONECANPAY
         sig = bits.sig(
             key, args.msg, sighash_flag=sighash_flag, msg_preimage=args.msg_preimage
         )
-        bits.write_bytes(
-            sig, args.out_file, output_format=bits.bitsconfig["output_format"]
-        )
+        bits.write_bytes(sig, args.out_file, output_format=args.output_format)
     elif args.subcommand == "send":
         if args.in_file:
             from_keys = bits.read_bytes(args.in_file, input_format="raw").split()
@@ -1087,7 +1099,7 @@ Mine blocks.
             locktime=args.locktime,
             sighash_flag=sighash_flag,
         )
-        bits.write_bytes(tx_, output_format=bits.bitsconfig["output_format"])
+        bits.write_bytes(tx_, output_format=args.output_format)
 
         send_question = input("Send transaction? (Y/N): ").strip()
         while send_question not in ["Y", "N"]:
@@ -1101,7 +1113,7 @@ Mine blocks.
     elif args.subcommand == "mine":
         n = 0
         while True:
-            mine_block(args.recv_addr, network=bits.bitsconfig["network"])
+            mine_block(args.recv_addr, network=args.network)
             n += 1
             if args.limit and n >= args.limit:
                 print(
@@ -1109,6 +1121,7 @@ Mine blocks.
                 )
                 break
     elif args.subcommand == "p2p":
+        bits.p2p.set_magic_start_bytes(args.network)
         # bits p2p start --seeds "host1:port1,host2:port2"
         seeds = (
             args.seeds.split(",") if args.seeds else bits.bitsconfig.get("seeds", [])
@@ -1132,24 +1145,18 @@ Mine blocks.
             bits.write_bytes(
                 bits.blockchain.genesis_block(),
                 args.out_file,
-                output_format=bits.bitsconfig["output_format"],
+                output_format=args.output_format,
             )
         else:
             raise NotImplementedError("blocks > 0 not implemented per v0")
     elif args.subcommand == "rpc":
-        if args.rpc_url:
-            bits.bitsconfig.update({"rpcurl": args.rpc_url})
-        if args.rpc_user:
-            bits.bitsconfig.update({"rpcuser": args.rpc_user})
-        if args.rpc_password:
-            bits.bitsconfig.update({"rpcpassword": args.rpc_password})
-
         result = bits.rpc.rpc_method(
             args.rpc_command,
             *args.params,
-            rpc_url=bits.bitsconfig["rpcurl"],
-            rpc_user=bits.bitsconfig["rpcuser"],
-            rpc_password=bits.bitsconfig["rpcpassword"],
+            rpcurl=args.rpcurl,
+            rpcuser=args.rpcuser,
+            rpcpassword=args.rpcpassword,
+            datadir=args.datadir,
         )
         print(json.dumps(result) if type(result) is dict else result)
     else:

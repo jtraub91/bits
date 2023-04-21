@@ -13,7 +13,8 @@ def pubkey(x: int, y: int, compressed=False) -> bytes:
     """
     Returns SEC1 pubkey from point (x, y)
 
-    >>> pubkey()
+    >>> pubkey(*(88828742484815144809405969644853584197652586004550817561544596238129398385750, 53299775652378523772666068229018059902560429447534834823349875811815397393717), compressed=True).hex()
+    '03c463495bd336bc29636ed6d8c1cf162b45d76adda4df9499370dded242758c56'
     """
     if compressed:
         prefix = b"\x02" if y % 2 == 0 else b"\x03"
@@ -34,7 +35,8 @@ def compute_point(privkey_: bytes) -> typing.Tuple[int]:
     """
     Compute (x, y) public key point from private key
 
-    >>> compute_point()
+    >>> compute_point(bytes.fromhex('c3e7b149ad167dc83a5653a9eaae1cc50b36793bfdc050d8efab831d04b876a7'))
+    (88828742484815144809405969644853584197652586004550817561544596238129398385750, 53299775652378523772666068229018059902560429447534834823349875811815397393717)
     """
     k = privkey_int(privkey_)
     return bits.ecmath.point_scalar_mul(
@@ -46,7 +48,8 @@ def point(pubkey_: bytes) -> typing.Tuple[int]:
     """
     Return (x, y) point from SEC1 public key
 
-    >>> point()
+    >>> point(bytes.fromhex('03c463495bd336bc29636ed6d8c1cf162b45d76adda4df9499370dded242758c56'))
+    (88828742484815144809405969644853584197652586004550817561544596238129398385750, 53299775652378523772666068229018059902560429447534834823349875811815397393717)
     """
     assert len(pubkey_) == 33 or len(pubkey_) == 65, "invalid pubkey length"
     version = pubkey_[0]
@@ -243,6 +246,8 @@ def pubkey_from_pem(pem_: bytes):
     return decoded_key
 
 
+# influenced by electrum
+# https://github.com/spesmilo/electrum/blob/4.4.0/electrum/bitcoin.py#L618-L625
 WIF_NETWORK_BASE = {"mainnet": 0x80, "testnet": 0xEF, "regtest": 0xEF}
 WIF_SCRIPT_OFFSET = {
     "p2pkh": 0,
@@ -283,6 +288,7 @@ def wif_encode(
 ) -> bytes:
     """
     WIF encoding
+    https://en.bitcoin.it/wiki/Wallet_import_format
 
     ** Extended WIF spec to include redeemscript or other script data
         at suffix
