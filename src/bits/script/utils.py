@@ -223,7 +223,7 @@ def p2sh_p2wsh_script_sig(witness_script: bytes):
     return p2sh_script_sig([], witness_script)
 
 
-def script(args: list[str], witness: bool = False) -> bytes:
+def script(args: typing.List[str], witness: bool = False) -> bytes:
     """
     Generic script
     Args:
@@ -270,7 +270,7 @@ INT_OP_MAP = {value: key for key, value in OP_INT_MAP.items()}
 
 def decode_script(
     scriptbytes: bytes, witness: bool = False
-) -> typing.Union[list[str], typing.Tuple[list[str], bytes]]:
+) -> typing.Union[typing.List[str], typing.Tuple[typing.List[str], bytes]]:
     decoded = []
     if witness:
         witness_stack_len, scriptbytes = bits.parse_compact_size_uint(scriptbytes)
