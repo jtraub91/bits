@@ -17,7 +17,23 @@ jobs:
         run: |
           python -m pip install -U pip
           pip install .
-          pip install -r pip-chill-dev.txt
+          pip install pytest pytest-cov
+      - name: Configure legacy algos openssl v3
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo sed -i 's/#openssl_conf = openssl_init/openssl_conf = openssl_init/' /etc/ssl/openssl.cnf
+          echo ".include /etc/ssl/openssl-custom.cnf" | sudo tee -a /etc/ssl/openssl.cnf
+          cat <<EOF | sudo tee /etc/ssl/openssl-custom.cnf
+          [provider_sect]
+          default = default_sect
+          legacy = legacy_sect
+
+          [default_sect]
+          activate = 1
+
+          [legacy_sect]
+          activate = 1
+          EOF
       - name: Test with pytest
         run: |
           pytest
