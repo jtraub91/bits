@@ -5,7 +5,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, ubuntu-20.04, macos-latest, windows-latest]
         python-version: ["3.7", "3.8", "3.9", "3.10", "3.11"]
     steps:
       - uses: actions/checkout@v3
@@ -18,6 +18,6 @@ jobs:
           python -m pip install -U pip
           pip install .
           pip install -r pip-chill-dev.txt
-      - name: Test with pytes
+      - name: Test with pytest
         run: |
           pytest
