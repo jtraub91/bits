@@ -55,7 +55,7 @@ def encode_pem(
 
 
 # https://letsencrypt.org/docs/a-warm-welcome-to-asn1-and-der/#tag
-TAG_MAP: dict[int, str] = {
+TAG_MAP: typing.Dict[int, str] = {
     0x02: "INTEGER",
     0x03: "BIT STRING",
     0x04: "OCTET STRING",
@@ -65,7 +65,7 @@ TAG_MAP: dict[int, str] = {
     0x10: "SEQUENCE (OF)",
     0x11: "SET (OF)",
 }
-MAP_TAG: dict[str, int] = {value: key for key, value in TAG_MAP.items()}
+MAP_TAG: typing.Dict[str, int] = {value: key for key, value in TAG_MAP.items()}
 # tag classes
 #   bit 6: 1=constructed 0=primitive
 #   | class            | bit 8 | bit 7 |

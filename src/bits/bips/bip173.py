@@ -1,10 +1,7 @@
 """
 https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki
 """
-from typing import List
-from typing import Optional
-from typing import Tuple
-from typing import Union
+import typing
 
 bech32_max_len = 90
 bech32_chars = b"qpzry9x8gf2tvdw0s3jn54khce6mua7l"
@@ -12,7 +9,7 @@ bech32_int_map = {b.to_bytes(1, "big"): bech32_chars.index(b) for b in bech32_ch
 bech32_separator = b"1"
 
 
-def parse_bech32(bytestring: bytes) -> Tuple[bytes]:
+def parse_bech32(bytestring: bytes) -> typing.Tuple[bytes]:
     """
     Parse bech32 to (hrp, data)
     """
@@ -50,7 +47,7 @@ def assert_valid_bech32(hrp: bytes, data: bytes) -> bool:
 
 
 def bech32_encode(
-    hrp: bytes, data: bytes, witness_version: Optional[bytes] = b""
+    hrp: bytes, data: bytes, witness_version: typing.Optional[bytes] = b""
 ) -> bytes:
     """
     https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#bech32
@@ -71,7 +68,8 @@ def bech32_encode(
     data_len = len(data)
 
     groups_of_5 = data_len * 8 // 5
-    if modulo := data_len * 8 % 5:
+    modulo = data_len * 8 % 5
+    if modulo:
         groups_of_5 += 1
         data_int <<= 5 - modulo
 
@@ -124,7 +122,8 @@ def bech32_decode(data: bytes) -> bytes:
     for integer in integers[1:]:
         decoded <<= 5
         decoded |= integer
-    if modulo := decoded_bits % 8:
+    modulo = decoded_bits % 8
+    if modulo:
         # discard zero-padding
         assert (
             bin(decoded)[-modulo:] == "0" * modulo
@@ -135,7 +134,7 @@ def bech32_decode(data: bytes) -> bytes:
     return decoded.to_bytes(decoded_bits // 8, "big")
 
 
-def decode_segwit_addr(addr: bytes) -> tuple[bytes, int, bytes]:
+def decode_segwit_addr(addr: bytes) -> typing.Tuple[bytes, int, bytes]:
     hrp, data = parse_bech32(addr)
     assert_valid_bech32(hrp, data)
     data = data[:-6]  # discard checksum
@@ -172,7 +171,7 @@ def is_segwit_addr(addr_: bytes):
 
 # added type hints and docstring to
 ## https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#checksum
-def bech32_polymod(values: List[int]) -> int:
+def bech32_polymod(values: typing.List[int]) -> int:
     GEN = [0x3B6A57B2, 0x26508E6D, 0x1EA119FA, 0x3D4233DD, 0x2A1462B3]
     chk = 1
     for v in values:
@@ -183,11 +182,13 @@ def bech32_polymod(values: List[int]) -> int:
     return chk
 
 
-def bech32_hrp_expand(s: List[Union[str, bytes]]) -> List[int]:
+def bech32_hrp_expand(s: typing.List[typing.Union[str, bytes]]) -> typing.List[int]:
     return [ord(x) >> 5 for x in s] + [0] + [ord(x) & 31 for x in s]
 
 
-def bech32_verify_checksum(hrp: List[Union[str, bytes]], data: List[int]) -> bool:
+def bech32_verify_checksum(
+    hrp: typing.List[typing.Union[str, bytes]], data: typing.List[int]
+) -> bool:
     """
     Args:
         data: List[int], data part values including checksum
@@ -195,7 +196,9 @@ def bech32_verify_checksum(hrp: List[Union[str, bytes]], data: List[int]) -> boo
     return bech32_polymod(bech32_hrp_expand(hrp) + data) == 1
 
 
-def bech32_create_checksum(hrp: List[Union[str, bytes]], data: List[int]) -> List[int]:
+def bech32_create_checksum(
+    hrp: typing.List[typing.Union[str, bytes]], data: typing.List[int]
+) -> typing.List[int]:
     """
     Args:
         data: List[int], (non-checksum) data part values

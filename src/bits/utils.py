@@ -351,7 +351,9 @@ def wif_decode(
         return version, key_, addtl_data
 
 
-def pem_decode_key(pem_: bytes) -> typing.Union[tuple[bytes, bytes], tuple[bytes]]:
+def pem_decode_key(
+    pem_: bytes,
+) -> typing.Union[typing.Tuple[bytes, bytes], typing.Tuple[bytes]]:
     """
     Decode from pem / der encoded EC private / public key
     Returns:

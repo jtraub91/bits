@@ -39,7 +39,7 @@ def median_time() -> int:
 
 def generate_funded_keys(
     count: int, compressed_pubkey: bool = False, network: str = "regtest"
-) -> typing.Iterator[tuple[bytes, bytes]]:
+) -> typing.Iterator[typing.Tuple[bytes, bytes]]:
     """
     Generate keys which receive coinbase reward sent to p2pkh address
     Args:
@@ -86,8 +86,8 @@ def mine_block(recv_addr: bytes, network: str = "regtest"):
     prev_nbits = bytes.fromhex(current_block["bits"])[::-1]
 
     # gather raw mempool txns
-    mempool_txids: list[str] = bits.rpc.rpc_method("getrawmempool")
-    mempool_raw_txns: list[str] = [
+    mempool_txids: typing.List[str] = bits.rpc.rpc_method("getrawmempool")
+    mempool_raw_txns: typing.List[str] = [
         bits.rpc.rpc_method("getrawtransaction", txid) for txid in mempool_txids
     ]
 
