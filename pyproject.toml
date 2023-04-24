@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -20,11 +20,24 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "black",
+    "build",
+    "ipdb",
+    "pip-chill",
+    "pre-commit",
+    "pylint",
+    "pytest-cov",
+    "reorder-python-imports",
+    "twine"
+]
+
 [project.urls]
-"Homepage" = "https://github.com/jtraub91/bits"
+"Source" = "https://github.com/jtraub91/bits"
 
 [project.scripts]
-bits = "bits.cli:main"
+bits = "bits.__main__:main"
 
 [tool.setuptools]
 include-package-data = true
