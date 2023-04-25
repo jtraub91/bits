@@ -213,6 +213,10 @@ def send_tx(
     miner_fee: int = 1000,
     version: int = 1,
     locktime: int = 0,
+    rpc_url: str = "",
+    rpc_datadir: str = "",
+    rpc_user: str = "",
+    rpc_password: str = "",
 ) -> bytes:
     """
     Create raw transaction which sends all funds from addr to addr
@@ -228,19 +232,25 @@ def send_tx(
         version: int, transaction version
         locktime: int, transaction locktime
     """
+    rpc_kwargs = {
+        "rpc_url": rpc_url,
+        "rpc_datadir": rpc_datadir,
+        "rpc_user": rpc_user,
+        "rpc_password": rpc_password,
+    }
     # scan for utxo for the from_ descriptor
     if bits.is_point(from_):
         from_txoutset = from_txoutset = bits.rpc.rpc_method(
-            "scantxoutset", "start", f'["pk({from_.hex()})"]'
+            "scantxoutset", "start", f'["pk({from_.hex()})"]', **rpc_kwargs
         )
     elif bits.base58.is_base58check(from_) or bits.bips.bip173.is_segwit_addr(from_):
         from_txoutset = bits.rpc.rpc_method(
-            "scantxoutset", "start", f'["addr({from_.decode("utf8")})"]'
+            "scantxoutset", "start", f'["addr({from_.decode("utf8")})"]', **rpc_kwargs
         )
     else:
         # raw scriptpubkey
         from_txoutset = bits.rpc.rpc_method(
-            "scantxoutset", "start", f'["raw({from_.hex()})"]'
+            "scantxoutset", "start", f'["raw({from_.hex()})"]', **rpc_kwargs
         )
 
     # if from_keys, validate and decode

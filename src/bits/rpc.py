@@ -17,28 +17,28 @@ log = logging.getLogger(__name__)
 
 
 def rpc_method(
-    method, *params, rpcurl="", rpcuser="", rpcpassword="", datadir=""
+    method, *params, rpc_url="", rpc_user="", rpc_password="", rpc_datadir=""
 ) -> Union[dict, str]:
     """
     Call a method (w/ params) to bitcoind node
     """
-    if not rpcurl:
-        raise ValueError("rpcurl must be defined")
-    if datadir:
-        if not os.path.exists(os.path.join(datadir, ".cookie")):
+    if not rpc_url:
+        raise ValueError("rpc_url must be defined")
+    if rpc_datadir:
+        if not os.path.exists(os.path.join(rpc_datadir, ".cookie")):
             raise ValueError(
-                f".cookie file not found in {os.path.join(datadir, '.cookie')}"
+                f".cookie file not found in {os.path.join(rpc_datadir, '.cookie')}"
             )
-        with open(os.path.join(datadir, ".cookie")) as cookie_file:
+        with open(os.path.join(rpc_datadir, ".cookie")) as cookie_file:
             cookie = cookie_file.read()
         auth = cookie
     else:
-        if not (rpcuser and rpcpassword):
+        if not (rpc_user and rpc_password):
             raise ValueError(
-                "rpcuser and rpcpassword must be defined for non-cookie based rpc auth. "
-                + "For cookie-based auth, please specify datadir."
+                "rpc_user and rpc_password must be defined for non-cookie based rpc auth. "
+                + "For cookie-based auth, please specify rpc_datadir."
             )
-        auth = f"{rpcuser}:{rpcpassword}"
+        auth = f"{rpc_user}:{rpc_password}"
 
     auth_b64 = base64.b64encode(auth.encode("ascii")).decode("ascii")
     headers = {"Content-Type": "text/plain", "Authorization": f"Basic {auth_b64}"}
@@ -62,7 +62,7 @@ def rpc_method(
         "method": method,
         "params": formatted_params,
     }
-    req = Request(rpcurl, headers=headers, data=json.dumps(data).encode("ascii"))
+    req = Request(rpc_url, headers=headers, data=json.dumps(data).encode("ascii"))
     try:
         ret = urlopen(req)
         result = json.load(ret)["result"]

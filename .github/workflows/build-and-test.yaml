@@ -19,6 +19,7 @@ jobs:
           pip install .
           pip install pytest pytest-cov
       - name: Configure legacy algos openssl v3
+        # https://stackoverflow.com/questions/72409563/unsupported-hash-type-ripemd160-with-hashlib-in-python
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo sed -i 's/#openssl_conf = openssl_init/openssl_conf = openssl_init/' /etc/ssl/openssl.cnf

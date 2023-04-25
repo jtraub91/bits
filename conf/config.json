@@ -1,0 +1,10 @@
+{
+  "log_level": "error",
+  "network": "mainnet",
+  "rpc_url": "",
+  "rpc_user": "",
+  "rpc_password": "",
+  "rpc_datadir": "",
+  "input_format": "hex",
+  "output_format": "hex"
+}

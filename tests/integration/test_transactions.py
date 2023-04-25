@@ -1,11 +1,26 @@
 """
 Test spenditure of various transaction type via testmempoolaccept response on local bitcoind node via rpc
 """
+import os
+
 import bits.integrations
 import bits.keys
 import bits.script.constants
 import bits.tx
+from bits.config import Config
 
+
+config_dir = os.environ.get(
+    "BITS_DATADIR", os.path.join(os.path.expanduser("~"), ".bits")
+)
+config = Config()
+config.load_config(config_dir=config_dir)
+rpc_kwargs = {
+    "rpc_url": config.rpc_url,
+    "rpc_datadir": config.rpc_datadir,
+    "rpc_user": config.rpc_user,
+    "rpc_password": config.rpc_password,
+}
 
 MINER_FEE = 1000  # satoshis
 
@@ -23,13 +38,14 @@ def test_p2pk(funded_keys_101):
         from_keys=[wif_key_1],
         miner_fee=MINER_FEE,
         sighash_flag=bits.script.constants.SIGHASH_ALL,
+        **rpc_kwargs,
     )
 
     # testmempoolaccept and send and mine block
-    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
     assert ret[0]["allowed"] == True, ret
-    bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
-    bits.integrations.mine_block(b"")
+    bits.rpc.rpc_method("sendrawtransaction", tx_.hex(), **rpc_kwargs)
+    bits.integrations.mine_block(b"", **rpc_kwargs)
 
     # test spenditure p2pk
     tx_ = bits.tx.send_tx(
@@ -38,8 +54,9 @@ def test_p2pk(funded_keys_101):
         from_keys=[wif_key_2],
         miner_fee=MINER_FEE,
         sighash_flag=bits.script.constants.SIGHASH_ALL,
+        **rpc_kwargs,
     )
-    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
     assert ret[0]["allowed"] == True, ret
 
 
@@ -60,13 +77,14 @@ def test_p2pkh(funded_keys_101):
         from_keys=[wif_key_1],
         miner_fee=MINER_FEE,
         sighash_flag=bits.script.constants.SIGHASH_ALL,
+        **rpc_kwargs,
     )
 
     # testmempoolaccept and send and mine block
-    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
     assert ret[0]["allowed"] == True, ret
-    bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
-    bits.integrations.mine_block(b"")
+    bits.rpc.rpc_method("sendrawtransaction", tx_.hex(), **rpc_kwargs)
+    bits.integrations.mine_block(b"", **rpc_kwargs)
 
     # test spenditure p2pkh
     tx_ = bits.tx.send_tx(
@@ -75,8 +93,9 @@ def test_p2pkh(funded_keys_101):
         from_keys=[wif_key_2],
         miner_fee=MINER_FEE,
         sighash_flag=bits.script.constants.SIGHASH_ALL,
+        **rpc_kwargs,
     )
-    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
     assert ret[0]["allowed"] == True, ret
 
 
@@ -94,12 +113,13 @@ def test_multisig(funded_keys_101):
             from_keys=[wif_key_1],
             sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
+            **rpc_kwargs,
         )
 
-        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
         assert ret[0]["allowed"] == True, ret
-        bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
-        bits.integrations.mine_block(b"")
+        bits.rpc.rpc_method("sendrawtransaction", tx_.hex(), **rpc_kwargs)
+        bits.integrations.mine_block(b"", **rpc_kwargs)
 
         # test spenditure multisig
         from_wif_keys = [
@@ -112,8 +132,9 @@ def test_multisig(funded_keys_101):
             from_keys=from_wif_keys,
             sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
+            **rpc_kwargs,
         )
-        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
         assert ret[0]["allowed"] == True, ret
 
 
@@ -143,12 +164,13 @@ def test_p2sh_multisig(funded_keys_101):
             from_keys=[wif_key_1],
             sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
+            **rpc_kwargs,
         )
 
-        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
         assert ret[0]["allowed"] == True, ret
-        bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
-        bits.integrations.mine_block(b"")
+        bits.rpc.rpc_method("sendrawtransaction", tx_.hex(), **rpc_kwargs)
+        bits.integrations.mine_block(b"", **rpc_kwargs)
 
         # test spenditure multisig
         tx_ = bits.tx.send_tx(
@@ -157,8 +179,9 @@ def test_p2sh_multisig(funded_keys_101):
             from_keys=to_wif_keys,
             sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
+            **rpc_kwargs,
         )
-        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
         assert ret[0]["allowed"] == True, ret
 
 
@@ -179,11 +202,12 @@ def test_p2wpkh(funded_keys_101):
         from_keys=[wif_key_0],
         sighash_flag=bits.script.constants.SIGHASH_ALL,
         miner_fee=MINER_FEE,
+        **rpc_kwargs,
     )
-    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
     assert ret[0]["allowed"] == True, ret
-    bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
-    bits.integrations.mine_block(b"")
+    bits.rpc.rpc_method("sendrawtransaction", tx_.hex(), **rpc_kwargs)
+    bits.integrations.mine_block(b"", **rpc_kwargs)
 
     tx_ = bits.tx.send_tx(
         addr_1,
@@ -191,8 +215,9 @@ def test_p2wpkh(funded_keys_101):
         from_keys=[wif_key_1],
         sighash_flag=bits.script.constants.SIGHASH_ALL,
         miner_fee=MINER_FEE,
+        **rpc_kwargs,
     )
-    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
     assert ret[0]["allowed"] == True, ret
 
 
@@ -222,12 +247,13 @@ def test_p2wsh(funded_keys_101):
             from_keys=[wif_key_0],
             sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
+            **rpc_kwargs,
         )
 
-        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
         assert ret[0]["allowed"] == True, ret
-        bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
-        bits.integrations.mine_block(b"")
+        bits.rpc.rpc_method("sendrawtransaction", tx_.hex(), **rpc_kwargs)
+        bits.integrations.mine_block(b"", **rpc_kwargs)
 
         # test spenditure p2wsh
         tx_ = bits.tx.send_tx(
@@ -236,8 +262,9 @@ def test_p2wsh(funded_keys_101):
             from_keys=to_wif_keys,
             sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
+            **rpc_kwargs,
         )
-        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
         assert ret[0]["allowed"] == True, ret
 
 
@@ -262,12 +289,13 @@ def test_p2sh_p2wpkh(funded_keys_101):
         from_keys=[wif_key_0],
         sighash_flag=bits.script.constants.SIGHASH_ALL,
         miner_fee=MINER_FEE,
+        **rpc_kwargs,
     )
 
-    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
     assert ret[0]["allowed"] == True, ret
-    bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
-    bits.integrations.mine_block(b"")
+    bits.rpc.rpc_method("sendrawtransaction", tx_.hex(), **rpc_kwargs)
+    bits.integrations.mine_block(b"", **rpc_kwargs)
 
     # test spenditure p2sh-p2wpkh
     tx_ = bits.tx.send_tx(
@@ -276,8 +304,9 @@ def test_p2sh_p2wpkh(funded_keys_101):
         from_keys=[wif_key_1],
         sighash_flag=bits.script.constants.SIGHASH_ALL,
         miner_fee=MINER_FEE,
+        **rpc_kwargs,
     )
-    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+    ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
     assert ret[0]["allowed"] == True, ret
 
 
@@ -311,12 +340,13 @@ def test_p2sh_p2wsh(funded_keys_101):
             from_keys=[wif_key_0],
             sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
+            **rpc_kwargs,
         )
 
-        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
         assert ret[0]["allowed"] == True, ret
-        bits.rpc.rpc_method("sendrawtransaction", tx_.hex())
-        bits.integrations.mine_block(b"")
+        bits.rpc.rpc_method("sendrawtransaction", tx_.hex(), **rpc_kwargs)
+        bits.integrations.mine_block(b"", **rpc_kwargs)
 
         # test spenditure p2sh-p2wsh
         tx_ = bits.tx.send_tx(
@@ -325,6 +355,7 @@ def test_p2sh_p2wsh(funded_keys_101):
             from_keys=addr_1_from_keys,
             sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
+            **rpc_kwargs,
         )
-        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]')
+        ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
         assert ret[0]["allowed"] == True, ret
