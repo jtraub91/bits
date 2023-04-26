@@ -788,27 +788,6 @@ Examples:
     add_common_arguments(send_parser, include_network=False)
     add_output_arguments(send_parser)
 
-    p2p_parser = sub_parser.add_parser("p2p", help="start p2p node")
-    p2p_parser.add_argument(
-        "--seeds", type=str, help="comma separated list of seed nodes"
-    )
-    add_common_arguments(p2p_parser)
-
-    blockchain_parser = sub_parser.add_parser(
-        "blockchain",
-        help="blockchain explorer",
-        formatter_class=RawDescriptionDefaultsHelpFormatter,
-        description="""
-Blockchain lulz
-""",
-    )
-    blockchain_parser.add_argument("blockheight", type=int, help="block height")
-    blockchain_parser.add_argument(
-        "--header-only", "-H", action="store_true", help="output block header only"
-    )
-    add_common_arguments(blockchain_parser)
-    add_output_arguments(blockchain_parser)
-
     mine_parser = sub_parser.add_parser(
         "mine",
         help="Mine blocks",
@@ -1172,33 +1151,6 @@ Mine blocks.
                     f"{n} blocks mined. Reward sent to {args.recv_addr.decode('utf8')}"
                 )
                 break
-    elif args.subcommand == "p2p":
-        bits.p2p.set_magic_start_bytes(config.network)
-        # bits p2p start --seeds "host1:port1,host2:port2"
-        seeds = args.seeds.split(",") if args.seeds else []
-        if args.rpcbind:
-            rpc_host, rpc_port = args.rpcbind.split(":")
-            rpc_port = int(rpc_port)
-            rpc_bind = (rpc_host, rpc_port)
-        else:
-            rpc_bind = ()
-        p2p_node = bits.p2p.Node(
-            seeds=seeds,
-            serve_rpc=args.serve,
-            rpc_bind=args.rpcbind,
-            rpc_username=args.rpcuser,
-            rpc_password=args.rpcpassword,
-        )
-        p2p_node.start()
-    elif args.subcommand == "blockchain":
-        if args.blockheight == 0:
-            bits.write_bytes(
-                bits.blockchain.genesis_block(),
-                args.out_file,
-                output_format=config.output_format,
-            )
-        else:
-            raise NotImplementedError("blocks > 0 not implemented per v0")
     elif args.subcommand == "rpc":
         result = bits.rpc.rpc_method(
             args.rpc_command,
