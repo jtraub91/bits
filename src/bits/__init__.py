@@ -1,17 +1,9 @@
 __version__ = "0.1.0"
 
-import json
 import logging
 import os
 import sys
 import typing
-
-try:
-    import tomllib
-
-    HAS_TOMLLIB = True
-except ImportError:
-    HAS_TOMLLIB = False
 
 from .utils import compact_size_uint
 from .utils import compute_point
@@ -68,33 +60,6 @@ def set_log_level(log_level: str):
     """
     for handler in log.handlers:
         handler.setLevel(getattr(logging, log_level.upper()))
-
-
-def default_config():
-    return {
-        "network": "mainnet",
-        "logfile": os.path.join(os.path.expanduser("~"), ".bits/logs/bits.log"),
-        "loglevel": "error",
-        "input_format": "hex",
-        "output_format": "hex",
-    }
-
-
-def search_for_config():
-    raise NotImplementedError
-
-
-def load_config():
-    bitsconfig = default_config()
-    bitsconfig_file_dict = {}
-    if HAS_TOMLLIB and os.path.exists(".bitsconfig.toml"):
-        with open(".bitsconfig.toml", "rb") as bitsconfig_file:
-            bitsconfig_file_dict = tomllib.load(bitsconfig_file)
-    elif os.path.exists(".bitsconfig.json"):
-        with open(".bitsconfig.json") as bitsconfig_file:
-            bitsconfig_file_dict = json.load(bitsconfig_file)
-    bitsconfig.update(bitsconfig_file_dict)
-    return bitsconfig
 
 
 def read_bytes(
@@ -163,5 +128,4 @@ def write_bytes(
         raise ValueError(f"unrecognized output format: {output_format}")
 
 
-bitsconfig = load_config()
 log = init_logging()

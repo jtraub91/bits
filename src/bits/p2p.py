@@ -105,7 +105,7 @@ MAX_BLOCKFILE_SIZE = 0x8000000  # 128 MiB
 log = logging.getLogger(__name__)
 
 
-def set_magic_start_bytes(network: str):
+def set_magic_start_bytes(network: str = "mainnet"):
     global MAGIC_START_BYTES
     if network.lower() == "mainnet":
         MAGIC_START_BYTES = MAINNET_START
@@ -719,4 +719,4 @@ class Node:
             self.rpc_server.shutdown()
 
 
-set_magic_start_bytes(bits.bitsconfig["network"])
+set_magic_start_bytes()
