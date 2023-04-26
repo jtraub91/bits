@@ -9,5 +9,7 @@
 ## Installation
 
 ```bash
-pip install bits
+git clone https://github.com/jtraub91/bits.git
+cd bits/
+pip install .
 ```
