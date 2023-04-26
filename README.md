@@ -17,7 +17,7 @@ pip install .
 ### Install for development
 
 ```bash
-pip install .[dev]
+pip install -e .[dev]
 pre-commit install
 ```
 
@@ -36,7 +36,7 @@ Configuration is not strictly necessary, but, a user may leverage a configuratio
 ## Donate
 
 ```text
-DONATION-ADDRESS-HERE
+1GjPvTLYLNodnBJ969DWHcqBMP3pa5tsV3
 ```
 
 ## License
