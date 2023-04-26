@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "bits"
-version = "0.1.0"
+version = "0.1.1"
 authors = [{name = "Jason Traub", email = "jtraub91@gmail.com"}]
 description = "bits is a cli tool and pure Python library for Bitcoin"
 readme="README.md"
@@ -21,7 +21,7 @@ classifiers = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/jtraub91/bits"
+"Source" = "https://github.com/jtraub91/bits"
 
 [project.scripts]
 bits = "bits.cli:main"
