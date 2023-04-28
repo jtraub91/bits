@@ -184,9 +184,7 @@ Examples:
 """,
         formatter_class=RawDescriptionDefaultsHelpFormatter,
     )
-    parser.add_argument(
-        "-v", "-V", "--version", action="version", version=f"v{bits.__version__}"
-    )
+    parser.add_argument("-v", "-V", "--version", action="version", version=__version__)
     # TODO: consider renaming to --data-dir and allowing BITS_DATADIR envvar as in tests
     parser.add_argument(
         "--config-dir",

@@ -5,7 +5,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, ubuntu-20.04, macos-latest, windows-latest]
+        os: ["ubuntu-latest", "ubuntu-20.04", "macos-latest", "windows-latest"]
         python-version: ["3.7", "3.8", "3.9", "3.10", "3.11"]
     steps:
       - uses: actions/checkout@v3
@@ -34,22 +34,26 @@ jobs:
           [legacy_sect]
           activate = 1
           EOF
-      - name: Deploy bitcoind
+      - name: Deploy bitcoind - Linux
         if: runner.os == 'Linux'
         run: |
           mkdir ~/bitcoind-data
           docker run -d --name bitcoind-node -v ~/bitcoind-data:/root/.bitcoin -p 18443:18443 -p 18444:18444 blockstream/bitcoind:23.1 bitcoind -txindex -chain=regtest -server -rpcbind=0.0.0.0 -rpcallowip=0.0.0.0/0
-      - name: Test with pytest
+      - name: Test with pytest - Linux
+        if: runner.os == 'Linux'
         run: |
-          if [ "$RUNNER_OS" == "Linux" ]; then
-            mkdir ~/.bits
-            cat <<EOF | tee ~/.bits/config.json
+          mkdir ~/.bits
+          cat <<EOF | tee ~/.bits/config.json
           {
             "rpc_url": "http://localhost:18443",
             "rpc_datadir": "/home/runner/bitcoind-data/regtest"
           }
           EOF
-            pytest
-          else
-            pytest tests/unit
-          fi
+          docker exec bitcoind-node ls -la /root/.bitcoin
+          docker exec bitcoind-node ls -la /root/.bitcoin/regtest
+          docker exec bitcoind-node chmod 644 /root/.bitcoin/regtest/.cookie
+          pytest
+      - name: Test with pytest (unit tests only) - macOS / Windows
+        if: runner.os == 'macOS' || runner.os == 'Windows'
+        run: |
+          pytest tests/unit
