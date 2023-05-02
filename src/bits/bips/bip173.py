@@ -8,6 +8,8 @@ bech32_chars = b"qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 bech32_int_map = {b.to_bytes(1, "big"): bech32_chars.index(b) for b in bech32_chars}
 bech32_separator = b"1"
 
+hrp_network_map = {b"bc": "mainnet", b"tb": "testnet", b"bcrt": "regtest"}
+
 
 def parse_bech32(bytestring: bytes) -> typing.Tuple[bytes]:
     """
@@ -108,7 +110,7 @@ def segwit_addr(
 
 def bech32_decode(data: bytes) -> bytes:
     """
-    Decode bech32
+    Decode bech32 data part
     """
     # decode into 5-bit integers
     integers = []
@@ -146,6 +148,15 @@ def decode_segwit_addr(addr: bytes) -> typing.Tuple[bytes, int, bytes]:
     witness_program = bech32_decode(data)
 
     return hrp, witness_version, witness_program
+
+
+def decode_bech32_string(bytestring: bytes) -> typing.Tuple[bytes, bytes]:
+    hrp, data = parse_bech32(bytestring)
+    assert_valid_bech32(hrp, data)
+    data = data[:-6]  # discard checksum
+    assert data, "empty data"
+    payload = bech32_decode(data)
+    return hrp, payload
 
 
 def assert_valid_segwit(

@@ -364,12 +364,16 @@ Address type. Valid choices are p2pkh or p2sh. Ignored when --witness-version is
     )
     addr_parser.add_argument(
         "--witness-version",
+        "--wv",
         type=int,
         help="""
 Witness version for native Segwit addresses. 
 Use of this option implies a Segwit address and addr_type (-T) is ignored.""",
         choices=range(17),
         metavar="witness_version",
+    )
+    addr_parser.add_argument(
+        "--print", "-P", action="store_true", help="print newline at end"
     )
     add_common_arguments(addr_parser)
     add_input_arguments(addr_parser)
@@ -665,6 +669,9 @@ Examples:
     base58_parser.add_argument(
         "--decode", action="store_true", help="decode base58(check) input"
     )
+    base58_parser.add_argument(
+        "--print", "-P", action="store_true", help="print newline at end"
+    )
     add_common_arguments(base58_parser, include_network=False)
     add_input_arguments(base58_parser)
     add_output_arguments(
@@ -676,19 +683,25 @@ Examples:
     bech32_parser = sub_parser.add_parser(
         "bech32", help="Encode (or decode) bech32 or segwit data"
     )
-    bech32_segwit_mutually_exclusive_group = bech32_parser.add_mutually_exclusive_group(
+    bech32_mutually_exclusive_group = bech32_parser.add_mutually_exclusive_group(
         required=True
     )
-    bech32_segwit_mutually_exclusive_group.add_argument(
-        "--hrp", type=os.fsencode, help="human readable part for bech32 encoding"
+    bech32_mutually_exclusive_group.add_argument(
+        "--hrp",
+        type=os.fsencode,
+        help="human readable part for bech32 encoding",
     )
-    bech32_segwit_mutually_exclusive_group.add_argument(
+    bech32_parser.add_argument(
         "--witness-version",
+        "--wv",
         type=int,
         help="witness version, if encoding a segwit address",
     )
-    bech32_segwit_mutually_exclusive_group.add_argument(
+    bech32_mutually_exclusive_group.add_argument(
         "--decode", action="store_true", help="Decode input data"
+    )
+    bech32_parser.add_argument(
+        "--print", "-P", action="store_true", help="print newline at end"
     )
     add_common_arguments(bech32_parser, include_network=False)
     add_input_arguments(bech32_parser)
@@ -981,6 +994,8 @@ Mine blocks.
                 decoded = bits.base58.base58check_decode(data)
             else:
                 decoded = bits.base58.base58decode(data)
+            if args.print:
+                decoded += os.linesep.encode("utf8")
             bits.write_bytes(decoded, output_format=config.output_format)
             return
         data = bits.read_bytes(args.in_file, input_format=config.input_format)
@@ -999,35 +1014,35 @@ Mine blocks.
                 print(
                     json.dumps(
                         {
-                            "hrp": hrp.decode("utf8"),
+                            "network": bip173.hrp_network_map[hrp],
                             "witness_version": witness_version,
                             "witness_program": witness_program.hex(),
                         }
                     )
                 )
             else:
-                hrp, data = bip173.parse_bech32(data_input)
-                decoded_data = bip173.bech32_decode(data)
-                bip173.assert_valid_bech32(hrp, data)
+                hrp, payload = bip173.decode_bech32_string(data_input)
                 print(
-                    {
-                        "hrp": hrp.decode("utf8"),
-                        "data": decoded_data.hex(),
-                    }
+                    json.dumps(
+                        {
+                            "hrp": hrp.decode("utf8"),
+                            "payload": payload.hex(),
+                        }
+                    )
                 )
             return
         data_input = bits.read_bytes(args.in_file, input_format=config.input_format)
-        if args.witness_version is not None:
-            addr = bip173.segwit_addr(
-                data,
-                witness_version=args.witness_version,
-                network=config.network,
-            )
-            bits.write_bytes(args.out_file, output_format="raw")
-        elif args.hrp is not None:
-            encoded_data = bip173.bech32_encode(args.hrp, data_input)
-            bits.write_bytes(encoded_data, output_format="raw")
-        return
+        witness_version_byte = (
+            bip173.bech32_chars[args.witness_version : args.witness_version + 1]
+            if args.witness_version is not None
+            else b""
+        )
+        encoded_data = bip173.bech32_encode(
+            args.hrp, data_input, witness_version=witness_version_byte
+        )
+        if args.print:
+            encoded_data += os.linesep.encode("utf8")
+        bits.write_bytes(encoded_data, args.out_file, output_format="raw")
     elif args.subcommand == "ripemd160":
         data = bits.read_bytes(args.in_file, input_format=config.input_format)
         bits.write_bytes(
@@ -1064,6 +1079,8 @@ Mine blocks.
             witness_version=args.witness_version,
             network=config.network,
         )
+        if args.print:
+            addr += os.linesep.encode("utf8")
         bits.write_bytes(addr, args.out_file, output_format="raw")
     elif args.subcommand == "tx":
         if args.decode:
