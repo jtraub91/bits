@@ -75,7 +75,6 @@ def generate_funded_keys(
 
         mine_block(
             addr,
-            network=network,
             rpc_url=rpc_url,
             rpc_datadir=rpc_datadir,
             rpc_user=rpc_user,
@@ -90,14 +89,14 @@ def generate_funded_keys(
 
 def mine_block(
     recv_addr: bytes,
-    network: str = "regtest",
     rpc_url: str = "",
     rpc_datadir: str = "",
     rpc_user: str = "",
     rpc_password: str = "",
 ):
     """
-    Retrieve all raw mempool transactions and submit in a block
+    Retrieve all raw mempool transactions and submit in a block.
+    Regtest mode is inferred from getdifficulty rpc.
     Args:
         recv_addr: bytes, addr to receive block reward
     """
@@ -107,6 +106,9 @@ def mine_block(
         "rpc_user": rpc_user,
         "rpc_password": rpc_password,
     }
+    current_difficulty = bits.rpc.rpc_method("getdifficulty", **rpc_kwargs)
+    is_regtest = True if current_difficulty < 1e-8 else False
+
     current_block_height = bits.rpc.rpc_method("getblockcount", **rpc_kwargs)
     current_block_hash = bits.rpc.rpc_method(
         "getblockhash", current_block_height, **rpc_kwargs
@@ -135,7 +137,7 @@ def mine_block(
             b"bits",
             script_pubkey,
             block_height=current_block_height + 1,
-            network=network,
+            regtest=is_regtest,
         )
     ] + [bytes.fromhex(raw_tx) for raw_tx in mempool_raw_txns]
     merkle_root_hash = bits.blockchain.merkle_root(txns)

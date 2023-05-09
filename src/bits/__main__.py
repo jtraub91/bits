@@ -161,8 +161,12 @@ def add_output_arguments(
         )
 
 
-@catch_exception
-def main():
+def setup_parser() -> argparse.ArgumentParser:
+    """
+    Setup argument parser
+    Returns:
+        argparse.ArgumentParser
+    """
     parser = argparse.ArgumentParser(
         prog="bits",
         description=f"""bits is a cli tool and pure Python library for Bitcoin.
@@ -465,6 +469,9 @@ Examples:
             Note: in_file is mnemonic phrase and stdin may be used.
         """,
     )
+    mnemonic_parser.add_argument(
+        "--print", "-P", action="store_true", help="print newline at end"
+    )
     add_common_arguments(mnemonic_parser)
     add_input_arguments(mnemonic_parser)
     add_output_arguments(mnemonic_parser)
@@ -494,6 +501,9 @@ Use --dump to deserialize & decode the derived key, and output json object to st
         "--dump",
         action="store_true",
         help="Deserialize extended key and decode as json. Write to stderr.",
+    )
+    hd_parser.add_argument(
+        "--print", "-P", action="store_true", help="print newline at end"
     )
     add_common_arguments(hd_parser, include_network=False)
     add_input_arguments(
@@ -834,6 +844,7 @@ Mine blocks.
         "--recv-addr",
         dest="recv_addr",
         type=os.fsencode,
+        required=True,
         help="""Address to send block reward to.""",
     )
     mine_parser.add_argument(
@@ -841,7 +852,7 @@ Mine blocks.
         type=int,
         help="Set a limit of the number of blocks to mine before exit. Useful in regtest mode for generating a set number of blocks",
     )
-    add_common_arguments(mine_parser)
+    add_common_arguments(mine_parser, include_network=False)
 
     rpc_parser = sub_parser.add_parser(
         "rpc",
@@ -867,7 +878,12 @@ Mine blocks.
         help="For cookie based rpc auth, supply rpc datadir.",
     )
     add_common_arguments(rpc_parser)
+    return parser
 
+
+@catch_exception
+def main():
+    parser = setup_parser()
     args = parser.parse_args()
 
     config = Config(**vars(args))
@@ -943,6 +959,8 @@ Mine blocks.
                         chaincode,
                         testnet=False if config.network == "mainnet" else True,
                     )
+                    if args.print:
+                        xprv += os.linesep.encode("utf8")
                     bits.write_bytes(
                         xprv,
                         args.out_file,
@@ -972,6 +990,8 @@ Mine blocks.
                 )
                 + os.linesep
             )
+        if args.print:
+            derived_key += os.linesep.encode("utf8")
         bits.write_bytes(derived_key, args.out_file, output_format="raw")
     elif args.subcommand == "wif":
         if args.decode:
@@ -1160,6 +1180,10 @@ Mine blocks.
             version=args.version,
             locktime=args.locktime,
             sighash_flag=sighash_flag,
+            rpc_url=config.rpc_url,
+            rpc_datadir=config.rpc_datadir,
+            rpc_user=config.rpc_user,
+            rpc_password=config.rpc_password,
         )
         bits.write_bytes(tx_, output_format=config.output_format)
 
@@ -1168,16 +1192,24 @@ Mine blocks.
             print("Input not recognized. Try again.")
             send_question = input("Send transaction? (Y/N): ").strip()
         if send_question == "Y":
-            print(bits.rpc.rpc_method("sendrawtransaction", tx_.hex()))
+            print(
+                bits.rpc.rpc_method(
+                    "sendrawtransaction",
+                    tx_.hex(),
+                    rpc_url=config.rpc_url,
+                    rpc_datadir=config.rpc_datadir,
+                    rpc_user=config.rpc_user,
+                    rpc_password=config.rpc_password,
+                )
+            )
         else:
-            print("Transaction not sent.")
+            print("Transaction not relayed.")
             return
     elif args.subcommand == "mine":
         n = 0
         while True:
             mine_block(
                 args.recv_addr,
-                network=config.network,
                 rpc_url=config.rpc_url,
                 rpc_datadir=config.rpc_datadir,
                 rpc_user=config.rpc_user,

@@ -181,24 +181,38 @@ def coinbase_tx(
     script_pubkey: bytes,
     block_reward: typing.Optional[int] = None,
     block_height: typing.Optional[int] = None,
-    network: str = "mainnet",
+    regtest: bool = False,
 ) -> bytes:
-    if network == "mainnet" or network == "testnet":
-        raise NotImplementedError
-        if block_height:
-            halvings = block_height // 2016
-    elif network == "regtest":
-        if block_height:
-            max_reward = int(50e8)
-            halvings = block_height // 150
-            if halvings:
-                max_reward //= 2**halvings
-            if block_reward:
-                assert block_reward <= max_reward, "block reward too high"
-            else:
-                block_reward = max_reward
-    else:
-        raise ValueError(f"unrecognized network: {network}")
+    """
+    Create coinbase transaction by supplying arbitrary transaction input coinbase
+    scriptsig and transaction output spending scriptpubkey.
+
+    Optional block height (for version 2 blocks per BIP34) and block reward arguments
+    may be provided. If block height is specified, the block reward must be <= max reward,
+    and will be inferred to be == max reward if left unspecified.
+
+    Args:
+        coinbase_script: bytes, txin scriptsig of arbitrary data not exceeding 100 bytes
+        script_pubkey: bytes, txout scriptpubkey
+        block_reward: Optional[int], txout value in satoshis
+        block_height: Optional[int], block height per BIP34
+
+    Returns:
+        coinbase tx
+
+    """
+    blocks_per_halving = 2016 if not regtest else 150
+
+    if block_height:
+        max_reward = int(50e8)
+        halvings = block_height // 150
+        if halvings:
+            max_reward //= 2**halvings
+        if block_reward:
+            assert block_reward <= max_reward, "block reward too high"
+        else:
+            block_reward = max_reward
+
     return tx(
         [coinbase_txin(coinbase_script, block_height=block_height)],
         [txout(block_reward, script_pubkey)],
