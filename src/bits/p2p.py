@@ -103,6 +103,7 @@ MAX_BLOCKFILE_SIZE = 0x8000000  # 128 MiB
 
 
 log = logging.getLogger(__name__)
+log.setLevel(logging.DEBUG)
 
 
 def set_magic_start_bytes(network: str = "mainnet"):

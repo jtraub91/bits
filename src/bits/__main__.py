@@ -335,6 +335,9 @@ Byte definitions:
         help="additional data (hex) to append to WIF key before base58check encoding",
     )
     wif_parser.add_argument("--decode", action="store_true", help="decode wif")
+    wif_parser.add_argument(
+        "--print", "-P", action="store_true", help="print newline at end"
+    )
     add_common_arguments(wif_parser)
     add_input_arguments(wif_parser, in_file_help="input private key data")
     add_output_arguments(
@@ -517,14 +520,17 @@ Use --dump to deserialize & decode the derived key, and output json object to st
         help="Create arbitrary Bitcoin Scripts",
         formatter_class=RawDescriptionDefaultsHelpFormatter,
         description="""
-Create arbitrary Bitcoin Scripts. script_args shall either be OP_* or data. The script
+Encode (or decode) arbitrary Bitcoin Script.
+
+For encoding, script_args shall either be OP_* or data. The script
 will be properly encoded with data push opcodes, as necessary, but since these are implied, 
 they should not be specified in script_args.
 
-Use --decode to decode raw script input to opcodes / data.
+For decoding, use the --decode flag. In this mode, script_args shall be any number of 
+hex-encoded scripts, and will be decoded to to opcodes / data.
 
 Use --witness to indicate witness script encoding / decoding and to follow witness 
-script semantics (include stack size push and difference in handling data push bytes) 
+script semantics (i.e. include stack size push and difference in handling data push bytes) 
 
 Standard transaction scripts:
     P2PK:
@@ -559,12 +565,14 @@ Standard transaction scripts:
         witness: <redeem-script>""",
     )
     script_parser.add_argument(
-        "script_args", nargs="*", help="Script arguments, e.g. OP_* or <data>"
+        "script_args",
+        nargs="*",
+        help="Script arguments, e.g. OP_* or <data>. Or, hex-encoded script(s) when using --decode",
     )
     script_parser.add_argument(
         "--decode",
         action="store_true",
-        help="Use this flag to decode raw script input to opcodes / data.",
+        help="Use this flag to decode hex-encoded script to opcodes / data.",
     )
     script_parser.add_argument(
         "--witness",
@@ -572,8 +580,6 @@ Standard transaction scripts:
         help="Use this flag to indicate this is a witness script and to follow witness script encoding / decoding semantics.",
     )
     add_common_arguments(script_parser, include_network=False)
-    add_input_arguments(script_parser)
-    add_output_arguments(script_parser)
 
     sig_parser = sub_parser.add_parser(
         "sig",
@@ -722,17 +728,17 @@ Examples:
         help="create raw transactions",
         formatter_class=RawDescriptionDefaultsHelpFormatter,
         description="""
-Create raw transactions.
+Create (or decode) raw transactions.
 
 Examples:
 
     1. Create raw transaction
 
-        $ bits tx -txin '{"txid": "", "vout": 0, "scriptSig": ""}' -txout '{"satoshis": "", "scriptPubkey": ""}'
+        $ bits tx -txin '{"txid": "<txid>", "vout": <vout>, "scriptsig": "<scriptsig>"}' -txout '{"satoshis": <satoshis>, "scriptpubkey": "<scriptpubkey>"}'
 
     2. Decode raw transaction
 
-        $ echo <raw-tx> | bits tx --decode
+        $ echo <rawtx> | bits tx --decode
 
         """,
     )
@@ -744,8 +750,7 @@ Examples:
         action="append",
         default=[],
         help="""
-        Transaction input data provided as a dictionary with the following keys: txid, vout, scriptSig.
-        Use scriptPubKey as scriptSig if generating the pre-signature transaction.
+        Transaction input data provided as a dictionary with the following keys: txid, vout, scriptsig.
         """,
     )
     tx_parser.add_argument(
@@ -755,7 +760,7 @@ Examples:
         type=json.loads,
         action="append",
         default=[],
-        help="Transaction output data provided as a dictionary with the following keys: satoshis, scriptPubKey",
+        help="Transaction output data provided as a dictionary with the following keys: satoshis, scriptpubkey",
     )
     # # BIP 68 transaction version 2+
     # # https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki
@@ -773,16 +778,46 @@ Examples:
         type=bytes.fromhex,
         help="witness script. This argument can be specified multiple times, but must appear in order corresponding to txins",
     )
-    tx_parser.add_argument("--decode", action="store_true", help="decode raw tx")
+    tx_parser.add_argument(
+        "--decode", action="store_true", help="decode raw tx to JSON from input file"
+    )
     add_common_arguments(tx_parser, include_network=False)
     add_input_arguments(tx_parser)
     add_output_arguments(tx_parser)
 
     send_parser = sub_parser.add_parser(
-        "send", help="Send funds from from_ addr to to_ addr."
+        "send",
+        help="Utility for sending funds",
+        formatter_class=RawDescriptionDefaultsHelpFormatter,
+        description="""
+Utility for sending funds from sender address to recipient address, with optional change address. 
+
+Depends on a configured Bitcoin Core RPC node.
+
+This command will, by default, send all funds associated with the sender's address to the recipient address.
+If --send-fraction is less than 1, only the fractional amount will be sent. If a fractional amount is sent, and 
+--change-address is not provided, the leftover fraction will be returned to the sender address, minus the --miner-fee.
+If --change-address is provided, the leftover fraction, minus --miner-fee, will be sent here.
+
+This command is smart enough to infer the transaction semantics by the address provided,
+ which may be a simple pubkey, legacy address, segwit address, or raw scriptpubkey.
+To unlock the funds sent from the sender's address, a WIF key must be provided as IN_FILE.
+If multiple keys are needed to unlock funds, they may be specified ordered and separated by whitespace in IN_FILE.
+
+See "bits wif -h" for help on create WIF-encoded keys.
+        """,
     )
-    send_parser.add_argument("from_", type=os.fsencode)
-    send_parser.add_argument("to_", type=os.fsencode)
+    send_parser.add_argument("sender_addr", type=os.fsencode, help="Sender address")
+    send_parser.add_argument(
+        "recipient_addr", type=os.fsencode, help="Recipient address"
+    )
+    send_parser.add_argument("--change-addr", type=os.fsencode, help="Change address")
+    send_parser.add_argument(
+        "--send-fraction",
+        type=float,
+        default=1.0,
+        help="fraction of sender address's UTXO value to send",
+    )
     send_parser.add_argument(
         "--miner-fee", type=int, default=1000, help="satoshis to include as miner fee"
     )
@@ -795,7 +830,6 @@ Examples:
     send_parser.add_argument(
         "--sighash",
         choices=["all", "none", "single"],
-        required=True,
         help="SIGHASH flag to use for signing (if key(s) are provided)",
     )
     send_parser.add_argument(
@@ -803,12 +837,12 @@ Examples:
         action="store_true",
         help="If present, ORs SIGHASH_FLAG with SIGHASH_ANYONECANPAY",
     )
+    add_common_arguments(send_parser, include_network=False)
     add_input_arguments(
         send_parser,
-        in_file_help="wif unlocking key for from_ address",
+        in_file_help="WIF unlocking key for sender address",
         include_input_format=False,
     )
-    add_common_arguments(send_parser, include_network=False)
     add_output_arguments(send_parser)
 
     p2p_parser = sub_parser.add_parser("p2p", help="start p2p node")
@@ -1006,6 +1040,8 @@ def main():
             data=args.data,
             network=config.network,
         )
+        if args.print:
+            wif += os.linesep.encode("utf8")
         bits.write_bytes(wif, args.out_file, output_format="raw")
     elif args.subcommand == "base58":
         if args.decode:
@@ -1115,12 +1151,12 @@ def main():
             # internal byte order
             txid_ = bytes.fromhex(txin_dict["txid"])[::-1]
             # use script pub key as script sig for signing
-            script_sig = bytes.fromhex(txin_dict["scriptSig"])
+            script_sig = bytes.fromhex(txin_dict["scriptsig"])
             txin_ = bits.tx.txin(bits.tx.outpoint(txid_, txin_dict["vout"]), script_sig)
             txins.append(txin_)
         txouts = [
             bits.tx.txout(
-                txout_dict["satoshis"], bytes.fromhex(txout_dict["scriptPubKey"])
+                txout_dict["satoshis"], bytes.fromhex(txout_dict["scriptpubkey"])
             )
             for txout_dict in args.txouts
         ]
@@ -1134,10 +1170,13 @@ def main():
         return tx_.hex()
     elif args.subcommand == "script":
         if args.decode:
-            scriptbytes = bits.read_bytes(
-                args.in_file, input_format=config.input_format
-            )
-            decoded = bits.script.decode_script(scriptbytes, witness=args.witness)
+            decoded = []
+            for script in args.script_args:
+                script_bytes = bytes.fromhex(script)
+                script_decoded = bits.script.decode_script(
+                    script_bytes, witness=args.witness
+                )
+                decoded.append(script_decoded)
             print(json.dumps(decoded))
             return
         bits.write_bytes(
@@ -1167,15 +1206,22 @@ def main():
         )
         bits.write_bytes(sig, args.out_file, output_format=config.output_format)
     elif args.subcommand == "send":
-        if args.in_file:
-            from_keys = bits.read_bytes(args.in_file, input_format="raw").split()
-        sighash_flag = getattr(bits.script.constants, f"SIGHASH_{args.sighash.upper}")
-        if args.anyone_can_pay:
-            sighash_flag |= bits.script.constants.SIGHASH_ANYONECANPAY
+        if args.sighash:
+            sender_keys = bits.read_bytes(args.in_file, input_format="raw").split()
+            sighash_flag = getattr(
+                bits.script.constants, f"SIGHASH_{args.sighash.upper()}"
+            )
+            if args.anyone_can_pay:
+                sighash_flag |= bits.script.constants.SIGHASH_ANYONECANPAY
+        else:
+            sender_keys = []
+            sighash_flag = 0
         tx_ = bits.tx.send_tx(
-            args.from_,
-            args.to_,
-            from_keys=from_keys,
+            args.sender_addr,
+            args.recipient_addr,
+            change_addr=args.change_addr,
+            sender_keys=sender_keys,
+            send_fraction=args.send_fraction,
             miner_fee=args.miner_fee,
             version=args.version,
             locktime=args.locktime,

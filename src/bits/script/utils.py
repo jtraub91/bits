@@ -6,6 +6,7 @@ from bits.bips import bip173
 from bits.script import constants
 
 log = logging.getLogger(__name__)
+log.setLevel(logging.DEBUG)
 
 
 def scriptpubkey(data: bytes) -> bytes:

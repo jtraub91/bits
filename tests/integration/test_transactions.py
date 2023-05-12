@@ -35,12 +35,11 @@ def test_p2pk(funded_keys_101):
     tx_ = bits.tx.send_tx(
         addr_1,
         pubkey_2,
-        from_keys=[wif_key_1],
+        sender_keys=[wif_key_1],
         miner_fee=MINER_FEE,
         sighash_flag=bits.script.constants.SIGHASH_ALL,
         **rpc_kwargs,
     )
-
     # testmempoolaccept and send and mine block
     ret = bits.rpc.rpc_method("testmempoolaccept", f'["{tx_.hex()}"]', **rpc_kwargs)
     assert ret[0]["allowed"] == True, ret
@@ -51,7 +50,7 @@ def test_p2pk(funded_keys_101):
     tx_ = bits.tx.send_tx(
         pubkey_2,
         addr_1,
-        from_keys=[wif_key_2],
+        sender_keys=[wif_key_2],
         miner_fee=MINER_FEE,
         sighash_flag=bits.script.constants.SIGHASH_ALL,
         **rpc_kwargs,
@@ -74,7 +73,7 @@ def test_p2pkh(funded_keys_101):
     tx_ = bits.tx.send_tx(
         addr_1,
         addr_2,
-        from_keys=[wif_key_1],
+        sender_keys=[wif_key_1],
         miner_fee=MINER_FEE,
         sighash_flag=bits.script.constants.SIGHASH_ALL,
         **rpc_kwargs,
@@ -90,7 +89,7 @@ def test_p2pkh(funded_keys_101):
     tx_ = bits.tx.send_tx(
         addr_2,
         addr_1,
-        from_keys=[wif_key_2],
+        sender_keys=[wif_key_2],
         miner_fee=MINER_FEE,
         sighash_flag=bits.script.constants.SIGHASH_ALL,
         **rpc_kwargs,
@@ -110,7 +109,7 @@ def test_multisig(funded_keys_101):
         tx_ = bits.tx.send_tx(
             addr_1,
             bits.script.multisig_script_pubkey(m, pubkeys),
-            from_keys=[wif_key_1],
+            sender_keys=[wif_key_1],
             sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
             **rpc_kwargs,
@@ -129,7 +128,7 @@ def test_multisig(funded_keys_101):
         tx_ = bits.tx.send_tx(
             bits.script.multisig_script_pubkey(m, pubkeys),
             addr_1,
-            from_keys=from_wif_keys,
+            sender_keys=from_wif_keys,
             sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
             **rpc_kwargs,
@@ -161,7 +160,7 @@ def test_p2sh_multisig(funded_keys_101):
         tx_ = bits.tx.send_tx(
             addr_1,
             to_addr,
-            from_keys=[wif_key_1],
+            sender_keys=[wif_key_1],
             sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
             **rpc_kwargs,
@@ -176,7 +175,7 @@ def test_p2sh_multisig(funded_keys_101):
         tx_ = bits.tx.send_tx(
             to_addr,
             addr_1,
-            from_keys=to_wif_keys,
+            sender_keys=to_wif_keys,
             sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
             **rpc_kwargs,
@@ -199,7 +198,7 @@ def test_p2wpkh(funded_keys_101):
     tx_ = bits.tx.send_tx(
         addr_0,
         addr_1,
-        from_keys=[wif_key_0],
+        sender_keys=[wif_key_0],
         sighash_flag=bits.script.constants.SIGHASH_ALL,
         miner_fee=MINER_FEE,
         **rpc_kwargs,
@@ -212,7 +211,7 @@ def test_p2wpkh(funded_keys_101):
     tx_ = bits.tx.send_tx(
         addr_1,
         addr_0,
-        from_keys=[wif_key_1],
+        sender_keys=[wif_key_1],
         sighash_flag=bits.script.constants.SIGHASH_ALL,
         miner_fee=MINER_FEE,
         **rpc_kwargs,
@@ -244,7 +243,7 @@ def test_p2wsh(funded_keys_101):
         tx_ = bits.tx.send_tx(
             addr_0,
             to_addr,
-            from_keys=[wif_key_0],
+            sender_keys=[wif_key_0],
             sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
             **rpc_kwargs,
@@ -259,7 +258,7 @@ def test_p2wsh(funded_keys_101):
         tx_ = bits.tx.send_tx(
             to_addr,
             addr_0,
-            from_keys=to_wif_keys,
+            sender_keys=to_wif_keys,
             sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
             **rpc_kwargs,
@@ -286,7 +285,7 @@ def test_p2sh_p2wpkh(funded_keys_101):
     tx_ = bits.tx.send_tx(
         addr_0,
         addr_1,
-        from_keys=[wif_key_0],
+        sender_keys=[wif_key_0],
         sighash_flag=bits.script.constants.SIGHASH_ALL,
         miner_fee=MINER_FEE,
         **rpc_kwargs,
@@ -301,7 +300,7 @@ def test_p2sh_p2wpkh(funded_keys_101):
     tx_ = bits.tx.send_tx(
         addr_1,
         addr_0,
-        from_keys=[wif_key_1],
+        sender_keys=[wif_key_1],
         sighash_flag=bits.script.constants.SIGHASH_ALL,
         miner_fee=MINER_FEE,
         **rpc_kwargs,
@@ -337,7 +336,7 @@ def test_p2sh_p2wsh(funded_keys_101):
         tx_ = bits.tx.send_tx(
             addr_0,
             addr_1,
-            from_keys=[wif_key_0],
+            sender_keys=[wif_key_0],
             sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
             **rpc_kwargs,
@@ -352,7 +351,7 @@ def test_p2sh_p2wsh(funded_keys_101):
         tx_ = bits.tx.send_tx(
             addr_1,
             addr_0,
-            from_keys=addr_1_from_keys,
+            sender_keys=addr_1_from_keys,
             sighash_flag=bits.script.constants.SIGHASH_ALL,
             miner_fee=MINER_FEE,
             **rpc_kwargs,

@@ -11,6 +11,7 @@ import bits.rpc
 import bits.script
 
 log = logging.getLogger(__name__)
+log.setLevel(logging.DEBUG)
 
 
 def median_time(
@@ -108,6 +109,10 @@ def mine_block(
     }
     current_difficulty = bits.rpc.rpc_method("getdifficulty", **rpc_kwargs)
     is_regtest = True if current_difficulty < 1e-8 else False
+    if is_regtest:
+        log.debug(
+            f"regtest mode inferred from rpc getdifficulty = {current_difficulty}"
+        )
 
     current_block_height = bits.rpc.rpc_method("getblockcount", **rpc_kwargs)
     current_block_hash = bits.rpc.rpc_method(
