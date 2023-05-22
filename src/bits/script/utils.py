@@ -270,20 +270,30 @@ INT_OP_MAP = {value: key for key, value in OP_INT_MAP.items()}
 
 
 def decode_script(
-    scriptbytes: bytes, witness: bool = False
-) -> typing.Union[typing.List[str], typing.Tuple[typing.List[str], bytes]]:
+    scriptbytes: bytes, witness: bool = False, parse: bool = False
+) -> typing.Union[
+    typing.List[str], typing.Tuple[typing.Union[typing.List[str], bytes], bytes]
+]:
+    """
+    Decode Script. Decode witness script by using witness=True. When witness=True,
+    you may use parse=True to parse first witness script instead of decoding.
+    """
     decoded = []
     if witness:
         witness_stack_len, scriptbytes = bits.parse_compact_size_uint(scriptbytes)
+        parsed_bytes = bits.compact_size_uint(witness_stack_len)
 
     while scriptbytes:
         if witness:
             push = scriptbytes[0]
             data = scriptbytes[1 : 1 + push]
+            parsed_bytes += scriptbytes[: 1 + push]
             decoded.append(data.hex())
             scriptbytes = scriptbytes[1 + push :]
             witness_stack_len -= 1
             if not witness_stack_len:
+                if parse:
+                    return parsed_bytes, scriptbytes
                 return decoded, scriptbytes
         elif scriptbytes[0] in range(1, 0x4C):
             push = scriptbytes[0]
@@ -308,6 +318,7 @@ def decode_script(
                 scriptbytes = scriptbytes[4 + push :]
             else:
                 decoded.append(op)
+            # below if is unreachable?
             if witness:
                 witness_stack_len -= 1
             if witness and not witness_stack_len:

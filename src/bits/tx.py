@@ -6,8 +6,11 @@ https://developer.bitcoin.org/reference/transactions.html
 import logging
 import typing
 
+import bits.constants
 import bits.keys
 import bits.script.constants
+from bits.bips import bip143
+from bits.bips import bip173
 
 UINT32_MAX = 2**32 - 1
 
@@ -76,7 +79,7 @@ def tx(
     script_witnesses: typing.List[bytes] = [],
 ) -> bytes:
     """
-    Transaction serialization, optional SegWit
+    Transaction serialization, optional SegWit per BIP 141
     """
     if script_witnesses:
         marker = b"\x00"
@@ -102,7 +105,15 @@ def tx(
     )
 
 
-def tx_deser(tx_: bytes) -> typing.Tuple[dict, bytes]:
+def tx_deser(tx_: bytes, include_raw: bool = False) -> typing.Tuple[dict, bytes]:
+    """
+    Deserialize tx data
+    Args:
+        tx_: bytes, tx data
+        include_raw: bool, if True, include raw hex transaction in dict
+    Returns:
+        tuple, (deserialized tx, leftove )
+    """
     deserialized_tx = {}
     is_segwit = False
     version = tx_[:4]
@@ -136,11 +147,38 @@ def tx_deser(tx_: bytes) -> typing.Tuple[dict, bytes]:
     deserialized_tx["locktime"] = int.from_bytes(locktime, "little")
 
     tx_prime = tx_prime[4:]
-    return deserialized_tx, tx_prime
+    tx_ = tx_.split(tx_prime)[0] if tx_prime else tx_
 
-
-def txid(tx_: bytes) -> str:
-    return bits.hash256(tx_)[::-1].hex()  # rpc byte order
+    # re-serialize without witness for txid, and hash
+    # TODO: Tx class to maybe calculate this more efficiently?
+    tx_dict = (
+        {
+            "txid": bits.hash256(
+                tx(
+                    [
+                        txin(
+                            outpoint(bytes.fromhex(ti["txid"]), ti["vout"]),
+                            bytes.fromhex(ti["scriptsig"]),
+                        )
+                        for ti in deserialized_tx["txins"]
+                    ],
+                    [
+                        txout(to["value"], bytes.fromhex(to["scriptpubkey"]))
+                        for to in deserialized_tx["txouts"]
+                    ],
+                    version=deserialized_tx["version"],
+                    locktime=deserialized_tx["locktime"],
+                )
+            ).hex()
+        }
+        if is_segwit
+        else {"txid": bits.hash256(tx_).hex()}
+    )
+    tx_dict["wtxid"] = bits.hash256(tx_).hex()
+    if include_raw:
+        tx_dict["raw"] = tx_.hex()
+    tx_dict.update(deserialized_tx)
+    return tx_dict, tx_prime
 
 
 def coinbase_txin(
@@ -183,6 +221,7 @@ def coinbase_tx(
     block_reward: typing.Optional[int] = None,
     block_height: typing.Optional[int] = None,
     regtest: bool = False,
+    witness_merkle_root_hash: typing.Optional[bytes] = None,
 ) -> bytes:
     """
     Create coinbase transaction by supplying arbitrary transaction input coinbase
@@ -197,7 +236,9 @@ def coinbase_tx(
         script_pubkey: bytes, txout scriptpubkey
         block_reward: Optional[int], txout value in satoshis
         block_height: Optional[int], block height per BIP34
-
+        regtest: bool, set True for regtest to calculate blocks per halving correctly
+        witness_merkle_root_hash: Optional[bytes], per BIP141 specify witness merkle root,
+            to be committed in a txout of the coinbase transaction
     Returns:
         coinbase tx
 
@@ -214,9 +255,24 @@ def coinbase_tx(
         else:
             block_reward = max_reward
 
+    txins = [coinbase_txin(coinbase_script, block_height=block_height)]
+    txouts = [txout(block_reward, script_pubkey)]
+    if witness_merkle_root_hash:
+        commitment_header = b"\xAA\x21\xA9\xED"
+        witness_commitment_scriptpubkey = bits.script.script(
+            ["OP_RETURN", (commitment_header + witness_merkle_root_hash).hex()]
+        )
+        txouts.append(txout(0, witness_commitment_scriptpubkey))
     return tx(
-        [coinbase_txin(coinbase_script, block_height=block_height)],
-        [txout(block_reward, script_pubkey)],
+        txins,
+        txouts,
+        script_witnesses=[
+            bits.script.script(
+                [bits.constants.WITNESS_RESERVED_VALUE.hex()], witness=True
+            )
+        ]
+        if witness_merkle_root_hash
+        else [],
     )
 
 
@@ -263,9 +319,7 @@ def send_tx(
         sender_txoutset = bits.rpc.rpc_method(
             "scantxoutset", "start", f'["pk({sender_addr.hex()})"]', **rpc_kwargs
         )
-    elif bits.base58.is_base58check(sender_addr) or bits.bips.bip173.is_segwit_addr(
-        sender_addr
-    ):
+    elif bits.base58.is_base58check(sender_addr) or bip173.is_segwit_addr(sender_addr):
         sender_txoutset = bits.rpc.rpc_method(
             "scantxoutset",
             "start",
@@ -384,7 +438,7 @@ def send_tx(
                 # see test_bip143:test_p2sh_p2wsh ^^ regarding non-use of OP_PUSHDATA
                 # but, how to serialize when len(redeem_script) > 255 ?
             msgs = [
-                bits.bips.bip143.witness_message(
+                bip143.witness_message(
                     txins,
                     utxo["vout"],
                     int(utxo["amount"] * 1e8),

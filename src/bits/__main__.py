@@ -45,6 +45,18 @@ class ExplicitOption(argparse.Action):
         setattr(namespace, self.dest + "__explicit", True)
 
 
+def send_fraction(f):
+    """
+    Cast to float and ensure float is within bounds [0.0, 1.0]
+    """
+    f = float(f)
+    if f > 1.0:
+        raise ValueError("fraction must be <= 1.0")
+    elif f < 0.0:
+        raise ValueError("fraction cannot be negative")
+    return f
+
+
 def catch_exception(fun):
     @functools.wraps(fun)
     def wrapper():
@@ -790,21 +802,27 @@ Examples:
         help="Utility for sending funds",
         formatter_class=RawDescriptionDefaultsHelpFormatter,
         description="""
-Utility for sending funds from sender address to recipient address, with optional change address. 
+Utility  for creating a send transaction, sending funds from sender address to recipient address, 
+with optional change address.
 
 Depends on a configured Bitcoin Core RPC node.
 
-This command will, by default, send all funds associated with the sender's address to the recipient address.
-If --send-fraction is less than 1, only the fractional amount will be sent. If a fractional amount is sent, and 
---change-address is not provided, the leftover fraction will be returned to the sender address, minus the --miner-fee.
-If --change-address is provided, the leftover fraction, minus --miner-fee, will be sent here.
+This command will, by default, send all funds associated with the sender address to the recipient address.
+If a --send-fraction is provided, only the fractional amount will be sent (minus --miner-fee).
+If a fractional amount is sent, and --change-address is not provided, the leftover amount, i.e. 
+total amount - fractional amount, will be returned to the sender address. 
+If --change-address is provided, the leftover amount will be sent here instead.
 
-This command is smart enough to infer the transaction semantics by the address provided,
- which may be a simple pubkey, legacy address, segwit address, or raw scriptpubkey.
-To unlock the funds sent from the sender's address, a WIF key must be provided as IN_FILE.
-If multiple keys are needed to unlock funds, they may be specified ordered and separated by whitespace in IN_FILE.
+This utility provides convenience by forming (and optionally signing) the transaction from 
+the arguments provided. It works by inferring the transaction semantics from the address type
+of sender_addr and recipient_addr, respectively, which may be either a pubkey, legacy address, 
+segwit address, or raw scriptpubkey. The presence of the --sighash option implies that the 
+transaction shall be signed and note that signature operations will occur. To unlock the funds 
+sent from the sender address, the necessary WIF key(s) must be provided via IN_FILE. 
+If multiple keys are needed to unlock funds, they can be specified, ordered, and separated 
+by whitespace, in IN_FILE.
 
-See "bits wif -h" for help on create WIF-encoded keys.
+See "bits wif -h" for help on creating WIF-encoded keys.
         """,
     )
     send_parser.add_argument("sender_addr", type=os.fsencode, help="Sender address")
@@ -814,7 +832,7 @@ See "bits wif -h" for help on create WIF-encoded keys.
     send_parser.add_argument("--change-addr", type=os.fsencode, help="Change address")
     send_parser.add_argument(
         "--send-fraction",
-        type=float,
+        type=send_fraction,
         default=1.0,
         help="fraction of sender address's UTXO value to send",
     )
@@ -840,7 +858,7 @@ See "bits wif -h" for help on create WIF-encoded keys.
     add_common_arguments(send_parser, include_network=False)
     add_input_arguments(
         send_parser,
-        in_file_help="WIF unlocking key for sender address",
+        in_file_help="WIF unlocking key(s) for sender address",
         include_input_format=False,
     )
     add_output_arguments(send_parser)
@@ -859,11 +877,17 @@ See "bits wif -h" for help on create WIF-encoded keys.
 Blockchain lulz
 """,
     )
-    blockchain_parser.add_argument("blockheight", type=int, help="block height")
+    blockchain_parser.add_argument(
+        "blockheight", type=int, nargs="?", help="block height"
+    )
     blockchain_parser.add_argument(
         "--header-only", "-H", action="store_true", help="output block header only"
     )
+    blockchain_parser.add_argument(
+        "--decode", action="store_true", help="decode block provided via in_file"
+    )
     add_common_arguments(blockchain_parser)
+    add_input_arguments(blockchain_parser)
     add_output_arguments(blockchain_parser)
 
     mine_parser = sub_parser.add_parser(
@@ -1232,25 +1256,6 @@ def main():
             rpc_password=config.rpc_password,
         )
         bits.write_bytes(tx_, output_format=config.output_format)
-
-        send_question = input("Send transaction? (Y/N): ").strip()
-        while send_question not in ["Y", "N"]:
-            print("Input not recognized. Try again.")
-            send_question = input("Send transaction? (Y/N): ").strip()
-        if send_question == "Y":
-            print(
-                bits.rpc.rpc_method(
-                    "sendrawtransaction",
-                    tx_.hex(),
-                    rpc_url=config.rpc_url,
-                    rpc_datadir=config.rpc_datadir,
-                    rpc_user=config.rpc_user,
-                    rpc_password=config.rpc_password,
-                )
-            )
-        else:
-            print("Transaction not relayed.")
-            return
     elif args.subcommand == "mine":
         n = 0
         while True:
@@ -1286,14 +1291,24 @@ def main():
         )
         p2p_node.start()
     elif args.subcommand == "blockchain":
-        if args.blockheight == 0:
-            bits.write_bytes(
-                bits.blockchain.genesis_block(),
-                args.out_file,
-                output_format=config.output_format,
-            )
+        if args.blockheight is None:
+            block = bits.read_bytes(args.in_file, input_format=config.input_format)
+            header = block[:80]
+        elif args.blockheight == 0:
+            block = bits.blockchain.genesis_block()
+            header = block[:80]
         else:
             raise NotImplementedError("blocks > 0 not implemented per v0")
+        if args.decode:
+            block = bits.blockchain.block_deser(block)
+            header = bits.blockchain.block_header_deser(header)
+            print(json.dumps(header if args.header_only else block))
+            return
+        bits.write_bytes(
+            header if args.header_only else block,
+            args.out_file,
+            output_format=config.output_format,
+        )
     elif args.subcommand == "rpc":
         result = bits.rpc.rpc_method(
             args.rpc_command,

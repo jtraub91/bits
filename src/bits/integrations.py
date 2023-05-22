@@ -6,6 +6,7 @@ import time
 import typing
 
 import bits.blockchain
+import bits.constants
 import bits.keys
 import bits.rpc
 import bits.script
@@ -98,6 +99,7 @@ def mine_block(
     """
     Retrieve all raw mempool transactions and submit in a block.
     Regtest mode is inferred from getdifficulty rpc.
+    Commits to witness root per BIP 141 via coinbase tx, if necessary
     Args:
         recv_addr: bytes, addr to receive block reward
     """
@@ -137,15 +139,43 @@ def mine_block(
 
     script_pubkey = bits.script.scriptpubkey(recv_addr)
 
+    must_commit_wtxid = False  # bool if block must include witness commitment
+    wtxids = [b"\x00" * 32]  # coinbase tx wtxid assumed to be 0s
+    for raw_tx in mempool_raw_txns:
+        tx_ = bytes.fromhex(raw_tx)
+        deserialized_tx, _ = bits.tx.tx_deser(tx_)
+        txid_ = bytes.fromhex(deserialized_tx["txid"])
+        wtxid_ = bytes.fromhex(deserialized_tx["wtxid"])
+        if txid_ != wtxid_:
+            # mempool has segwit tx, must commit to wtxid per BIP 141
+            must_commit_wtxid = True
+        wtxids.append(bytes.fromhex(deserialized_tx["wtxid"]))
+    # commit to wtxid per BIP141
+    # https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#commitment-structure
+    witness_merkle_root_hash = bits.blockchain.merkle_root(wtxids)
+    witness_merkle_root_hash = bits.hash256(
+        witness_merkle_root_hash + bits.constants.WITNESS_RESERVED_VALUE
+    )
+
+    # form txns with witness commitment, if necessary
     txns = [
         bits.tx.coinbase_tx(
             b"bits",
             script_pubkey,
             block_height=current_block_height + 1,
             regtest=is_regtest,
+            witness_merkle_root_hash=witness_merkle_root_hash
+            if must_commit_wtxid
+            else None,
         )
     ] + [bytes.fromhex(raw_tx) for raw_tx in mempool_raw_txns]
-    merkle_root_hash = bits.blockchain.merkle_root(txns)
+
+    # now calculate txid merkle root
+    txids = []
+    for tx_ in txns:
+        deserialized_tx, _ = bits.tx.tx_deser(tx_)
+        txids.append(bytes.fromhex(deserialized_tx["txid"]))
+    merkle_root_hash = bits.blockchain.merkle_root(txids)
 
     t = int(time.time())
     median_time_ = median_time(**rpc_kwargs)
@@ -180,6 +210,7 @@ def mine_block(
         new_block_header,
         txns,
     )
+    log.debug(f"submitting block ... {new_block.hex()}")
     ret = bits.rpc.rpc_method("submitblock", new_block.hex(), **rpc_kwargs)
     if ret:
         raise ValueError(ret)
