@@ -1,6 +1,7 @@
 """
 blockchain lulz :P
 """
+import copy
 import os
 import typing
 
@@ -20,6 +21,7 @@ MAX_TARGET_REGTEST = 0x7FFFFF000000000000000000000000000000000000000000000000000
 # https://en.bitcoin.it/wiki/Difficulty
 
 
+# TODO: why nBits arg in rpc-byte order?
 def target_threshold(nBits: bytes) -> int:
     """
     Calculate target threshold from compact nBits
@@ -89,10 +91,13 @@ def block_header(
 
 def merkle_root(txns: typing.List[bytes]) -> bytes:
     """
-    merkle root from a list of transactions
+    merkle root from a list of transaction ids
     https://developer.bitcoin.org/reference/block_chain.html#merkle-trees
+
+    Args:
+        txns: list[bytes], list of txids
     """
-    row = [bits.hash256(txn) for txn in txns]
+    row = copy.copy(txns)
     if len(row) == 1:
         return row[0]
     elif len(row) % 2:
@@ -158,14 +163,31 @@ def block_ser(blk_hdr: bytes, txns: typing.List[bytes]) -> bytes:
     return blk_hdr + bits.compact_size_uint(len(txns)) + b"".join(txns)
 
 
-def block_deser(block: bytes) -> typing.Tuple[bytes, typing.List[dict]]:
+def block_header_deser(blk_hdr: bytes) -> dict:
+    assert len(blk_hdr) == 80, "block header not length 80"
+    return {
+        "version": int.from_bytes(blk_hdr[:4], "little"),
+        "prev_blockheaderhash": blk_hdr[4:36].hex(),
+        "merkle_root_hash": blk_hdr[36:68].hex(),
+        "nTime": int.from_bytes(blk_hdr[68:72], "little"),
+        "nBits": blk_hdr[72:76].hex(),
+        "nNonce": int.from_bytes(blk_hdr[76:], "little"),
+    }
+
+
+def block_deser(block: bytes) -> dict:
+    """
+    Deserialize block data
+    Args:
+        block: bytes, block data
+    """
     header = block[:80]
     number_of_txns, block_prime = bits.parse_compact_size_uint(block[80:])
     txns = []
     while block_prime:
-        deserialized_tx, block_prime = bits.tx.tx_deser(block_prime)
+        deserialized_tx, block_prime = bits.tx.tx_deser(block_prime, include_raw=True)
         txns.append(deserialized_tx)
     assert (
         len(txns) == number_of_txns
     ), "error during parsing - number of txns does not match"
-    return header, txns
+    return block_header_deser(header) | {"txns": txns}

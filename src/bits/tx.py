@@ -6,12 +6,16 @@ https://developer.bitcoin.org/reference/transactions.html
 import logging
 import typing
 
+import bits.constants
 import bits.keys
 import bits.script.constants
+from bits.bips import bip143
+from bits.bips import bip173
 
 UINT32_MAX = 2**32 - 1
 
 log = logging.getLogger(__name__)
+log.setLevel(logging.DEBUG)
 
 
 def outpoint(txid_: bytes, index: int) -> bytes:
@@ -34,7 +38,7 @@ def txin(
 
 
 def txin_deser(txin_: bytes) -> typing.Tuple[dict, bytes]:
-    txid_ = txin_[:32]
+    txid_ = txin_[:32]  # TODO: switch to rpc byte order
     vout = txin_[32:36]
     scriptsig_len, txin_prime = bits.parse_compact_size_uint(txin_[36:])
     scriptsig = txin_prime[:scriptsig_len]
@@ -75,7 +79,7 @@ def tx(
     script_witnesses: typing.List[bytes] = [],
 ) -> bytes:
     """
-    Transaction serialization, optional SegWit
+    Transaction serialization, optional SegWit per BIP 141
     """
     if script_witnesses:
         marker = b"\x00"
@@ -101,7 +105,15 @@ def tx(
     )
 
 
-def tx_deser(tx_: bytes) -> typing.Tuple[dict, bytes]:
+def tx_deser(tx_: bytes, include_raw: bool = False) -> typing.Tuple[dict, bytes]:
+    """
+    Deserialize tx data
+    Args:
+        tx_: bytes, tx data
+        include_raw: bool, if True, include raw hex transaction in dict
+    Returns:
+        tuple, (deserialized tx, leftove )
+    """
     deserialized_tx = {}
     is_segwit = False
     version = tx_[:4]
@@ -135,11 +147,38 @@ def tx_deser(tx_: bytes) -> typing.Tuple[dict, bytes]:
     deserialized_tx["locktime"] = int.from_bytes(locktime, "little")
 
     tx_prime = tx_prime[4:]
-    return deserialized_tx, tx_prime
+    tx_ = tx_.split(tx_prime)[0] if tx_prime else tx_
 
-
-def txid(tx_: bytes) -> str:
-    return bits.hash256(tx_)[::-1].hex()  # rpc byte order
+    # re-serialize without witness for txid, and hash
+    # TODO: Tx class to maybe calculate this more efficiently?
+    tx_dict = (
+        {
+            "txid": bits.hash256(
+                tx(
+                    [
+                        txin(
+                            outpoint(bytes.fromhex(ti["txid"]), ti["vout"]),
+                            bytes.fromhex(ti["scriptsig"]),
+                        )
+                        for ti in deserialized_tx["txins"]
+                    ],
+                    [
+                        txout(to["value"], bytes.fromhex(to["scriptpubkey"]))
+                        for to in deserialized_tx["txouts"]
+                    ],
+                    version=deserialized_tx["version"],
+                    locktime=deserialized_tx["locktime"],
+                )
+            ).hex()
+        }
+        if is_segwit
+        else {"txid": bits.hash256(tx_).hex()}
+    )
+    tx_dict["wtxid"] = bits.hash256(tx_).hex()
+    if include_raw:
+        tx_dict["raw"] = tx_.hex()
+    tx_dict.update(deserialized_tx)
+    return tx_dict, tx_prime
 
 
 def coinbase_txin(
@@ -181,35 +220,69 @@ def coinbase_tx(
     script_pubkey: bytes,
     block_reward: typing.Optional[int] = None,
     block_height: typing.Optional[int] = None,
-    network: str = "mainnet",
+    regtest: bool = False,
+    witness_merkle_root_hash: typing.Optional[bytes] = None,
 ) -> bytes:
-    if network == "mainnet" or network == "testnet":
-        raise NotImplementedError
-        if block_height:
-            halvings = block_height // 2016
-    elif network == "regtest":
-        if block_height:
-            max_reward = int(50e8)
-            halvings = block_height // 150
-            if halvings:
-                max_reward //= 2**halvings
-            if block_reward:
-                assert block_reward <= max_reward, "block reward too high"
-            else:
-                block_reward = max_reward
-    else:
-        raise ValueError(f"unrecognized network: {network}")
+    """
+    Create coinbase transaction by supplying arbitrary transaction input coinbase
+    scriptsig and transaction output spending scriptpubkey.
+
+    Optional block height (for version 2 blocks per BIP34) and block reward arguments
+    may be provided. If block height is specified, the block reward must be <= max reward,
+    and will be inferred to be == max reward if left unspecified.
+
+    Args:
+        coinbase_script: bytes, txin scriptsig of arbitrary data not exceeding 100 bytes
+        script_pubkey: bytes, txout scriptpubkey
+        block_reward: Optional[int], txout value in satoshis
+        block_height: Optional[int], block height per BIP34
+        regtest: bool, set True for regtest to calculate blocks per halving correctly
+        witness_merkle_root_hash: Optional[bytes], per BIP141 specify witness merkle root,
+            to be committed in a txout of the coinbase transaction
+    Returns:
+        coinbase tx
+
+    """
+    blocks_per_halving = 2016 if not regtest else 150
+
+    if block_height:
+        max_reward = int(50e8)
+        halvings = block_height // 150
+        if halvings:
+            max_reward //= 2**halvings
+        if block_reward:
+            assert block_reward <= max_reward, "block reward too high"
+        else:
+            block_reward = max_reward
+
+    txins = [coinbase_txin(coinbase_script, block_height=block_height)]
+    txouts = [txout(block_reward, script_pubkey)]
+    if witness_merkle_root_hash:
+        commitment_header = b"\xAA\x21\xA9\xED"
+        witness_commitment_scriptpubkey = bits.script.script(
+            ["OP_RETURN", (commitment_header + witness_merkle_root_hash).hex()]
+        )
+        txouts.append(txout(0, witness_commitment_scriptpubkey))
     return tx(
-        [coinbase_txin(coinbase_script, block_height=block_height)],
-        [txout(block_reward, script_pubkey)],
+        txins,
+        txouts,
+        script_witnesses=[
+            bits.script.script(
+                [bits.constants.WITNESS_RESERVED_VALUE.hex()], witness=True
+            )
+        ]
+        if witness_merkle_root_hash
+        else [],
     )
 
 
 def send_tx(
-    from_: bytes,
-    to_: bytes,
-    from_keys: typing.List[bytes] = [],
+    sender_addr: bytes,
+    recipient_addr: bytes,
+    change_addr: typing.Optional[bytes] = None,
+    sender_keys: typing.List[bytes] = [],
     sighash_flag: typing.Optional[int] = None,
+    send_fraction: float = 1.0,
     miner_fee: int = 1000,
     version: int = 1,
     locktime: int = 0,
@@ -219,15 +292,18 @@ def send_tx(
     rpc_password: str = "",
 ) -> bytes:
     """
-    Create raw transaction which sends all funds from addr to addr
-    Uses rpc bitcoind node for utxo discovery
+    Create raw transaction which sends funds from addr to addr, with optional change address.
+    Depends on configured Bitcoin Core RPC node for UTXO discovery.
     Args:
-        from_: bytes, send from this address
-        to_: bytes, send to this address
-        from_keys: List[bytes], unlocking WIF key(s) corresponding to from_ addr
-            Using this cause signature operations to occur.
+        sender_addr: bytes, send from this address
+        recipient_addr: bytes, send to this address
+        change_addr: Optional[bytes], send change to this address
+        sender_keys: List[bytes], unlocking WIF key(s) corresponding to sender_addr
+            Using this causes signature operations to occur.
             Omit to return the unsigned transaction
-        sighash_flag: Optional[int], sighash_flag, required if providing from_keys
+        sighash_flag: Optional[int], sighash_flag, required if providing sender_keys
+        send_fraction: float, fraction of UTXO value to send to recipient, leftover is
+            sent to change_addr if present, else returned to sender_addr
         miner_fee: int, amount (in satoshis) to include as miner fee
         version: int, transaction version
         locktime: int, transaction locktime
@@ -238,59 +314,69 @@ def send_tx(
         "rpc_user": rpc_user,
         "rpc_password": rpc_password,
     }
-    # scan for utxo for the from_ descriptor
-    if bits.is_point(from_):
-        from_txoutset = from_txoutset = bits.rpc.rpc_method(
-            "scantxoutset", "start", f'["pk({from_.hex()})"]', **rpc_kwargs
+    # scan for utxo for the sender_addr descriptor
+    if bits.is_point(sender_addr):
+        sender_txoutset = bits.rpc.rpc_method(
+            "scantxoutset", "start", f'["pk({sender_addr.hex()})"]', **rpc_kwargs
         )
-    elif bits.base58.is_base58check(from_) or bits.bips.bip173.is_segwit_addr(from_):
-        from_txoutset = bits.rpc.rpc_method(
-            "scantxoutset", "start", f'["addr({from_.decode("utf8")})"]', **rpc_kwargs
+    elif bits.base58.is_base58check(sender_addr) or bip173.is_segwit_addr(sender_addr):
+        sender_txoutset = bits.rpc.rpc_method(
+            "scantxoutset",
+            "start",
+            f'["addr({sender_addr.decode("utf8")})"]',
+            **rpc_kwargs,
         )
     else:
         # raw scriptpubkey
-        from_txoutset = bits.rpc.rpc_method(
-            "scantxoutset", "start", f'["raw({from_.hex()})"]', **rpc_kwargs
+        sender_txoutset = bits.rpc.rpc_method(
+            "scantxoutset", "start", f'["raw({sender_addr.hex()})"]', **rpc_kwargs
         )
 
-    # if from_keys, validate and decode
-    if from_keys:
+    # if sender_keys, validate and decode
+    if sender_keys:
         if sighash_flag is None:
             raise ValueError(
-                "from_keys provided for signing but sighash_flag not specified"
+                "sender_keys provided for signing but sighash_flag not specified"
             )
 
-        decoded_from_keys = [
-            bits.wif_decode(from_key, return_dict=True) for from_key in from_keys
+        decoded_sender_keys = [
+            bits.wif_decode(sender_key, return_dict=True) for sender_key in sender_keys
         ]
-        keys = [bytes.fromhex(decoded_key["key"]) for decoded_key in decoded_from_keys]
+        keys = [
+            bytes.fromhex(decoded_key["key"]) for decoded_key in decoded_sender_keys
+        ]
 
-        addr_types = list(map(lambda key: key["addr_type"], decoded_from_keys))
-        datums = list(map(lambda key: key["data"], decoded_from_keys))
+        addr_types = list(map(lambda key: key["addr_type"], decoded_sender_keys))
+        datums = list(map(lambda key: key["data"], decoded_sender_keys))
         assert all(
             addr_type == addr_types[0] for addr_type in addr_types
-        ), "from_keys must all have same addr_type"
+        ), "sender_keys must all have same addr_type"
         assert all(
             datum == datums[0] for datum in datums
-        ), "from_keys must have same data appenditure"
+        ), "sender_keys must have same data appenditure"
 
         if addr_types[0] in ["p2pk", "p2pkh", "p2wpkh", "p2sh-p2wpkh"]:
-            if len(from_keys) > 1:
-                raise ValueError(f"more than 1 from_key provided for {addr_types[0]}")
+            if len(sender_keys) > 1:
+                raise ValueError(f"more than 1 sender_key provided for {addr_types[0]}")
         elif addr_types[0] in ["multisig", "p2sh", "p2wsh", "p2sh-p2wsh"]:
             redeem_script = bytes.fromhex(datums[0])
 
+    total_available = int(sender_txoutset["total_amount"] * 1e8)
+    amount_to_send = int(send_fraction * total_available)
+    total_amount = 0
     txins = []
-    for utxo in from_txoutset["unspents"]:
+    for utxo in sender_txoutset["unspents"]:
+        amount = utxo["amount"] * 1e8
         txid = bytes.fromhex(utxo["txid"])[::-1]
-        from_scriptpubkey = bytes.fromhex(utxo["scriptPubKey"])
-        if from_keys:
+        vout = utxo["vout"]
+        sender_scriptsig = b""
+        if sender_keys:
             if addr_types[0] in ["p2pk", "p2pkh", "multisig"]:
-                from_scriptsig = from_scriptpubkey
-            elif from_keys and addr_types[0] in ["p2sh"]:
-                from_scriptsig = redeem_script
-            elif from_keys and addr_types[0] in ["p2sh-p2wpkh"]:
-                from_scriptsig = bits.script.script(
+                sender_scriptsig = bytes.fromhex(utxo["scriptPubKey"])
+            elif sender_keys and addr_types[0] in ["p2sh"]:
+                sender_scriptsig = redeem_script
+            elif sender_keys and addr_types[0] in ["p2sh-p2wpkh"]:
+                sender_scriptsig = bits.script.script(
                     [
                         bits.script.p2wpkh_script_pubkey(
                             bits.hash160(bits.keys.pub(keys[0], compressed=True)),
@@ -298,8 +384,8 @@ def send_tx(
                         ).hex()
                     ]
                 )
-            elif from_keys and addr_types[0] in ["p2sh-p2wsh"]:
-                from_scriptsig = bits.script.script(
+            elif sender_keys and addr_types[0] in ["p2sh-p2wsh"]:
+                sender_scriptsig = bits.script.script(
                     [
                         bits.script.p2wsh_script_pubkey(
                             bits.witness_script_hash(redeem_script), witness_version=0
@@ -308,17 +394,27 @@ def send_tx(
                 )
             else:
                 # p2wpkh / p2wsh
-                from_scriptsig = b""
-        vout = utxo["vout"]
-        txins.append(txin(outpoint(txid, vout), from_scriptsig))
-    total_amount = int(from_txoutset["total_amount"] * 1e8)
+                sender_scriptsig = b""
+        txins.append(txin(outpoint(txid, vout), sender_scriptsig))
+        total_amount += amount
+        if total_amount >= amount_to_send:
+            break
 
-    to_scriptpubkey = bits.script.scriptpubkey(to_)
-    txouts = [txout(total_amount - miner_fee, to_scriptpubkey)]
+    recipient_scriptpubkey = bits.script.scriptpubkey(recipient_addr)
+    change_scriptpubkey = (
+        bits.script.scriptpubkey(change_addr)
+        if change_addr
+        else bits.script.scriptpubkey(sender_addr)
+    )
+    txouts = [
+        txout(int(amount_to_send - miner_fee), recipient_scriptpubkey),
+    ]
+    if int(total_amount - amount_to_send) >= 1000:  # TODO: > dust limit
+        txouts.append(txout(int(total_amount - amount_to_send), change_scriptpubkey))
 
     tx_ = tx(txins, txouts, version=version, locktime=locktime)
 
-    if from_keys:
+    if sender_keys:
         # sign
         if addr_types[0] in ["p2wpkh", "p2wsh", "p2sh-p2wpkh", "p2sh-p2wsh"]:
             if addr_types[0] in ["p2wpkh", "p2sh-p2wpkh"]:
@@ -342,7 +438,7 @@ def send_tx(
                 # see test_bip143:test_p2sh_p2wsh ^^ regarding non-use of OP_PUSHDATA
                 # but, how to serialize when len(redeem_script) > 255 ?
             msgs = [
-                bits.bips.bip143.witness_message(
+                bip143.witness_message(
                     txins,
                     utxo["vout"],
                     int(utxo["amount"] * 1e8),
@@ -350,7 +446,7 @@ def send_tx(
                     txouts,
                     sighash_flag=sighash_flag,
                 )
-                for utxo in from_txoutset["unspents"]
+                for utxo in sender_txoutset["unspents"]
             ]
             signatures = [
                 [
@@ -366,24 +462,24 @@ def send_tx(
 
         # form final scriptsig / witnesses
         if addr_types[0] == "p2pk":
-            from_scriptsig = bits.script.script([signatures[0].hex()])
-            from_witnesses = []
+            sender_scriptsig = bits.script.script([signatures[0].hex()])
+            sender_witnesses = []
         elif addr_types[0] == "multisig":
-            from_scriptsig = bits.script.script(
+            sender_scriptsig = bits.script.script(
                 ["OP_0"] + [signature.hex() for signature in signatures]
             )
-            from_witnesses = []
+            sender_witnesses = []
         elif addr_types[0] == "p2pkh":
             compressed = True if datums[0] else False
-            from_scriptsig = bits.script.script(
+            sender_scriptsig = bits.script.script(
                 [
                     signatures[0].hex(),
                     bits.keys.pub(keys[0], compressed=compressed).hex(),
                 ]
             )
-            from_witnesses = []
+            sender_witnesses = []
         elif addr_types[0] in ["p2wpkh", "p2sh-p2wpkh"]:
-            from_witnesses = [
+            sender_witnesses = [
                 bits.script.script(
                     [
                         signatures[i][0].hex(),
@@ -403,10 +499,10 @@ def send_tx(
             if addr_types[0] == "p2sh":
                 script_args += [signature.hex() for signature in signatures]
                 script_args += [redeem_script.hex()]
-                from_scriptsig = bits.script.script(script_args)
-                from_witnesses = []
+                sender_scriptsig = bits.script.script(script_args)
+                sender_witnesses = []
             elif addr_types[0] in ["p2wsh", "p2sh-p2wsh"]:
-                from_witnesses = [
+                sender_witnesses = [
                     bits.script.script(
                         script_args
                         + [signature.hex() for signature in signatures[i]]
@@ -416,15 +512,16 @@ def send_tx(
                     for i in range(len(txins))
                 ]
 
-        txins = []
-        for utxo in from_txoutset["unspents"]:
-            txid = bytes.fromhex(utxo["txid"])[::-1]
-            vout = utxo["vout"]
-            txins.append(txin(outpoint(txid, vout), from_scriptsig))
+        txins_prime = []
+        for txi in txins:
+            txin_deserialized, _ = txin_deser(txi)
+            txid = bytes.fromhex(txin_deserialized["txid"])
+            vout = txin_deserialized["vout"]
+            txins_prime.append(txin(outpoint(txid, vout), sender_scriptsig))
         tx_ = tx(
-            txins,
+            txins_prime,
             txouts,
-            script_witnesses=from_witnesses,
+            script_witnesses=sender_witnesses,
             version=version,
             locktime=locktime,
         )

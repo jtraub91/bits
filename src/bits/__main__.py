@@ -45,6 +45,18 @@ class ExplicitOption(argparse.Action):
         setattr(namespace, self.dest + "__explicit", True)
 
 
+def send_fraction(f):
+    """
+    Cast to float and ensure float is within bounds [0.0, 1.0]
+    """
+    f = float(f)
+    if f > 1.0:
+        raise ValueError("fraction must be <= 1.0")
+    elif f < 0.0:
+        raise ValueError("fraction cannot be negative")
+    return f
+
+
 def catch_exception(fun):
     @functools.wraps(fun)
     def wrapper():
@@ -161,8 +173,12 @@ def add_output_arguments(
         )
 
 
-@catch_exception
-def main():
+def setup_parser() -> argparse.ArgumentParser:
+    """
+    Setup argument parser
+    Returns:
+        argparse.ArgumentParser
+    """
     parser = argparse.ArgumentParser(
         prog="bits",
         description=f"""bits is a cli tool and pure Python library for Bitcoin.
@@ -331,6 +347,9 @@ Byte definitions:
         help="additional data (hex) to append to WIF key before base58check encoding",
     )
     wif_parser.add_argument("--decode", action="store_true", help="decode wif")
+    wif_parser.add_argument(
+        "--print", "-P", action="store_true", help="print newline at end"
+    )
     add_common_arguments(wif_parser)
     add_input_arguments(wif_parser, in_file_help="input private key data")
     add_output_arguments(
@@ -364,12 +383,16 @@ Address type. Valid choices are p2pkh or p2sh. Ignored when --witness-version is
     )
     addr_parser.add_argument(
         "--witness-version",
+        "--wv",
         type=int,
         help="""
 Witness version for native Segwit addresses. 
 Use of this option implies a Segwit address and addr_type (-T) is ignored.""",
         choices=range(17),
         metavar="witness_version",
+    )
+    addr_parser.add_argument(
+        "--print", "-P", action="store_true", help="print newline at end"
     )
     add_common_arguments(addr_parser)
     add_input_arguments(addr_parser)
@@ -461,6 +484,9 @@ Examples:
             Note: in_file is mnemonic phrase and stdin may be used.
         """,
     )
+    mnemonic_parser.add_argument(
+        "--print", "-P", action="store_true", help="print newline at end"
+    )
     add_common_arguments(mnemonic_parser)
     add_input_arguments(mnemonic_parser)
     add_output_arguments(mnemonic_parser)
@@ -491,6 +517,9 @@ Use --dump to deserialize & decode the derived key, and output json object to st
         action="store_true",
         help="Deserialize extended key and decode as json. Write to stderr.",
     )
+    hd_parser.add_argument(
+        "--print", "-P", action="store_true", help="print newline at end"
+    )
     add_common_arguments(hd_parser, include_network=False)
     add_input_arguments(
         hd_parser,
@@ -503,14 +532,17 @@ Use --dump to deserialize & decode the derived key, and output json object to st
         help="Create arbitrary Bitcoin Scripts",
         formatter_class=RawDescriptionDefaultsHelpFormatter,
         description="""
-Create arbitrary Bitcoin Scripts. script_args shall either be OP_* or data. The script
+Encode (or decode) arbitrary Bitcoin Script.
+
+For encoding, script_args shall either be OP_* or data. The script
 will be properly encoded with data push opcodes, as necessary, but since these are implied, 
 they should not be specified in script_args.
 
-Use --decode to decode raw script input to opcodes / data.
+For decoding, use the --decode flag. In this mode, script_args shall be any number of 
+hex-encoded scripts, and will be decoded to to opcodes / data.
 
 Use --witness to indicate witness script encoding / decoding and to follow witness 
-script semantics (include stack size push and difference in handling data push bytes) 
+script semantics (i.e. include stack size push and difference in handling data push bytes) 
 
 Standard transaction scripts:
     P2PK:
@@ -545,12 +577,14 @@ Standard transaction scripts:
         witness: <redeem-script>""",
     )
     script_parser.add_argument(
-        "script_args", nargs="*", help="Script arguments, e.g. OP_* or <data>"
+        "script_args",
+        nargs="*",
+        help="Script arguments, e.g. OP_* or <data>. Or, hex-encoded script(s) when using --decode",
     )
     script_parser.add_argument(
         "--decode",
         action="store_true",
-        help="Use this flag to decode raw script input to opcodes / data.",
+        help="Use this flag to decode hex-encoded script to opcodes / data.",
     )
     script_parser.add_argument(
         "--witness",
@@ -558,8 +592,6 @@ Standard transaction scripts:
         help="Use this flag to indicate this is a witness script and to follow witness script encoding / decoding semantics.",
     )
     add_common_arguments(script_parser, include_network=False)
-    add_input_arguments(script_parser)
-    add_output_arguments(script_parser)
 
     sig_parser = sub_parser.add_parser(
         "sig",
@@ -665,6 +697,9 @@ Examples:
     base58_parser.add_argument(
         "--decode", action="store_true", help="decode base58(check) input"
     )
+    base58_parser.add_argument(
+        "--print", "-P", action="store_true", help="print newline at end"
+    )
     add_common_arguments(base58_parser, include_network=False)
     add_input_arguments(base58_parser)
     add_output_arguments(
@@ -676,19 +711,25 @@ Examples:
     bech32_parser = sub_parser.add_parser(
         "bech32", help="Encode (or decode) bech32 or segwit data"
     )
-    bech32_segwit_mutually_exclusive_group = bech32_parser.add_mutually_exclusive_group(
+    bech32_mutually_exclusive_group = bech32_parser.add_mutually_exclusive_group(
         required=True
     )
-    bech32_segwit_mutually_exclusive_group.add_argument(
-        "--hrp", type=os.fsencode, help="human readable part for bech32 encoding"
+    bech32_mutually_exclusive_group.add_argument(
+        "--hrp",
+        type=os.fsencode,
+        help="human readable part for bech32 encoding",
     )
-    bech32_segwit_mutually_exclusive_group.add_argument(
+    bech32_parser.add_argument(
         "--witness-version",
+        "--wv",
         type=int,
         help="witness version, if encoding a segwit address",
     )
-    bech32_segwit_mutually_exclusive_group.add_argument(
+    bech32_mutually_exclusive_group.add_argument(
         "--decode", action="store_true", help="Decode input data"
+    )
+    bech32_parser.add_argument(
+        "--print", "-P", action="store_true", help="print newline at end"
     )
     add_common_arguments(bech32_parser, include_network=False)
     add_input_arguments(bech32_parser)
@@ -699,17 +740,17 @@ Examples:
         help="create raw transactions",
         formatter_class=RawDescriptionDefaultsHelpFormatter,
         description="""
-Create raw transactions.
+Create (or decode) raw transactions.
 
 Examples:
 
     1. Create raw transaction
 
-        $ bits tx -txin '{"txid": "", "vout": 0, "scriptSig": ""}' -txout '{"satoshis": "", "scriptPubkey": ""}'
+        $ bits tx -txin '{"txid": "<txid>", "vout": <vout>, "scriptsig": "<scriptsig>"}' -txout '{"satoshis": <satoshis>, "scriptpubkey": "<scriptpubkey>"}'
 
     2. Decode raw transaction
 
-        $ echo <raw-tx> | bits tx --decode
+        $ echo <rawtx> | bits tx --decode
 
         """,
     )
@@ -721,8 +762,7 @@ Examples:
         action="append",
         default=[],
         help="""
-        Transaction input data provided as a dictionary with the following keys: txid, vout, scriptSig.
-        Use scriptPubKey as scriptSig if generating the pre-signature transaction.
+        Transaction input data provided as a dictionary with the following keys: txid, vout, scriptsig.
         """,
     )
     tx_parser.add_argument(
@@ -732,7 +772,7 @@ Examples:
         type=json.loads,
         action="append",
         default=[],
-        help="Transaction output data provided as a dictionary with the following keys: satoshis, scriptPubKey",
+        help="Transaction output data provided as a dictionary with the following keys: satoshis, scriptpubkey",
     )
     # # BIP 68 transaction version 2+
     # # https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki
@@ -750,16 +790,52 @@ Examples:
         type=bytes.fromhex,
         help="witness script. This argument can be specified multiple times, but must appear in order corresponding to txins",
     )
-    tx_parser.add_argument("--decode", action="store_true", help="decode raw tx")
+    tx_parser.add_argument(
+        "--decode", action="store_true", help="decode raw tx to JSON from input file"
+    )
     add_common_arguments(tx_parser, include_network=False)
     add_input_arguments(tx_parser)
     add_output_arguments(tx_parser)
 
     send_parser = sub_parser.add_parser(
-        "send", help="Send funds from from_ addr to to_ addr."
+        "send",
+        help="Utility for sending funds",
+        formatter_class=RawDescriptionDefaultsHelpFormatter,
+        description="""
+Utility  for creating a send transaction, sending funds from sender address to recipient address, 
+with optional change address.
+
+Depends on a configured Bitcoin Core RPC node.
+
+This command will, by default, send all funds associated with the sender address to the recipient address.
+If a --send-fraction is provided, only the fractional amount will be sent (minus --miner-fee).
+If a fractional amount is sent, and --change-address is not provided, the leftover amount, i.e. 
+total amount - fractional amount, will be returned to the sender address. 
+If --change-address is provided, the leftover amount will be sent here instead.
+
+This utility provides convenience by forming (and optionally signing) the transaction from 
+the arguments provided. It works by inferring the transaction semantics from the address type
+of sender_addr and recipient_addr, respectively, which may be either a pubkey, legacy address, 
+segwit address, or raw scriptpubkey. The presence of the --sighash option implies that the 
+transaction shall be signed and note that signature operations will occur. To unlock the funds 
+sent from the sender address, the necessary WIF key(s) must be provided via IN_FILE. 
+If multiple keys are needed to unlock funds, they can be specified, ordered, and separated 
+by whitespace, in IN_FILE.
+
+See "bits wif -h" for help on creating WIF-encoded keys.
+        """,
     )
-    send_parser.add_argument("from_", type=os.fsencode)
-    send_parser.add_argument("to_", type=os.fsencode)
+    send_parser.add_argument("sender_addr", type=os.fsencode, help="Sender address")
+    send_parser.add_argument(
+        "recipient_addr", type=os.fsencode, help="Recipient address"
+    )
+    send_parser.add_argument("--change-addr", type=os.fsencode, help="Change address")
+    send_parser.add_argument(
+        "--send-fraction",
+        type=send_fraction,
+        default=1.0,
+        help="fraction of sender address's UTXO value to send",
+    )
     send_parser.add_argument(
         "--miner-fee", type=int, default=1000, help="satoshis to include as miner fee"
     )
@@ -772,7 +848,6 @@ Examples:
     send_parser.add_argument(
         "--sighash",
         choices=["all", "none", "single"],
-        required=True,
         help="SIGHASH flag to use for signing (if key(s) are provided)",
     )
     send_parser.add_argument(
@@ -780,12 +855,12 @@ Examples:
         action="store_true",
         help="If present, ORs SIGHASH_FLAG with SIGHASH_ANYONECANPAY",
     )
+    add_common_arguments(send_parser, include_network=False)
     add_input_arguments(
         send_parser,
-        in_file_help="wif unlocking key for from_ address",
+        in_file_help="WIF unlocking key(s) for sender address",
         include_input_format=False,
     )
-    add_common_arguments(send_parser, include_network=False)
     add_output_arguments(send_parser)
 
     p2p_parser = sub_parser.add_parser("p2p", help="start p2p node")
@@ -802,11 +877,17 @@ Examples:
 Blockchain lulz
 """,
     )
-    blockchain_parser.add_argument("blockheight", type=int, help="block height")
+    blockchain_parser.add_argument(
+        "blockheight", type=int, nargs="?", help="block height"
+    )
     blockchain_parser.add_argument(
         "--header-only", "-H", action="store_true", help="output block header only"
     )
+    blockchain_parser.add_argument(
+        "--decode", action="store_true", help="decode block provided via in_file"
+    )
     add_common_arguments(blockchain_parser)
+    add_input_arguments(blockchain_parser)
     add_output_arguments(blockchain_parser)
 
     mine_parser = sub_parser.add_parser(
@@ -821,6 +902,7 @@ Mine blocks.
         "--recv-addr",
         dest="recv_addr",
         type=os.fsencode,
+        required=True,
         help="""Address to send block reward to.""",
     )
     mine_parser.add_argument(
@@ -828,7 +910,7 @@ Mine blocks.
         type=int,
         help="Set a limit of the number of blocks to mine before exit. Useful in regtest mode for generating a set number of blocks",
     )
-    add_common_arguments(mine_parser)
+    add_common_arguments(mine_parser, include_network=False)
 
     rpc_parser = sub_parser.add_parser(
         "rpc",
@@ -854,7 +936,12 @@ Mine blocks.
         help="For cookie based rpc auth, supply rpc datadir.",
     )
     add_common_arguments(rpc_parser)
+    return parser
 
+
+@catch_exception
+def main():
+    parser = setup_parser()
     args = parser.parse_args()
 
     config = Config(**vars(args))
@@ -930,6 +1017,8 @@ Mine blocks.
                         chaincode,
                         testnet=False if config.network == "mainnet" else True,
                     )
+                    if args.print:
+                        xprv += os.linesep.encode("utf8")
                     bits.write_bytes(
                         xprv,
                         args.out_file,
@@ -959,6 +1048,8 @@ Mine blocks.
                 )
                 + os.linesep
             )
+        if args.print:
+            derived_key += os.linesep.encode("utf8")
         bits.write_bytes(derived_key, args.out_file, output_format="raw")
     elif args.subcommand == "wif":
         if args.decode:
@@ -973,6 +1064,8 @@ Mine blocks.
             data=args.data,
             network=config.network,
         )
+        if args.print:
+            wif += os.linesep.encode("utf8")
         bits.write_bytes(wif, args.out_file, output_format="raw")
     elif args.subcommand == "base58":
         if args.decode:
@@ -981,6 +1074,8 @@ Mine blocks.
                 decoded = bits.base58.base58check_decode(data)
             else:
                 decoded = bits.base58.base58decode(data)
+            if args.print:
+                decoded += os.linesep.encode("utf8")
             bits.write_bytes(decoded, output_format=config.output_format)
             return
         data = bits.read_bytes(args.in_file, input_format=config.input_format)
@@ -999,35 +1094,35 @@ Mine blocks.
                 print(
                     json.dumps(
                         {
-                            "hrp": hrp.decode("utf8"),
+                            "network": bip173.hrp_network_map[hrp],
                             "witness_version": witness_version,
                             "witness_program": witness_program.hex(),
                         }
                     )
                 )
             else:
-                hrp, data = bip173.parse_bech32(data_input)
-                decoded_data = bip173.bech32_decode(data)
-                bip173.assert_valid_bech32(hrp, data)
+                hrp, payload = bip173.decode_bech32_string(data_input)
                 print(
-                    {
-                        "hrp": hrp.decode("utf8"),
-                        "data": decoded_data.hex(),
-                    }
+                    json.dumps(
+                        {
+                            "hrp": hrp.decode("utf8"),
+                            "payload": payload.hex(),
+                        }
+                    )
                 )
             return
         data_input = bits.read_bytes(args.in_file, input_format=config.input_format)
-        if args.witness_version is not None:
-            addr = bip173.segwit_addr(
-                data,
-                witness_version=args.witness_version,
-                network=config.network,
-            )
-            bits.write_bytes(args.out_file, output_format="raw")
-        elif args.hrp is not None:
-            encoded_data = bip173.bech32_encode(args.hrp, data_input)
-            bits.write_bytes(encoded_data, output_format="raw")
-        return
+        witness_version_byte = (
+            bip173.bech32_chars[args.witness_version : args.witness_version + 1]
+            if args.witness_version is not None
+            else b""
+        )
+        encoded_data = bip173.bech32_encode(
+            args.hrp, data_input, witness_version=witness_version_byte
+        )
+        if args.print:
+            encoded_data += os.linesep.encode("utf8")
+        bits.write_bytes(encoded_data, args.out_file, output_format="raw")
     elif args.subcommand == "ripemd160":
         data = bits.read_bytes(args.in_file, input_format=config.input_format)
         bits.write_bytes(
@@ -1064,6 +1159,8 @@ Mine blocks.
             witness_version=args.witness_version,
             network=config.network,
         )
+        if args.print:
+            addr += os.linesep.encode("utf8")
         bits.write_bytes(addr, args.out_file, output_format="raw")
     elif args.subcommand == "tx":
         if args.decode:
@@ -1078,12 +1175,12 @@ Mine blocks.
             # internal byte order
             txid_ = bytes.fromhex(txin_dict["txid"])[::-1]
             # use script pub key as script sig for signing
-            script_sig = bytes.fromhex(txin_dict["scriptSig"])
+            script_sig = bytes.fromhex(txin_dict["scriptsig"])
             txin_ = bits.tx.txin(bits.tx.outpoint(txid_, txin_dict["vout"]), script_sig)
             txins.append(txin_)
         txouts = [
             bits.tx.txout(
-                txout_dict["satoshis"], bytes.fromhex(txout_dict["scriptPubKey"])
+                txout_dict["satoshis"], bytes.fromhex(txout_dict["scriptpubkey"])
             )
             for txout_dict in args.txouts
         ]
@@ -1097,10 +1194,13 @@ Mine blocks.
         return tx_.hex()
     elif args.subcommand == "script":
         if args.decode:
-            scriptbytes = bits.read_bytes(
-                args.in_file, input_format=config.input_format
-            )
-            decoded = bits.script.decode_script(scriptbytes, witness=args.witness)
+            decoded = []
+            for script in args.script_args:
+                script_bytes = bytes.fromhex(script)
+                script_decoded = bits.script.decode_script(
+                    script_bytes, witness=args.witness
+                )
+                decoded.append(script_decoded)
             print(json.dumps(decoded))
             return
         bits.write_bytes(
@@ -1130,37 +1230,37 @@ Mine blocks.
         )
         bits.write_bytes(sig, args.out_file, output_format=config.output_format)
     elif args.subcommand == "send":
-        if args.in_file:
-            from_keys = bits.read_bytes(args.in_file, input_format="raw").split()
-        sighash_flag = getattr(bits.script.constants, f"SIGHASH_{args.sighash.upper}")
-        if args.anyone_can_pay:
-            sighash_flag |= bits.script.constants.SIGHASH_ANYONECANPAY
+        if args.sighash:
+            sender_keys = bits.read_bytes(args.in_file, input_format="raw").split()
+            sighash_flag = getattr(
+                bits.script.constants, f"SIGHASH_{args.sighash.upper()}"
+            )
+            if args.anyone_can_pay:
+                sighash_flag |= bits.script.constants.SIGHASH_ANYONECANPAY
+        else:
+            sender_keys = []
+            sighash_flag = 0
         tx_ = bits.tx.send_tx(
-            args.from_,
-            args.to_,
-            from_keys=from_keys,
+            args.sender_addr,
+            args.recipient_addr,
+            change_addr=args.change_addr,
+            sender_keys=sender_keys,
+            send_fraction=args.send_fraction,
             miner_fee=args.miner_fee,
             version=args.version,
             locktime=args.locktime,
             sighash_flag=sighash_flag,
+            rpc_url=config.rpc_url,
+            rpc_datadir=config.rpc_datadir,
+            rpc_user=config.rpc_user,
+            rpc_password=config.rpc_password,
         )
         bits.write_bytes(tx_, output_format=config.output_format)
-
-        send_question = input("Send transaction? (Y/N): ").strip()
-        while send_question not in ["Y", "N"]:
-            print("Input not recognized. Try again.")
-            send_question = input("Send transaction? (Y/N): ").strip()
-        if send_question == "Y":
-            print(bits.rpc.rpc_method("sendrawtransaction", tx_.hex()))
-        else:
-            print("Transaction not sent.")
-            return
     elif args.subcommand == "mine":
         n = 0
         while True:
             mine_block(
                 args.recv_addr,
-                network=config.network,
                 rpc_url=config.rpc_url,
                 rpc_datadir=config.rpc_datadir,
                 rpc_user=config.rpc_user,
@@ -1191,14 +1291,24 @@ Mine blocks.
         )
         p2p_node.start()
     elif args.subcommand == "blockchain":
-        if args.blockheight == 0:
-            bits.write_bytes(
-                bits.blockchain.genesis_block(),
-                args.out_file,
-                output_format=config.output_format,
-            )
+        if args.blockheight is None:
+            block = bits.read_bytes(args.in_file, input_format=config.input_format)
+            header = block[:80]
+        elif args.blockheight == 0:
+            block = bits.blockchain.genesis_block()
+            header = block[:80]
         else:
             raise NotImplementedError("blocks > 0 not implemented per v0")
+        if args.decode:
+            block = bits.blockchain.block_deser(block)
+            header = bits.blockchain.block_header_deser(header)
+            print(json.dumps(header if args.header_only else block))
+            return
+        bits.write_bytes(
+            header if args.header_only else block,
+            args.out_file,
+            output_format=config.output_format,
+        )
     elif args.subcommand == "rpc":
         result = bits.rpc.rpc_method(
             args.rpc_command,

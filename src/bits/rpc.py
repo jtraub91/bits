@@ -14,6 +14,7 @@ from urllib.request import urlopen
 import bits
 
 log = logging.getLogger(__name__)
+log.setLevel(logging.DEBUG)
 
 
 def rpc_method(
