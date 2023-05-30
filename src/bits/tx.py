@@ -105,6 +105,13 @@ def tx(
     )
 
 
+def txid(tx_: bytes) -> bytes:
+    """
+    txid (internal byte order)
+    """
+    return bits.hash256(tx_)
+
+
 def tx_deser(tx_: bytes, include_raw: bool = False) -> typing.Tuple[dict, bytes]:
     """
     Deserialize tx data
@@ -153,7 +160,7 @@ def tx_deser(tx_: bytes, include_raw: bool = False) -> typing.Tuple[dict, bytes]
     # TODO: Tx class to maybe calculate this more efficiently?
     tx_dict = (
         {
-            "txid": bits.hash256(
+            "txid": txid(
                 tx(
                     [
                         txin(
@@ -319,7 +326,7 @@ def send_tx(
         sender_txoutset = bits.rpc.rpc_method(
             "scantxoutset", "start", f'["pk({sender_addr.hex()})"]', **rpc_kwargs
         )
-    elif bits.base58.is_base58check(sender_addr) or bip173.is_segwit_addr(sender_addr):
+    elif bits.base58.is_base58check(sender_addr) or bits.is_segwit_addr(sender_addr):
         sender_txoutset = bits.rpc.rpc_method(
             "scantxoutset",
             "start",

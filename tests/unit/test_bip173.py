@@ -16,7 +16,7 @@ def test_example_p2wpkh(expected_addr, network):
         "0279BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798"
     )
     pkh = bits.pubkey_hash(pubkey)
-    assert bip173.segwit_addr(pkh, network=network) == expected_addr
+    assert bits.segwit_addr(pkh, network=network) == expected_addr
 
 
 @pytest.mark.parametrize(
@@ -36,7 +36,7 @@ def test_example_p2wsh(expected_addr, network):
         + bits.script.constants.OP_CHECKSIG.to_bytes(1, "big")
     )
     sh = bits.sha256(redeem_script)
-    assert bip173.segwit_addr(sh, network=network) == expected_addr
+    assert bits.segwit_addr(sh, network=network) == expected_addr
 
 
 @pytest.mark.parametrize(
@@ -115,7 +115,9 @@ def test_invalid_bech32(bytestring, reason):
     ],
 )
 def test_segwit_script_pubkey(segwit_addr, expected_script_pubkey):
-    hrp, witness_version, witness_program = bip173.decode_segwit_addr(segwit_addr)
+    hrp, witness_version, witness_program = bits.decode_segwit_addr(
+        segwit_addr, __support_bip350=False
+    )
     assert (
         bits.script.p2wpkh_script_pubkey(
             witness_program, witness_version=witness_version
@@ -156,7 +158,9 @@ def test_segwit_script_pubkey(segwit_addr, expected_script_pubkey):
 )
 def test_invalid_segwit_addr(segwit_addr, reason):
     try:
-        hrp, witness_version, witness_program = bip173.decode_segwit_addr(segwit_addr)
-        bip173.assert_valid_segwit(hrp, witness_version, witness_program)
+        hrp, witness_version, witness_program = bits.decode_segwit_addr(
+            segwit_addr, __support_bip350=False
+        )
+        bits.assert_valid_segwit(hrp, witness_version, witness_program)
     except AssertionError as err:
         assert err.args[0] == reason

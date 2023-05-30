@@ -1087,8 +1087,8 @@ def main():
     elif args.subcommand == "bech32":
         if args.decode:
             data_input = bits.read_bytes(args.in_file, input_format="raw")
-            if bip173.is_segwit_addr(data_input):
-                hrp, witness_version, witness_program = bip173.decode_segwit_addr(
+            if bits.is_segwit_addr(data_input):
+                hrp, witness_version, witness_program = bits.decode_segwit_addr(
                     data_input
                 )
                 print(

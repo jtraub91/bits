@@ -26,9 +26,9 @@ def parse_bech32(bytestring: bytes) -> typing.Tuple[bytes]:
     return hrp, data
 
 
-def assert_valid_bech32(hrp: bytes, data: bytes) -> bool:
+def assert_valid_bech32(hrp: bytes, data: bytes, constant: int = 1) -> bool:
     """
-    Test for valid bech32 format and checksum
+    Test for valid bech32(m) format and checksum
     """
     for char in hrp:
         assert int(char) in range(33, 127), "HRP character out of range"
@@ -45,11 +45,15 @@ def assert_valid_bech32(hrp: bytes, data: bytes) -> bool:
     assert bech32_verify_checksum(
         [char.to_bytes(1, "big") for char in hrp],
         [bech32_int_map[char.to_bytes(1, "big")] for char in data],
+        constant=constant,
     ), "invalid checksum"
 
 
 def bech32_encode(
-    hrp: bytes, data: bytes, witness_version: typing.Optional[bytes] = b""
+    hrp: bytes,
+    data: bytes,
+    witness_version: typing.Optional[bytes] = b"",
+    constant: int = 1,
 ) -> bytes:
     """
     https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#bech32
@@ -57,6 +61,7 @@ def bech32_encode(
         hrp: bytes, human readable part
         data: bytes, data
         witness_version: Optional[bytes], witness version to be prepended to data part
+        constant: int, 1 for bech32 0x2bc830a3 for bech32m per BIP350
     """
     assert len(hrp) in range(1, 84), "human readable part length not in [1,83]"
     for char in hrp:
@@ -84,28 +89,11 @@ def bech32_encode(
     checksum = bech32_create_checksum(
         [h.to_bytes(1, "big") for h in hrp],
         [bech32_int_map[d.to_bytes(1, "big")] for d in data_part],
+        constant=constant,
     )
     checksum = b"".join([bech32_chars[c : c + 1] for c in checksum])
 
     return hrp + bech32_separator + witness_version + encoded + checksum
-
-
-def segwit_addr(
-    data: bytes, witness_version: int = 0, network: str = "mainnet"
-) -> bytes:
-    # https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#segwit-address-format
-    if network == "mainnet":
-        hrp = b"bc"
-    elif network == "testnet":
-        hrp = b"tb"
-    elif network == "regtest":
-        hrp = b"bcrt"
-    else:
-        raise ValueError(f"unrecognized network: {network}")
-    assert witness_version in range(17), "witness version not in [0, 16]"
-    return bech32_encode(
-        hrp, data, witness_version=bech32_chars[witness_version : witness_version + 1]
-    )
 
 
 def bech32_decode(data: bytes) -> bytes:
@@ -136,48 +124,15 @@ def bech32_decode(data: bytes) -> bytes:
     return decoded.to_bytes(decoded_bits // 8, "big")
 
 
-def decode_segwit_addr(addr: bytes) -> typing.Tuple[bytes, int, bytes]:
-    hrp, data = parse_bech32(addr)
-    assert_valid_bech32(hrp, data)
-    data = data[:-6]  # discard checksum
-    assert data, "empty data"
-    witness_version = bech32_int_map[data[0:1]]
-    assert witness_version in range(17), "witness version not in [0, 16]"
-
-    data = data[1:]
-    witness_program = bech32_decode(data)
-
-    return hrp, witness_version, witness_program
-
-
-def decode_bech32_string(bytestring: bytes) -> typing.Tuple[bytes, bytes]:
+def decode_bech32_string(
+    bytestring: bytes, constant: int = 1
+) -> typing.Tuple[bytes, bytes]:
     hrp, data = parse_bech32(bytestring)
-    assert_valid_bech32(hrp, data)
+    assert_valid_bech32(hrp, data, constant=constant)
     data = data[:-6]  # discard checksum
     assert data, "empty data"
     payload = bech32_decode(data)
     return hrp, payload
-
-
-def assert_valid_segwit(
-    hrp: bytes, witness_version: int, witness_program: bytes
-) -> bool:
-    assert hrp in [b"bc", b"tb", b"bcrt"], "Invalid human-readable part"
-    assert len(witness_program) in range(2, 41), "witness program length not in [2, 40]"
-    if witness_version == 0:
-        assert len(witness_program) in [
-            20,
-            32,
-        ], "length of v0 witness program not 20 or 32"
-
-
-def is_segwit_addr(addr_: bytes):
-    try:
-        hrp, witness_version, witness_program = decode_segwit_addr(addr_)
-        assert_valid_segwit(hrp, witness_version, witness_program)
-        return True
-    except AssertionError as err:
-        return False
 
 
 # added type hints and docstring to
@@ -198,22 +153,26 @@ def bech32_hrp_expand(s: typing.List[typing.Union[str, bytes]]) -> typing.List[i
 
 
 def bech32_verify_checksum(
-    hrp: typing.List[typing.Union[str, bytes]], data: typing.List[int]
+    hrp: typing.List[typing.Union[str, bytes]],
+    data: typing.List[int],
+    constant: int = 1,
 ) -> bool:
     """
     Args:
         data: List[int], data part values including checksum
     """
-    return bech32_polymod(bech32_hrp_expand(hrp) + data) == 1
+    return bech32_polymod(bech32_hrp_expand(hrp) + data) == constant
 
 
 def bech32_create_checksum(
-    hrp: typing.List[typing.Union[str, bytes]], data: typing.List[int]
+    hrp: typing.List[typing.Union[str, bytes]],
+    data: typing.List[int],
+    constant: int = 1,
 ) -> typing.List[int]:
     """
     Args:
         data: List[int], (non-checksum) data part values
     """
     values = bech32_hrp_expand(hrp) + data
-    polymod = bech32_polymod(values + [0, 0, 0, 0, 0, 0]) ^ 1
+    polymod = bech32_polymod(values + [0, 0, 0, 0, 0, 0]) ^ constant
     return [(polymod >> 5 * (5 - i)) & 31 for i in range(6)]

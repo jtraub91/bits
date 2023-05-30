@@ -152,7 +152,7 @@ def genesis_block():
     nNonce = 2083236893
 
     coinbase_tx = genesis_coinbase_tx()
-    merkle_ = merkle_root([coinbase_tx])
+    merkle_ = merkle_root([bits.tx.txid(coinbase_tx)])
     return block_ser(
         block_header(1, NULL_32, merkle_, nTime, nBits.to_bytes(4, "little"), nNonce),
         [coinbase_tx],

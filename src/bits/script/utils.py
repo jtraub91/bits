@@ -2,7 +2,6 @@ import logging
 import typing
 
 import bits.base58
-from bits.bips import bip173
 from bits.script import constants
 
 log = logging.getLogger(__name__)
@@ -46,9 +45,9 @@ def scriptpubkey(data: bytes) -> bytes:
         else:
             raise ValueError(f"unrecognized base58check version byte: {version}")
         return script_pubkey
-    elif bip173.is_segwit_addr(data):
+    elif bits.is_segwit_addr(data):
         # segwit
-        hrp, witness_version, witness_program = bip173.decode_segwit_addr(data)
+        hrp, witness_version, witness_program = bits.decode_segwit_addr(data)
         assert hrp in [b"bc", b"tb", b"bcrt"], "unrecognized hrp"
         if len(witness_program) == 20:
             return p2wpkh_script_pubkey(
@@ -59,6 +58,8 @@ def scriptpubkey(data: bytes) -> bytes:
         else:
             raise ValueError("bad witness program length")
     else:
+        # TODO: consider removing support for this, since invalid addresses will
+        #   erroneously default to this, thus rendering lost funds
         return data
 
 
@@ -172,6 +173,8 @@ def p2wpkh_script_pubkey(pk_hash: bytes, witness_version: int = 0) -> bytes:
     native p2wpkh
     https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#p2wpkh
 
+    pk_hash must be 20 bytes for v0 native p2wpkh
+
     Ex: (v0)
     witness: <sig> <pubkey>
     scriptSig: (empty)
@@ -191,6 +194,9 @@ def p2wpkh_script_sig() -> bytes:
 
 
 def p2wsh_script_pubkey(witness_scripthash_: bytes, witness_version: int = 0) -> bytes:
+    """
+    witness_scripthash_ must be 32 bytes for v0 native p2wsh
+    """
     return p2wpkh_script_pubkey(witness_scripthash_, witness_version=witness_version)
 
 
