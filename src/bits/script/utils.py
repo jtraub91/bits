@@ -10,8 +10,11 @@ log.setLevel(logging.DEBUG)
 
 def scriptpubkey(data: bytes) -> bytes:
     """
-    Create scriptpubkey by inferring input data type.
-    Returns identity if data not identified as pubkey, base58check, nor segwit
+    Create scriptpubkey by inferring input data type
+    Supports data as pubkey, base58check, or segwit
+
+    Args:
+        data: bytes, pubkey, base58check, or segwit address
 
     >>> # p2pk
     >>> scriptpubkey(bytes.fromhex("025a058ec9fb35845ce07b6ec4929b443132b2fce2bb154e3aa66c19b851b0c449")).hex()
@@ -25,12 +28,7 @@ def scriptpubkey(data: bytes) -> bytes:
     >>> # p2wpkh
     >>> scriptpubkey(b"bc1qvduqal3pk4x5vtfendx9hxgzydd22u8v0pzd7h").hex()
     '001463780efe21b54d462d399b4c5b9902235aa570ec'
-    >>> # TODO: p2wsh
-    >>> # raw
-    >>> scriptpubkey(bytes.fromhex("5221024c9b21035e4823d6f09d5a948201d14086d854dfa5bba828c06f5131d9cfe14f2103fe0b5ca0ab60705b21a00cbd9900026f282c7188427123e87e0dc344ce742eb02102528e776c2bf0be68f4503151fd036c9cb720c4977f6f5b0248d5472c654aebe453ae")).hex()
-    '5221024c9b21035e4823d6f09d5a948201d14086d854dfa5bba828c06f5131d9cfe14f2103fe0b5ca0ab60705b21a00cbd9900026f282c7188427123e87e0dc344ce742eb02102528e776c2bf0be68f4503151fd036c9cb720c4977f6f5b0248d5472c654aebe453ae'
     """
-    # data is either pubkey, base58check, or segwit
     if bits.is_point(data):
         return p2pk_script_pubkey(data)
     elif bits.base58.is_base58check(data):
@@ -46,7 +44,6 @@ def scriptpubkey(data: bytes) -> bytes:
             raise ValueError(f"unrecognized base58check version byte: {version}")
         return script_pubkey
     elif bits.is_segwit_addr(data):
-        # segwit
         hrp, witness_version, witness_program = bits.decode_segwit_addr(data)
         assert hrp in [b"bc", b"tb", b"bcrt"], "unrecognized hrp"
         if len(witness_program) == 20:
@@ -58,9 +55,7 @@ def scriptpubkey(data: bytes) -> bytes:
         else:
             raise ValueError("bad witness program length")
     else:
-        # TODO: consider removing support for this, since invalid addresses will
-        #   erroneously default to this, thus rendering lost funds
-        return data
+        raise ValueError("data not identified as pubkey, base58check, nor segwit")
 
 
 def p2pkh_script_pubkey(pk_hash: bytes) -> bytes:

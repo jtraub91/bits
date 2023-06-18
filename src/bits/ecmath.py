@@ -1,8 +1,11 @@
 """
 Elliptic curve math
 """
+import hashlib
 import secrets
 from typing import Tuple
+
+# from bits import sha256, pubkey
 
 # http://www.secg.org/sec2-v2.pdf - pg 13
 # T(p, a, b, G, n, h)
@@ -107,7 +110,7 @@ def sqrt_mod_p(x: int, p: int = SECP256K1_P) -> int:
         raise NotImplementedError
 
 
-def y_from_x(x: int, a: int = SECP256K1_A, b: int = SECP256K1_B) -> Tuple[int]:
+def y_from_x(x: int, a: int = SECP256K1_A, b: int = SECP256K1_B) -> int:
     """
     Find y from x
     y^2 = x^3 + ax + b
@@ -129,19 +132,21 @@ def point_is_on_curve(
     return False
 
 
-def point_negate(p: Tuple[int], a: int = SECP256K1_A, b: int = SECP256K1_B):
+def point_negate(
+    p: Tuple[int, int], a: int = SECP256K1_A, b: int = SECP256K1_B
+) -> Tuple[int, int]:
     """
     Returns:
         -p
     """
     # https://crypto.stanford.edu/pbc/notes/elliptic/explicit.html
     x, y = p
-    return (x, -y)
+    return (x, sub_mod_p(0, y))
 
 
 def point_add(
     p1: Tuple[int, int], p2: Tuple[int, int], a: int = SECP256K1_A, b: int = SECP256K1_B
-) -> Tuple[int]:
+) -> Tuple[int, int]:
     # https://crypto.stanford.edu/pbc/notes/elliptic/explicit.html
     # y^2 + a1*x*y + a3*y = x^3 + a2 * x^2 + a4*x + a6
     # a1 = a2 = a3 = 0
@@ -177,7 +182,7 @@ def point_add(
 
 def point_scalar_mul(
     k: int, P: Tuple[int, int], a: int = SECP256K1_A, b: int = SECP256K1_B
-):
+) -> Tuple[int, int]:
     """
     Point multiplication using double and add algorithm
     kP where k has n binary digits

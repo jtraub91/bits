@@ -2,6 +2,7 @@ import hashlib
 import typing
 
 import bits.base58
+import bits.crypto
 import bits.ecmath
 import bits.keys
 import bits.pem
@@ -75,7 +76,7 @@ def is_point(pubkey_: bytes):
     try:
         point(pubkey_)
         return True
-    except AssertionError:
+    except (AssertionError, ValueError):
         return False
 
 
@@ -154,22 +155,6 @@ def parse_compact_size_uint(payload: bytes) -> typing.Tuple[int, bytes]:
         integer = first_byte
         payload = payload[1:]
     return integer, payload
-
-
-def hash160(msg: bytes) -> bytes:
-    return hashlib.new("ripemd160", hashlib.sha256(msg).digest()).digest()
-
-
-def ripemd160(msg: bytes) -> bytes:
-    return hashlib.new("ripemd160", msg).digest()
-
-
-def sha256(msg: bytes) -> bytes:
-    return hashlib.sha256(msg).digest()
-
-
-def hash256(msg: bytes) -> bytes:
-    return hashlib.sha256(hashlib.sha256(msg).digest()).digest()
 
 
 def segwit_addr(
@@ -287,6 +272,33 @@ def to_bitcoin_address(
     elif network in ["testnet", "regtest"] and addr_type == "p2sh":
         version = b"\xc4"
     return bits.base58.base58check(version + payload)
+
+
+def is_addr(addr_: bytes) -> bool:
+    if bits.base58.is_base58check(addr_):
+        return True
+    elif is_segwit_addr(addr_):
+        return True
+    return False
+
+
+def assert_addr(addr_: bytes) -> bool:
+    errors = []
+    try:
+        bits.base58.base58check_decode(addr_)
+        return True
+    except Exception as b58_err:
+        errors.append(b58_err)
+    try:
+        hrp, witness_version, witness_program = decode_segwit_addr(addr_)
+        assert_valid_segwit(hrp, witness_version, witness_program)
+        return True
+    except AssertionError as segwit_err:
+        errors.append(segwit_err)
+    raise AssertionError(
+        "addr not identified as base58check nor segwit. "
+        + f"Caught errors '{errors[0].args[0]}', '{errors[1].args[0]}', respectively"
+    )
 
 
 def ensure_sig_low_s(sig_: bytes) -> bytes:
@@ -607,7 +619,7 @@ def sig(
         ), "sighash_flag parsed from msg preimage does not match provided sighash_flag argument"
     elif msg_preimage:
         sh_flag = int.from_bytes(msg[-4:], "little")
-    sigdata = hash256(msg)
+    sigdata = bits.crypto.hash256(msg)
     r, s = bits.ecmath.sign(privkey_int(key), int.from_bytes(sigdata, "big"))
     signature_der = der_encode_sig(r, s)
     if sighash_flag is not None:
@@ -625,7 +637,7 @@ def sig_verify(
     r, s = der_decode_sig(sig_[:-1])
     if not msg_preimage:
         msg += sighash_flag.to_bytes(4, "little")
-    msg_digest = hash256(msg)
+    msg_digest = bits.crypto.hash256(msg)
     try:
         result = bits.ecmath.verify(
             r, s, point(pubkey_), int.from_bytes(msg_digest, "big")

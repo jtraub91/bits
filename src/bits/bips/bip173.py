@@ -1,3 +1,5 @@
+# Copyright (c) 2023 Jason Traub
+# Distributed under the MIT License, see LICENSE.txt for details
 """
 https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki
 """
@@ -135,8 +137,34 @@ def decode_bech32_string(
     return hrp, payload
 
 
-# added type hints and docstring to
-## https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#checksum
+# The following code is found in
+# https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#checksum
+# but with type hints and docstrings added
+#
+# Copyright notice per https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#user-content-Copyright
+# Copyright (c) 2017 Peter Wiulle / Greg Maxwell
+#
+# Redistribution and use in source and binary forms, with or without modification, are
+# permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of
+# conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list
+# of conditions and the following disclaimer in the documentation and/or other materials
+# provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS “AS IS” AND ANY
+# EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+# SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+# TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+# BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY
+# WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
 def bech32_polymod(values: typing.List[int]) -> int:
     GEN = [0x3B6A57B2, 0x26508E6D, 0x1EA119FA, 0x3D4233DD, 0x2A1462B3]
     chk = 1

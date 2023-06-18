@@ -1,5 +1,6 @@
 import pytest
 
+import bits.crypto
 import bits.script
 from bits.bips import bip173
 
@@ -35,7 +36,7 @@ def test_example_p2wsh(expected_addr, network):
         + pubkey
         + bits.script.constants.OP_CHECKSIG.to_bytes(1, "big")
     )
-    sh = bits.sha256(redeem_script)
+    sh = bits.crypto.sha256(redeem_script)
     assert bits.segwit_addr(sh, network=network) == expected_addr
 
 
