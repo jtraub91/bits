@@ -52,5 +52,4 @@ pythonpath = [
 addopts = [
     "--cov=bits",
     "--doctest-modules",
-    "-p no:logging"
 ]

@@ -88,7 +88,7 @@ def sign(key: bytes, digest: bytes, aux: Optional[bytes] = None) -> bytes:
         % SECP256K1_N
     )
     sig = Rx.to_bytes(32, "big") + ((k + e * d) % SECP256K1_N).to_bytes(32, "big")
-    # If Verify(bytes(P), m, sig) (see below) returns failure, abort[14].
+    assert verify(Px.to_bytes(32, "big"), digest, sig)
     return sig
 
 
