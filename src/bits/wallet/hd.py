@@ -17,6 +17,10 @@ def get_xpub(xkey: bytes):
     Return xpub from xprv (or xpub)
     Args:
         xprv_: bytes, serialized extended private key
+
+    >>> xpub = b'xpub6H5w431hKsmLXYzEwpyuZ2BmqGzbf7zBanX8Fg8dQFUDmKNLMGKom15X1go8QBoQn2BrZrNweRwVVPjYaFtbpuk7MzCdMkHdnNB8fywmjyh'
+    >>> get_xpub(xpub)
+    b'xpub6H5w431hKsmLXYzEwpyuZ2BmqGzbf7zBanX8Fg8dQFUDmKNLMGKom15X1go8QBoQn2BrZrNweRwVVPjYaFtbpuk7MzCdMkHdnNB8fywmjyh'
     """
     (
         version,
@@ -29,7 +33,14 @@ def get_xpub(xkey: bytes):
     if type(key) is int:
         key = bip32.point(key)
     return bip32.serialized_extended_key(
-        key, chaincode, depth, parent_key_fingerprint, child_no
+        key,
+        chaincode,
+        depth,
+        parent_key_fingerprint,
+        child_no,
+        testnet=True
+        if version in [bip32.VERSION_PRIVATE_TESTNET, bip32.VERSION_PUBLIC_TESTNET]
+        else False,
     )
 
 

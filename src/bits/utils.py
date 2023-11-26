@@ -56,11 +56,11 @@ def point(pubkey_: bytes) -> typing.Tuple[int]:
     payload = pubkey_[1:]
     x = int.from_bytes(payload[:32], "big")
     if version == 2:
-        # compressed, y
-        y = bits.ecmath.y_from_x(x)[0]
+        # compressed, y even
+        y = [i for i in bits.ecmath.y_from_x(x) if not i % 2][0]
     elif version == 3:
-        # compressed, -y
-        y = bits.ecmath.y_from_x(x)[1]
+        # compressed, y odd
+        y = [i for i in bits.ecmath.y_from_x(x) if i % 2][0]
     elif version == 4:
         # uncompressed
         y = int.from_bytes(payload[32:], "big")

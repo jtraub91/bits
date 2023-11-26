@@ -201,6 +201,19 @@ def deserialized_extended_key(
 ) -> Union[Tuple[bytes, bytes, bytes, bytes, bytes, Union[int, Tuple[int, int]]], dict]:
     """
     De-serialize extended key. Checks for invalid keys
+    Returns:
+        (version, depth, parent_key_fingerprint, child_no, key)
+
+        Or (if return_dict=True)
+
+        {
+            "version"
+            "depth"
+            "parent_key_fingerprint"
+            "child_no"
+            "chaincode"
+            "key"
+        }
     """
     decoded = base58check_decode(xkey)
     assert len(decoded) == 78
@@ -247,6 +260,7 @@ def deserialized_extended_key(
             "depth": int.from_bytes(depth, "big"),
             "parent_key_fingerprint": parent_key_fingerprint.hex(),
             "child_no": int.from_bytes(child_no, "big"),
+            "chaincode": chaincode.hex(),
             "key": key.hex(),
         }
     return version, depth, parent_key_fingerprint, child_no, chaincode, key
