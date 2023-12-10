@@ -1,5 +1,7 @@
 # bits
 
+[![Build and Test](https://github.com/jtraub91/bits/actions/workflows/build-and-test.yaml/badge.svg)](https://github.com/jtraub91/bits/actions/workflows/build-and-test.yaml)
+
 `bits` is a cli tool and pure Python library for Bitcoin
 
 ## Dependencies
