@@ -57,3 +57,7 @@ jobs:
         if: runner.os == 'macOS' || runner.os == 'Windows'
         run: |
           pytest tests/unit
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v3
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
