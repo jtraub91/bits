@@ -47,18 +47,15 @@ def lift_x(x: bytes) -> Tuple[int, int]:
     )
 
 
-def sign(key: bytes, digest: bytes, aux: Optional[bytes] = None) -> bytes:
+def sign(key: bytes, digest: bytes, aux: bytes) -> bytes:
     """
     Schnorr sigs (on secp256k1) per
     https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#default-signing
     """
-    if not aux:
-        aux = secrets.randbits(32)
     key = int.from_bytes(key, "big")
     if key == 0 or key >= SECP256K1_N:
         raise ValueError("invalid secret key")
     Px, Py = point_scalar_mul(key, (SECP256K1_Gx, SECP256K1_Gy))
-
     d = key if not Py % 2 else SECP256K1_N - key
 
     tag = "BIP0340/aux".encode("utf8")
