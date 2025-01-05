@@ -7,6 +7,7 @@ import typing
 
 import bits.blockchain
 import bits.constants
+import bits.crypto
 import bits.keys
 import bits.rpc
 import bits.script
@@ -72,7 +73,7 @@ def generate_funded_keys(
         wif_encoded_key = bits.wif_encode(
             key, network=network, data=b"\x01" if compressed_pubkey else b""
         )
-        pk_hash = bits.hash160(pubkey)
+        pk_hash = bits.crypto.hash160(pubkey)
         addr = bits.to_bitcoin_address(pk_hash, addr_type="p2pkh", network=network)
 
         mine_block(
@@ -153,7 +154,7 @@ def mine_block(
     # commit to wtxid per BIP141
     # https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#commitment-structure
     witness_merkle_root_hash = bits.blockchain.merkle_root(wtxids)
-    witness_merkle_root_hash = bits.hash256(
+    witness_merkle_root_hash = bits.crypto.hash256(
         witness_merkle_root_hash + bits.constants.WITNESS_RESERVED_VALUE
     )
 
@@ -191,7 +192,7 @@ def mine_block(
         prev_nbits,
         nonce,
     )
-    new_block_hash = bits.hash256(new_block_header)
+    new_block_hash = bits.crypto.hash256(new_block_header)
 
     log.info(f"Mining block {current_block_height + 1}...")
     while int.from_bytes(new_block_hash, "little") > tgt_threshold:
@@ -204,7 +205,7 @@ def mine_block(
             prev_nbits,
             nonce,
         )
-        new_block_hash = bits.hash256(new_block_header)
+        new_block_hash = bits.crypto.hash256(new_block_header)
 
     new_block = bits.blockchain.block_ser(
         new_block_header,

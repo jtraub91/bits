@@ -7,6 +7,7 @@ import logging
 import typing
 
 import bits.constants
+import bits.crypto
 import bits.keys
 import bits.script.constants
 from bits.bips import bip143
@@ -105,6 +106,13 @@ def tx(
     )
 
 
+def txid(tx_: bytes) -> bytes:
+    """
+    txid (internal byte order)
+    """
+    return bits.crypto.hash256(tx_)
+
+
 def tx_deser(tx_: bytes, include_raw: bool = False) -> typing.Tuple[dict, bytes]:
     """
     Deserialize tx data
@@ -153,7 +161,7 @@ def tx_deser(tx_: bytes, include_raw: bool = False) -> typing.Tuple[dict, bytes]
     # TODO: Tx class to maybe calculate this more efficiently?
     tx_dict = (
         {
-            "txid": bits.hash256(
+            "txid": txid(
                 tx(
                     [
                         txin(
@@ -172,9 +180,9 @@ def tx_deser(tx_: bytes, include_raw: bool = False) -> typing.Tuple[dict, bytes]
             ).hex()
         }
         if is_segwit
-        else {"txid": bits.hash256(tx_).hex()}
+        else {"txid": bits.crypto.hash256(tx_).hex()}
     )
-    tx_dict["wtxid"] = bits.hash256(tx_).hex()
+    tx_dict["wtxid"] = bits.crypto.hash256(tx_).hex()
     if include_raw:
         tx_dict["raw"] = tx_.hex()
     tx_dict.update(deserialized_tx)
@@ -319,7 +327,7 @@ def send_tx(
         sender_txoutset = bits.rpc.rpc_method(
             "scantxoutset", "start", f'["pk({sender_addr.hex()})"]', **rpc_kwargs
         )
-    elif bits.base58.is_base58check(sender_addr) or bip173.is_segwit_addr(sender_addr):
+    elif bits.base58.is_base58check(sender_addr) or bits.is_segwit_addr(sender_addr):
         sender_txoutset = bits.rpc.rpc_method(
             "scantxoutset",
             "start",
@@ -379,7 +387,9 @@ def send_tx(
                 sender_scriptsig = bits.script.script(
                     [
                         bits.script.p2wpkh_script_pubkey(
-                            bits.hash160(bits.keys.pub(keys[0], compressed=True)),
+                            bits.crypto.hash160(
+                                bits.keys.pub(keys[0], compressed=True)
+                            ),
                             witness_version=0,
                         ).hex()
                     ]
@@ -419,7 +429,7 @@ def send_tx(
         if addr_types[0] in ["p2wpkh", "p2wsh", "p2sh-p2wpkh", "p2sh-p2wsh"]:
             if addr_types[0] in ["p2wpkh", "p2sh-p2wpkh"]:
                 pk = bits.keys.pub(keys[0], compressed=True)
-                pkh = bits.hash160(pk)
+                pkh = bits.crypto.hash160(pk)
                 scriptcode = bits.script.script(
                     [
                         bits.script.script(

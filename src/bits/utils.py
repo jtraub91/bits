@@ -2,11 +2,13 @@ import hashlib
 import typing
 
 import bits.base58
+import bits.crypto
 import bits.ecmath
 import bits.keys
 import bits.pem
 import bits.script.constants
 from bits.bips import bip173
+from bits.bips.bip350 import BECH32M_CONST
 
 
 def pubkey(x: int, y: int, compressed=False) -> bytes:
@@ -74,7 +76,7 @@ def is_point(pubkey_: bytes):
     try:
         point(pubkey_)
         return True
-    except AssertionError:
+    except (AssertionError, ValueError):
         return False
 
 
@@ -155,20 +157,83 @@ def parse_compact_size_uint(payload: bytes) -> typing.Tuple[int, bytes]:
     return integer, payload
 
 
-def hash160(msg: bytes) -> bytes:
-    return hashlib.new("ripemd160", hashlib.sha256(msg).digest()).digest()
+def segwit_addr(
+    data: bytes, witness_version: int = 0, network: str = "mainnet"
+) -> bytes:
+    """
+    Defined per BIP173 bech32
+    https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#segwit-address-format
+    and bech32m per BIP350
+    https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki
+    """
+    if network == "mainnet":
+        hrp = b"bc"
+    elif network == "testnet":
+        hrp = b"tb"
+    elif network == "regtest":
+        hrp = b"bcrt"
+    else:
+        raise ValueError(f"unrecognized network: {network}")
+    assert witness_version in range(17), "witness version not in [0, 16]"
+    if witness_version == 0:
+        bech32_constant = 1
+    else:
+        # witness version 1 thru 16
+        bech32_constant = BECH32M_CONST
+    return bip173.bech32_encode(
+        hrp,
+        data,
+        witness_version=bip173.bech32_chars[witness_version : witness_version + 1],
+        constant=bech32_constant,
+    )
 
 
-def ripemd160(msg: bytes) -> bytes:
-    return hashlib.new("ripemd160", msg).digest()
+def decode_segwit_addr(
+    addr: bytes, __support_bip350: bool = True
+) -> typing.Tuple[bytes, int, bytes]:
+    """
+    Decode SegWit address. See BIP173 and BIP350
+    """
+    hrp, data = bip173.parse_bech32(addr)
+    assert data[:-6], "empty data"  # ignore checksum
+    bech32_constant = 1
+    if bip173.bech32_int_map[data[0:1]] != 0 and __support_bip350:
+        bech32_constant = BECH32M_CONST
+    bip173.assert_valid_bech32(hrp, data, constant=bech32_constant)
+    witness_version = bip173.bech32_int_map[data[0:1]]
+    assert witness_version in range(17), "witness version not in [0, 16]"
+    data = data[1:-6]  # discard version byte and checksum
+    witness_program = bip173.bech32_decode(data)
+    return hrp, witness_version, witness_program
 
 
-def sha256(msg: bytes) -> bytes:
-    return hashlib.sha256(msg).digest()
+def assert_valid_segwit(
+    hrp: bytes, witness_version: int, witness_program: bytes
+) -> bool:
+    """
+    Assert valid SegWit address per BIP173
+    """
+    assert hrp in [b"bc", b"tb", b"bcrt"], "Invalid human-readable part"
+    assert len(witness_program) in range(2, 41), "witness program length not in [2, 40]"
+    if witness_version == 0:
+        assert len(witness_program) in [
+            20,
+            32,
+        ], "length of v0 witness program not 20 or 32"
 
 
-def hash256(msg: bytes) -> bytes:
-    return hashlib.sha256(hashlib.sha256(msg).digest()).digest()
+def is_segwit_addr(addr_: bytes) -> bool:
+    """
+    Alterative to assert_valid_segwit that catches potential error
+    Returns:
+        bool, True if valid segwit address else False
+    """
+    try:
+        hrp, witness_version, witness_program = decode_segwit_addr(addr_)
+        assert_valid_segwit(hrp, witness_version, witness_program)
+        return True
+    except AssertionError as err:
+        return False
 
 
 def to_bitcoin_address(
@@ -196,9 +261,7 @@ def to_bitcoin_address(
     ], f"unrecognized network: {network}"
     if witness_version is not None:
         assert witness_version in range(17), "witness version not in [0, 16]"
-        return bip173.segwit_addr(
-            payload, witness_version=witness_version, network=network
-        )
+        return segwit_addr(payload, witness_version=witness_version, network=network)
     assert addr_type in ["p2pkh", "p2sh"], f"unrecognized address type: {addr_type}"
     if network == "mainnet" and addr_type == "p2pkh":
         version = b"\x00"
@@ -209,6 +272,33 @@ def to_bitcoin_address(
     elif network in ["testnet", "regtest"] and addr_type == "p2sh":
         version = b"\xc4"
     return bits.base58.base58check(version + payload)
+
+
+def is_addr(addr_: bytes) -> bool:
+    if bits.base58.is_base58check(addr_):
+        return True
+    elif is_segwit_addr(addr_):
+        return True
+    return False
+
+
+def assert_addr(addr_: bytes) -> bool:
+    errors = []
+    try:
+        bits.base58.base58check_decode(addr_)
+        return True
+    except Exception as b58_err:
+        errors.append(b58_err)
+    try:
+        hrp, witness_version, witness_program = decode_segwit_addr(addr_)
+        assert_valid_segwit(hrp, witness_version, witness_program)
+        return True
+    except AssertionError as segwit_err:
+        errors.append(segwit_err)
+    raise AssertionError(
+        "addr not identified as base58check nor segwit. "
+        + f"Caught errors '{errors[0].args[0]}', '{errors[1].args[0]}', respectively"
+    )
 
 
 def ensure_sig_low_s(sig_: bytes) -> bytes:
@@ -529,7 +619,7 @@ def sig(
         ), "sighash_flag parsed from msg preimage does not match provided sighash_flag argument"
     elif msg_preimage:
         sh_flag = int.from_bytes(msg[-4:], "little")
-    sigdata = hash256(msg)
+    sigdata = bits.crypto.hash256(msg)
     r, s = bits.ecmath.sign(privkey_int(key), int.from_bytes(sigdata, "big"))
     signature_der = der_encode_sig(r, s)
     if sighash_flag is not None:
@@ -547,7 +637,7 @@ def sig_verify(
     r, s = der_decode_sig(sig_[:-1])
     if not msg_preimage:
         msg += sighash_flag.to_bytes(4, "little")
-    msg_digest = hash256(msg)
+    msg_digest = bits.crypto.hash256(msg)
     try:
         result = bits.ecmath.verify(
             r, s, point(pubkey_), int.from_bytes(msg_digest, "big")

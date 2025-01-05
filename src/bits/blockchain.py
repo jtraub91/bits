@@ -5,6 +5,7 @@ import copy
 import os
 import typing
 
+import bits.crypto
 import bits.script
 import bits.tx
 
@@ -76,7 +77,7 @@ def block_header(
 
     >>> merkle_root_hash = bytes.fromhex("3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a")
     >>> nBits = (0x1D00FFFF).to_bytes(4, "little")
-    >>> bits.hash256(block_header(1, NULL_32, merkle_root_hash, 1231006505, nBits, 2083236893)).hex()
+    >>> bits.crypto.hash256(block_header(1, NULL_32, merkle_root_hash, 1231006505, nBits, 2083236893)).hex()
     '6fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000'
     """
     return (
@@ -105,7 +106,7 @@ def merkle_root(txns: typing.List[bytes]) -> bytes:
     while len(row) >= 2:
         branches = []
         for i in range(0, len(row), 2):
-            branches.append(bits.hash256(row[i] + row[i + 1]))
+            branches.append(bits.crypto.hash256(row[i] + row[i + 1]))
         row = branches
     return row[0]
 
@@ -152,7 +153,7 @@ def genesis_block():
     nNonce = 2083236893
 
     coinbase_tx = genesis_coinbase_tx()
-    merkle_ = merkle_root([coinbase_tx])
+    merkle_ = merkle_root([bits.tx.txid(coinbase_tx)])
     return block_ser(
         block_header(1, NULL_32, merkle_, nTime, nBits.to_bytes(4, "little"), nNonce),
         [coinbase_tx],

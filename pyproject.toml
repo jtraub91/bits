@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bits"
-version = "0.2.1"
+version = "0.2.2"
 authors = [{name = "Jason Traub", email = "jtraub91@gmail.com"}]
 description = "bits is a cli tool and pure Python library for Bitcoin"
 readme="README.md"
@@ -16,6 +16,8 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
@@ -52,5 +54,4 @@ pythonpath = [
 addopts = [
     "--cov=bits",
     "--doctest-modules",
-    "-p no:logging"
 ]

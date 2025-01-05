@@ -1,5 +1,7 @@
 # bits
 
+[![Build and Test](https://github.com/jtraub91/bits/actions/workflows/build-and-test.yaml/badge.svg)](https://github.com/jtraub91/bits/actions/workflows/build-and-test.yaml) [![codecov](https://codecov.io/gh/jtraub91/bits/graph/badge.svg?token=DQ4AWXB5DI)](https://codecov.io/gh/jtraub91/bits)
+
 `bits` is a cli tool and pure Python library for Bitcoin
 
 ## Dependencies
@@ -9,14 +11,14 @@
 ## Installation
 
 ```bash
-git clone https://github.com/jtraub91/bits.git
-cd bits/
-pip install .
+pip install bits
 ```
 
 ### Install for development
 
 ```bash
+git clone https://github.com/jtraub91/bits.git
+cd bits/
 pip install -e .[dev]
 pre-commit install
 ```

@@ -12,6 +12,7 @@ from getpass import getpass
 
 import bits.base58
 import bits.blockchain
+import bits.crypto
 import bits.p2p
 import bits.rpc
 import bits.script
@@ -914,7 +915,7 @@ Mine blocks.
 
     rpc_parser = sub_parser.add_parser(
         "rpc",
-        help="rpc interface",
+        help="rpc interface to bitcoind node",
         formatter_class=RawDescriptionDefaultsHelpFormatter,
         description="Send command to RPC node",
     )
@@ -1087,8 +1088,8 @@ def main():
     elif args.subcommand == "bech32":
         if args.decode:
             data_input = bits.read_bytes(args.in_file, input_format="raw")
-            if bip173.is_segwit_addr(data_input):
-                hrp, witness_version, witness_program = bip173.decode_segwit_addr(
+            if bits.is_segwit_addr(data_input):
+                hrp, witness_version, witness_program = bits.decode_segwit_addr(
                     data_input
                 )
                 print(
@@ -1126,28 +1127,28 @@ def main():
     elif args.subcommand == "ripemd160":
         data = bits.read_bytes(args.in_file, input_format=config.input_format)
         bits.write_bytes(
-            bits.ripemd160(data),
+            bits.crypto.ripemd160(data),
             args.out_file,
             output_format=config.output_format,
         )
     elif args.subcommand == "sha256":
         data = bits.read_bytes(args.in_file, input_format=config.input_format)
         bits.write_bytes(
-            bits.sha256(data),
+            bits.crypto.sha256(data),
             args.out_file,
             output_format=config.output_format,
         )
     elif args.subcommand == "hash160":
         data = bits.read_bytes(args.in_file, input_format=config.input_format)
         bits.write_bytes(
-            bits.hash160(data),
+            bits.crypto.hash160(data),
             args.out_file,
             output_format=config.output_format,
         )
     elif args.subcommand == "hash256":
         data = bits.read_bytes(args.in_file, input_format=config.input_format)
         bits.write_bytes(
-            bits.hash256(data),
+            bits.crypto.hash256(data),
             args.out_file,
             output_format=config.output_format,
         )

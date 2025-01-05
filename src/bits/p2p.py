@@ -141,8 +141,10 @@ def recv_msg(sock: socket.socket) -> Tuple[bytes, bytes, bytes]:
         raise ValueError(
             f"payload_size ({payload_size}) does not match length of payload ({len(payload)})"
         )
-    if checksum != bits.hash256(payload)[:4]:
-        raise ValueError(f"checksum failed. {checksum} != {bits.hash256(payload)[:4]}")
+    if checksum != bits.crypto.hash256(payload)[:4]:
+        raise ValueError(
+            f"checksum failed. {checksum} != {bits.crypto.hash256(payload)[:4]}"
+        )
     if start_bytes != MAGIC_START_BYTES:
         raise ValueError(
             f"network mismatch - {start_bytes} not equal to magic start bytes {MAGIC_START_BYTES}"
@@ -167,7 +169,7 @@ def msg_ser(
     while len(command) < 12:
         command += b"\x00"
     payload_size = len(payload).to_bytes(4, "little")
-    checksum = bits.hash256(payload)[:4]
+    checksum = bits.crypto.hash256(payload)[:4]
     return start_bytes + command + payload_size + checksum + payload
 
 
@@ -653,7 +655,9 @@ class Node:
         gb = genesis_block()
         write_blocks_to_disk([gb], self.datadir)
         msg = msg_ser(
-            MAGIC_START_BYTES, b"getblocks", getblocks_payload([bits.hash256(gb[:80])])
+            MAGIC_START_BYTES,
+            b"getblocks",
+            getblocks_payload([bits.crypto.hash256(gb[:80])]),
         )
         self._peer_sockets[0].sendall(msg)
 
