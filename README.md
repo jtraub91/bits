@@ -11,14 +11,14 @@
 ## Installation
 
 ```bash
-git clone https://github.com/jtraub91/bits.git
-cd bits/
-pip install .
+pip install bits
 ```
 
 ### Install for development
 
 ```bash
+git clone https://github.com/jtraub91/bits.git
+cd bits/
 pip install -e .[dev]
 pre-commit install
 ```
