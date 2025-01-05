@@ -1,12 +1,10 @@
 """
 Elliptic curve math
 """
-import hashlib
 import secrets
 from typing import Tuple
 
-# from bits import sha256, pubkey
-
+# https://en.bitcoin.it/wiki/Secp256k1
 # http://www.secg.org/sec2-v2.pdf - pg 13
 # T(p, a, b, G, n, h)
 # The curve E: y^2 = x^3 + ax + b over Fp,
