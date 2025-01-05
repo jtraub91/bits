@@ -2,8 +2,8 @@ import csv
 
 import pytest
 
+from bits import compute_point
 from bits.bips import bip340
-
 
 with open("tests/unit/bip340/test-vectors.csv") as csv_file:
     reader = csv.reader(csv_file)
@@ -31,6 +31,11 @@ def test_vectors(
         assert (
             bip340.sign(key, message, aux=aux) == signature
         ), "signature does not match expected"
+
+        point = compute_point(key)
+        pk = bip340.pubkey(point)
+        assert pk == pubkey, "pubkey does not match expected"
+
     try:
         bip340.verify(pubkey, message, signature)
     except AssertionError:

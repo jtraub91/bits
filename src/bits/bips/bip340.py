@@ -47,11 +47,14 @@ def lift_x(x: bytes) -> Tuple[int, int]:
     )
 
 
-def sign(key: bytes, digest: bytes, aux: bytes) -> bytes:
+def sign(key: bytes, digest: bytes, aux: Optional[bytes] = None) -> bytes:
     """
     Schnorr sigs (on secp256k1) per
     https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#default-signing
     """
+
+    if aux is None:
+        aux = secrets.token_bytes(32)
     key = int.from_bytes(key, "big")
     if key == 0 or key >= SECP256K1_N:
         raise ValueError("invalid secret key")
@@ -59,7 +62,7 @@ def sign(key: bytes, digest: bytes, aux: bytes) -> bytes:
     d = key if not Py % 2 else SECP256K1_N - key
 
     tag = "BIP0340/aux".encode("utf8")
-    t = (key ^ int.from_bytes(sha256(sha256(tag) + sha256(tag) + aux), "big")).to_bytes(
+    t = (d ^ int.from_bytes(sha256(sha256(tag) + sha256(tag) + aux), "big")).to_bytes(
         32, "big"
     )
 
@@ -95,6 +98,7 @@ def verify(pk: bytes, m: bytes, sig: bytes) -> bool:
     https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#verification
     """
     x, y = lift_x(pk)
+    assert point_is_on_curve(x, y), "point is not on the curve"
     r = int.from_bytes(sig[:32], "big")
     assert r < SECP256K1_P, "r >= p"
     s = int.from_bytes(sig[32:], "big")

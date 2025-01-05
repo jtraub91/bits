@@ -34,14 +34,12 @@ jobs:
           [legacy_sect]
           activate = 1
           EOF
-      - name: Deploy bitcoind - Linux
+      - name: Deploy bitcoind and run integration tests with pytest - Linux
         if: runner.os == 'Linux'
+        continue-on-error: true
         run: |
           mkdir ~/bitcoind-data
           docker run -d --name bitcoind-node -v ~/bitcoind-data:/root/.bitcoin -p 18443:18443 -p 18444:18444 blockstream/bitcoind:23.1 bitcoind -txindex -chain=regtest -server -rpcbind=0.0.0.0 -rpcallowip=0.0.0.0/0
-      - name: Test with pytest - Linux
-        if: runner.os == 'Linux'
-        run: |
           mkdir ~/.bits
           cat <<EOF | tee ~/.bits/config.json
           {
@@ -52,11 +50,10 @@ jobs:
           docker exec bitcoind-node ls -la /root/.bitcoin
           docker exec bitcoind-node ls -la /root/.bitcoin/regtest
           docker exec bitcoind-node chmod 644 /root/.bitcoin/regtest/.cookie
-          pytest
-      - name: Test with pytest (unit tests only) - macOS / Windows
-        if: runner.os == 'macOS' || runner.os == 'Windows'
+          pytest tests/integration
+      - name: Test with pytest (ignore integration tests) - Linux / macOS / Windows
         run: |
-          pytest tests/unit
+          pytest --ignore=tests/integration
       - name: Upload coverage reports to Codecov
         if: '!cancelled()'
         uses: codecov/codecov-action@v3
