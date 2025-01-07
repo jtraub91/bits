@@ -165,9 +165,9 @@ def mine_block(
             script_pubkey,
             block_height=current_block_height + 1,
             regtest=is_regtest,
-            witness_merkle_root_hash=witness_merkle_root_hash
-            if must_commit_wtxid
-            else None,
+            witness_merkle_root_hash=(
+                witness_merkle_root_hash if must_commit_wtxid else None
+            ),
         )
     ] + [bytes.fromhex(raw_tx) for raw_tx in mempool_raw_txns]
 

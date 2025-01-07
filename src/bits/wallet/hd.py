@@ -38,9 +38,11 @@ def get_xpub(xkey: bytes):
         depth,
         parent_key_fingerprint,
         child_no,
-        testnet=True
-        if version in [bip32.VERSION_PRIVATE_TESTNET, bip32.VERSION_PUBLIC_TESTNET]
-        else False,
+        testnet=(
+            True
+            if version in [bip32.VERSION_PRIVATE_TESTNET, bip32.VERSION_PUBLIC_TESTNET]
+            else False
+        ),
     )
 
 
