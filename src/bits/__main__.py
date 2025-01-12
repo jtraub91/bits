@@ -866,7 +866,9 @@ See "bits wif -h" for help on creating WIF-encoded keys.
 
     p2p_parser = sub_parser.add_parser("p2p", help="start p2p node")
     p2p_parser.add_argument(
-        "--seeds", type=str, help="comma separated list of seed nodes"
+        "--seeds",
+        type=json.loads,
+        help="list of seed nodes host:port, e.g. '[\"127.0.0.1:18333\"]'",
     )
     add_common_arguments(p2p_parser)
 
@@ -1275,20 +1277,9 @@ def main():
                 break
     elif args.subcommand == "p2p":
         bits.p2p.set_magic_start_bytes(config.network)
-        # bits p2p start --seeds "host1:port1,host2:port2"
-        seeds = args.seeds.split(",") if args.seeds else []
-        if args.rpcbind:
-            rpc_host, rpc_port = args.rpcbind.split(":")
-            rpc_port = int(rpc_port)
-            rpc_bind = (rpc_host, rpc_port)
-        else:
-            rpc_bind = ()
         p2p_node = bits.p2p.Node(
-            seeds=seeds,
-            serve_rpc=args.serve,
-            rpc_bind=args.rpcbind,
-            rpc_username=args.rpcuser,
-            rpc_password=args.rpcpassword,
+            args.seeds,
+            config.datadir,
         )
         p2p_node.start()
     elif args.subcommand == "blockchain":

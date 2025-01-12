@@ -563,3 +563,23 @@ def decode_psbt(psbt_: bytes):
     assert magic == bip174.PSBT_MAGIC_BYTES, "magic mismatch, not a PSBT"
 
     return
+
+
+def update_psbt():
+    return
+
+
+def sign_psbt():
+    return
+
+
+def combine_psbt():
+    return
+
+
+def input_finalize_psbt():
+    return
+
+
+def extract_transaction_psbt():
+    return
