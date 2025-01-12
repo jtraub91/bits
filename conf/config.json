@@ -1,6 +1,7 @@
 {
   "log_level": "error",
   "network": "mainnet",
+  "datadir": "",
   "rpc_url": "",
   "rpc_user": "",
   "rpc_password": "",

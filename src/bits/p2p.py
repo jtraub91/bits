@@ -6,10 +6,8 @@ https://developer.bitcoin.org/reference/p2p_networking.html
 https://en.bitcoin.it/wiki/Network
 https://en.bitcoin.it/wiki/Protocol_documentation
 """
-import asyncio
 import base64
 import binascii
-import json
 import logging
 import os
 import socket
@@ -117,39 +115,6 @@ def set_magic_start_bytes(network: str = "mainnet"):
     else:
         raise ValueError(f"network not recognized: {network}")
     return True
-
-
-def recv_msg(sock: socket.socket) -> Tuple[bytes, bytes, bytes]:
-    """
-    Recv and deserialize message ( header + optional payload )
-    """
-    msg = b""
-    while len(msg) != MSG_HEADER_LEN:
-        msg += sock.recv(MSG_HEADER_LEN - len(msg))
-
-    start_bytes = msg[:4]
-    command = msg[4:16].rstrip(b"\x00")
-    payload_size = int.from_bytes(msg[16:20], "little")
-    checksum = msg[20:24]
-    payload = msg[24:]
-    if payload_size:
-        while len(payload) != payload_size:
-            payload += sock.recv(payload_size - len(payload))
-
-    # sanity checks
-    if len(payload) != payload_size:
-        raise ValueError(
-            f"payload_size ({payload_size}) does not match length of payload ({len(payload)})"
-        )
-    if checksum != bits.crypto.hash256(payload)[:4]:
-        raise ValueError(
-            f"checksum failed. {checksum} != {bits.crypto.hash256(payload)[:4]}"
-        )
-    if start_bytes != MAGIC_START_BYTES:
-        raise ValueError(
-            f"network mismatch - {start_bytes} not equal to magic start bytes {MAGIC_START_BYTES}"
-        )
-    return start_bytes, command, payload
 
 
 def msg_ser(
@@ -337,6 +302,7 @@ def parse_getheaders_payload(payload: bytes) -> dict:
         index = 19
 
     if hash_count > 0:
+        # pylint: disable-next=possibly-used-before-assignment
         block_header_hashes = payload[index : index + hash_count * 32]
         parsed_payload["block_header_hashes"] = [
             block_header_hashes[32 * i : 32 * (i + 1)].hex()
@@ -420,10 +386,26 @@ def network_ip_addr(time: int, services: bytes, ip_addr: bytes, port: int) -> by
 def parse_network_ip_addr(payload: bytes) -> dict:
     return {
         "time": int.from_bytes(payload[:4], "little"),
-        "services": payload[4:12],
-        "ip_addr": payload[12:28],
+        "services": int.from_bytes(payload[4:12], "little"),
+        "ip_addr": parse_ip_addr(payload[12:28]),
         "port": int.from_bytes(payload[28:], "big"),
     }
+
+
+def parse_ip_addr(ip_addr: bytes) -> str:
+    ipv6 = ip_addr[:12]
+    ipv4 = ip_addr[12:]
+
+    ipv6_str = ""
+    for n in range(6):
+        nibble = ipv6[2 * n : 2 * n + 2]
+        if nibble != b"\x00\x00":
+            ipv6_str += nibble.hex().upper()
+        else:
+            if ipv6_str[-2:] != "::":
+                ipv6_str += ":"
+
+    return f"{ipv6_str}:{ipv4[0]}.{ipv4[1]}.{ipv4[2]}.{ipv4[3]}"
 
 
 def addr_payload(count: int, addrs: List[bytes]) -> bytes:
@@ -450,7 +432,7 @@ def parse_payload(command, payload):
     if parse_fn:
         return parse_fn(payload)
     else:
-        log.warning(f"no parser {parse_fn_name}")
+        log.debug(f"no parser {parse_fn_name}")
 
 
 def write_blocks_to_disk(blocks: List[bytes], datadir: str):
@@ -489,43 +471,6 @@ def write_blocks_to_disk(blocks: List[bytes], datadir: str):
     dat_file.close()
 
 
-def auth_request_handler_factory(username: str, password: str):
-    """
-    Return subclass of SimpleXMLRPCRequestHandler for checking Basic Auth
-    Args:
-        username: str, basic auth username
-        password: str, basic auth password
-    Returns:
-        BasicAuthRequestHandler
-    """
-
-    class BasicAuthRequestHandler(xmlrpc.server.SimpleXMLRPCRequestHandler):
-        @classmethod
-        def parse_request(request):
-            if xmlrpc.server.SimpleXMLRPCRequestHandler.parse_request(request):
-                auth_header_value = request.headers.get("Authorization")
-                if not auth_header_value:
-                    request.send_error(401, "No Authorization Header")
-                    return False
-                auth_type, b64value = auth_header_value.split()
-                if auth_type != "Basic":
-                    request.send_error(401, "Only Basic Authorization supported")
-                    return False
-                try:
-                    decoded = base64.b64decode(b64value)
-                except binascii.Error:
-                    request.send_error(401, "base64 decode error")
-                    return False
-                auth_user, auth_password = decoded.decode("utf8").split(":")
-                if auth_user != username or auth_password != password:
-                    request.send_error(401, "Authentication error")
-                    return False
-                return True
-            return False
-
-    return BasicAuthRequestHandler
-
-
 class PeerThread(Thread):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -535,118 +480,224 @@ class PeerThread(Thread):
         self.exit_event.set()
 
 
+class Peer:
+    def __init__(self, host: Union[str, bytes], port: int):
+        self.host = host
+        self.port = port
+
+        self.socket = socket.socket()
+        self.connect_socket()
+
+        self.thread = PeerThread(
+            target=self.recv_loop,
+        )
+
+        self.unhandled_command_queue = deque([])
+        self._last_recvd_msg_time = None
+
+    def connect_socket(self):
+        """
+        Connect peer socket
+        """
+        self.socket.connect((self.host, self.port))
+        self.socket.setblocking(True)
+        self.socket.settimeout(5)
+        log.info(f"socket connected to peer @ {self.host}:{self.port}")
+
+    def start_thread(self):
+        self.thread.start()
+
+    def stop_thread(self):
+        self.thread.exit()
+
+    def save_version_data(self, data: dict):
+        self.version_data = data
+
+    def recv_msg(self) -> Tuple[bytes, bytes, bytes]:
+        """
+        Recv and deserialize message ( header + optional payload )
+        """
+        msg = b""
+        while len(msg) != MSG_HEADER_LEN:
+            msg += self.socket.recv(MSG_HEADER_LEN - len(msg))
+
+        start_bytes = msg[:4]
+        command = msg[4:16].rstrip(b"\x00")
+        payload_size = int.from_bytes(msg[16:20], "little")
+        checksum = msg[20:24]
+        payload = msg[24:]
+        if payload_size:
+            while len(payload) != payload_size:
+                payload += self.socket.recv(payload_size - len(payload))
+
+        # sanity checks
+        if len(payload) != payload_size:
+            raise ValueError(
+                f"payload_size ({payload_size}) does not match length of payload ({len(payload)})"
+            )
+        if checksum != bits.crypto.hash256(payload)[:4]:
+            raise ValueError(
+                f"checksum failed. {checksum} != {bits.crypto.hash256(payload)[:4]}"
+            )
+        if start_bytes != MAGIC_START_BYTES:
+            raise ValueError(
+                f"network mismatch - {start_bytes} not equal to magic start bytes {MAGIC_START_BYTES}"
+            )
+        log.info(
+            f"received {len(start_bytes + command + payload)} bytes from peer @ {self.host}:{self.port}. command: {command}"
+        )
+        log.debug(f"payload: {payload}")
+        self._last_recvd_msg_time = time.time()
+        return start_bytes, command, payload
+
+    def recv_loop(self):
+        """
+        Recv loop; receive msg, add to msg queue
+        """
+        while not self.thread.exit_event.is_set():
+            try:
+                start_bytes, command, payload = self.recv_msg()
+                payload = parse_payload(command, payload)
+                log.info(f"payload (parsed): {payload}")
+                self.handle_command(command, payload)
+            except TimeoutError:
+                log.debug("recv msg timeout, continuing...")
+                if time.time() - self._last_recvd_msg_time > 90 * 60:
+                    # if it's been > 90 min since last message
+                    self.stop_thread()
+                continue
+        log.debug("Exiting recv_loop...")
+        self.socket.close()
+        log.info(f"peer @ {self.host}:{self.port} socket is closed.")
+
+    def send_command(self, command: bytes, payload: bytes):
+        msg = msg_ser(MAGIC_START_BYTES, command, payload)
+        self.socket.sendall(msg)
+
+    ### handlers ###
+    def handle_command(self, command: bytes, payload: dict):
+        handle_fn_name = f"handle_{command.decode('ascii')}_command"
+        handle_fn = getattr(self, handle_fn_name, None)
+        if handle_fn:
+            log.info(f"handling {command} command...")
+            return handle_fn(command, payload)  # pylint: disable=not-callable
+        else:
+            log.warning(
+                f"no handler {handle_fn_name}, adding to unhandled_command_queue"
+            )
+            self.unhandled_command_queue.append((command, payload))
+
+    def handle_inv_command(self, command: bytes, payload: dict):
+        count = payload["count"]
+        if count == 500:
+            recv_inventories = payload["inventory"]
+            inventories = [
+                inventory(inv["type_id"], inv["hash"].encode("ascii"))
+                for inv in recv_inventories[:128]
+            ]
+            msg = msg_ser(MAGIC_START_BYTES, b"getdata", inv_payload(128, inventories))
+            log.info("handle_inv_command: sending getdata command ...")
+            self.socket.sendall(msg)
+
+    def handle_feefilter_command(self, command: bytes, payload: dict):
+        log.info("handle_feefilter_command: no action implemented")
+
+    def handle_getheaders_command(self, command: bytes, payload: dict):
+        msg = msg_ser(MAGIC_START_BYTES, "headers", b"")
+        log.info(
+            f"handle_getheaders_command: sending empty headers message to peer @ {self.host}:{self.port}..."
+        )
+        self.socket.sendall(msg)
+
+    def handle_ping_command(self, command: bytes, payload: dict):
+        """
+        Handle ping command by sending a 'pong' message
+        """
+        msg = msg_ser(MAGIC_START_BYTES, b"pong", ping_payload(payload["nonce"]))
+        log.info(
+            f"handle_ping_command: sending pong to peer @ {self.host}:{self.port}..."
+        )
+        self.socket.sendall(msg)
+
+    def handle_sendheaders_command(self, command: bytes, payload: dict):
+        log.info("handle_sendheaders_command: no action implemented")
+
+
 class Node:
     def __init__(
         self,
-        seeds: List[str] = [],
+        seeds: List[str],
+        datadir: str,
         protocol_version: int = 70015,
         services: int = NODE_NETWORK,
         relay: bool = True,
-        datadir: str = ".bits/blocks",
-        serve_rpc: bool = False,
-        rpc_bind: Tuple[str, int] = (),
-        rpc_username: Optional[str] = None,
-        rpc_password: Optional[str] = None,
     ):
-        self._msg_queue = deque([])
-        self._registered_commands_to_handle = [b"version", b"verack", b"ping"]
-        self._peer_sockets = {}
-        self._peer_threads = {}
-        self._peer_data = {}
+        """
+        bits P2P node
+
+        Args:
+            seeds: list[str], list of seed nodes to connect to, <host:port> e.g. ["127.0.0.1:18443",]
+            datadir: str, directory to store blockchain data
+            protocol_version: int
+            services: int
+            relay: bool
+        """
+        self._peers = []
         self.seeds = seeds
         self.protocol_version = protocol_version
         self.services = services
         self.relay = relay
+        self.user_agent = f"/bits:{bits.__version__}/".encode("utf8")
         self.datadir = datadir
 
-        self.serve_rpc = serve_rpc
-        self.rpc_bind = rpc_bind
-        self.rpc_username = rpc_username
-        self.rpc_password = rpc_password
-        self.rpc_server = None
-        self._rpc_thread = None
-
-    def recv_loop(self, peer_no: int):
+    def connect_peer(self, peer: Peer):
         """
-        Recv loop; receive msg, add to msg queue
+        Connect peer by performing version / verack handshake
         """
-        log.debug(f"peer {peer_no} enter recv_loop")
-        while not self._peer_threads[peer_no].exit_event.is_set():
-            try:
-                start_bytes, command, payload = recv_msg(self._peer_sockets[peer_no])
-            except TimeoutError:
-                continue
-            assert start_bytes == MAGIC_START_BYTES
-            log.info(
-                f"received {len(start_bytes + command + payload)} bytes from peer {peer_no}. command: {command}"
-            )
-            log.debug(f"payload: {payload}")
-            payload = parse_payload(command, payload)
-            log.debug(f"payload (parsed): {payload}")
-            self._msg_queue.append((peer_no, command, payload))
-            if command in self._registered_commands_to_handle:
-                self._msg_queue.pop()
-                self.handle_command(peer_no, command, payload)
-
-        self._peer_sockets[peer_no].close()
-        log.debug(f"peer {peer_no} socket closed. exit recv_loop")
-
-    def connect_peer(self, host: Union[str, bytes], port: int):
-        """
-        Connect to peer; open socket and send version message
-        """
-        peer_no = len(self._peer_sockets.keys())
-        sock = socket.socket()
-        sock.connect((host, port))
-        sock.setblocking(True)
-        sock.settimeout(5)
-        self._peer_sockets[peer_no] = sock
-        self._peer_data[peer_no] = {}
-
-        log.info(f"connected to peer {peer_no} @ {host}:{port}")
-
-        log.info("sending version message...")
-        local_host, local_port = self._peer_sockets[peer_no].getsockname()
+        log.info(f"sending version message to peer @ {peer.host}:{peer.port}...")
+        local_host, local_port = peer.socket.getsockname()
         versionp = version_payload(
             0,
-            port,
+            peer.port,
             local_port,
             protocol_version=self.protocol_version,
             services=self.services,
             relay=self.relay,
         )
         msg = msg_ser(MAGIC_START_BYTES, b"version", versionp)
-        self._peer_sockets[peer_no].sendall(msg)
+        peer.socket.sendall(msg)
 
-        self._peer_threads[peer_no] = PeerThread(
-            target=self.recv_loop,
-            args=(peer_no,),
+        # wait for version message
+        start_bytes, command, payload = peer.recv_msg()
+        assert command == b"version", f"expected version command not {command}"
+        payload = parse_payload(command, payload)
+        log.debug(f"payload (parsed): {payload}")
+
+        # save version payload peer data
+        peer.save_version_data(payload)
+
+        # send verack
+        msg = msg_ser(MAGIC_START_BYTES, b"verack", b"")
+        log.info(f"sending verack message to peer @ {peer.host}:{peer.port}...")
+        peer.socket.sendall(msg)
+
+        start_bytes, command, payload = peer.recv_msg()
+        assert command == b"verack", f"expected verack command, not {command}"
+        payload = parse_payload(command, payload)
+        log.debug(f"payload (parsed): {payload}")
+
+        log.info(
+            f"connection handshake established for @ {peer.host}:{peer.port}. starting peer peer recv_loop thread..."
         )
-        self._peer_threads[peer_no].start()
-
-    def start_rpc_server(self):
-        def hello_world():
-            return "hello world"
-
-        with xmlrpc.server.SimpleXMLRPCServer(
-            self.rpc_bind,
-            requestHandler=auth_request_handler_factory(
-                self.rpc_username, self.rpc_password
-            ),
-        ) as server:
-            self.rpc_server = server
-            self.rpc_server.register_function(hello_world)
-            log.info("Starting RPC server...")
-            self.rpc_server.serve_forever()
+        peer.start_thread()
 
     def start(self):
         for seed in self.seeds:
             host, port = seed.split(":")
             port = int(port)
-            self.connect_peer(host, port)
-        if self.serve_rpc:
-            self._rpc_thread = Thread(target=self.start_rpc_server)
-            self._rpc_thread.start()
+            peer = Peer(host, port)
+            self.connect_peer(peer)
+            self._peers.append(peer)
 
     def ibd(self):
         """
@@ -659,69 +710,11 @@ class Node:
             b"getblocks",
             getblocks_payload([bits.crypto.hash256(gb[:80])]),
         )
-        self._peer_sockets[0].sendall(msg)
-
-    ### handlers ###
-    def handle_command(self, peer_no: int, command: bytes, payload: dict):
-        handle_fn_name = f"handle_{command.decode('ascii')}_command"
-        handle_fn = getattr(self, handle_fn_name)
-        if handle_fn:
-            log.info(f"handling {command} command...")
-            return handle_fn(peer_no, command, payload)
-        else:
-            log.warning(f"no handler {handle_fn_name}")
-
-    def handle_version_command(self, peer_no: int, command: bytes, payload: dict):
-        msg = msg_ser(MAGIC_START_BYTES, b"verack", b"")
-        log.info("handle_version_command: sending verack...")
-        self._peer_sockets[peer_no].sendall(msg)
-        log.debug(f"handle_version_command: sent serialized message: {msg}")
-        self._peer_data[peer_no][command] = payload
-        log.debug(
-            f"handle_version_command: storing version payload in _peer_data.{peer_no}.{command}"
-        )
-
-    def handle_inv_command(self, peer_no: int, command: bytes, payload: dict):
-        count = payload["count"]
-        if count == 500:
-            recv_inventories = payload["inventory"]
-            inventories = [
-                inventory(inv["type_id"], inv["hash"].encode("ascii"))
-                for inv in recv_inventories[:128]
-            ]
-            msg = msg_ser(MAGIC_START_BYTES, b"getdata", inv_payload(128, inventories))
-            log.info("handle_inv_command: sending getdata command ...")
-            self._peer_sockets[peer_no].sendall(msg)
-
-    def handle_feefilter_command(self, peer_no: int, command: bytes, payload: dict):
-        log.info("handle_feefilter_command: no action implemented")
-
-    def handle_getheaders_command(self, peer_no: int, command: bytes, payload: dict):
-        msg = msg_ser(MAGIC_START_BYTES, "headers", b"")
-        log.info(
-            f"handle_getheaders_command: sending empty headers message to peer {peer_no}..."
-        )
-        self._peer_sockets[peer_no].sendall(msg)
-
-    def handle_ping_command(self, peer_no: int, command: bytes, payload: dict):
-        """
-        Handle ping command by sending a 'pong' message
-        """
-        msg = msg_ser(MAGIC_START_BYTES, b"pong", ping_payload(payload["nonce"]))
-        log.info(f"handle_ping_command: sending pong to peer {peer_no}...")
-        self._peer_sockets[peer_no].sendall(msg)
-
-    def handle_sendheaders_command(self, peer_no: int, command: bytes, payload: dict):
-        log.info("handle_sendheaders_command: no action implemented")
-
-    def handle_verack_command(self, peer_no: int, command: bytes, payload: dict):
-        log.info("handle_verack_command: no action")
+        self._peers[0].socket.sendall(msg)
 
     def stop(self):
-        for peer_no in self._peer_threads:
-            self._peer_threads[peer_no].exit()  # should close socket too
-        if self.serve_rpc:
-            self.rpc_server.shutdown()
+        for peer in self._peers:
+            peer.stop_thread()  # should close socket too
 
 
 set_magic_start_bytes()

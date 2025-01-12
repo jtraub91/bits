@@ -15,6 +15,9 @@ class Config(object):
         self.log_level = kwargs.get("log_level", "error")
         self.network = kwargs.get("network", "mainnet")
 
+        self.datadir = kwargs.get("datadir", "")
+        self.seeds = kwargs.get("seeds", [])
+
         self.rpc_url = kwargs.get("rpc_url", "")
         self.rpc_user = kwargs.get("rpc_user", "")
         self.rpc_password = kwargs.get("rpc_password", "")
