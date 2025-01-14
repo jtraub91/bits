@@ -1276,10 +1276,10 @@ def main():
                 )
                 break
     elif args.subcommand == "p2p":
-        bits.p2p.set_magic_start_bytes(config.network)
         p2p_node = bits.p2p.Node(
             args.seeds,
             config.datadir,
+            config.network,
         )
         p2p_node.start()
     elif args.subcommand == "blockchain":
