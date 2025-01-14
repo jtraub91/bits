@@ -6,13 +6,15 @@ https://developer.bitcoin.org/reference/p2p_networking.html
 https://en.bitcoin.it/wiki/Network
 https://en.bitcoin.it/wiki/Protocol_documentation
 """
+import asyncio
 import base64
 import binascii
 import logging
 import os
 import socket
 import time
-import xmlrpc.server
+from asyncio import StreamReader
+from asyncio import StreamWriter
 from collections import deque
 from threading import Event
 from threading import Thread
@@ -25,6 +27,8 @@ import bits
 from bits.blockchain import genesis_block
 
 
+BITS_USER_AGENT = f"/bits:{bits.__version__}/".encode("utf8")
+
 # Magic start strings
 # https://github.com/bitcoin/bitcoin/blob/v23.0/src/chainparams.cpp#L102-L105
 MAINNET_START = b"\xF9\xBE\xB4\xD9"
@@ -35,8 +39,6 @@ REGTEST_START = b"\xFA\xBF\xB5\xDA"
 MAINNET_PORT = 8333
 TESTNET_PORT = 18333
 REGTEST_PORT = 18444
-
-MAGIC_START_BYTES = None
 
 # https://github.com/bitcoin/bitcoin/blob/v23.0/src/serialize.h#L31
 MAX_SIZE = 0x02000000
@@ -102,19 +104,6 @@ MAX_BLOCKFILE_SIZE = 0x8000000  # 128 MiB
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
-
-
-def set_magic_start_bytes(network: str = "mainnet"):
-    global MAGIC_START_BYTES
-    if network.lower() == "mainnet":
-        MAGIC_START_BYTES = MAINNET_START
-    elif network.lower() == "testnet":
-        MAGIC_START_BYTES = TESTNET_START
-    elif network.lower() == "regtest":
-        MAGIC_START_BYTES = REGTEST_START
-    else:
-        raise ValueError(f"network not recognized: {network}")
-    return True
 
 
 def msg_ser(
@@ -204,13 +193,13 @@ def version_payload(
     protocol_version: int = 70015,
     services: int = NODE_NETWORK,
     relay: bool = True,
+    user_agent: bytes = BITS_USER_AGENT,
 ) -> bytes:
     timestamp = int(time.time())
     addr_recv_services = 0x00
     addr_recv_ip_addr = "::ffff:127.0.0.1"
     addr_trans_ip_addr = "::ffff:127.0.0.1"
     nonce = 0
-    user_agent = b"/bits:0.1.0/"
     msg = (
         protocol_version.to_bytes(4, "little")
         + services.to_bytes(8, "little")
@@ -432,195 +421,76 @@ def parse_payload(command, payload):
     if parse_fn:
         return parse_fn(payload)
     else:
-        log.debug(f"no parser {parse_fn_name}")
-
-
-def write_blocks_to_disk(blocks: List[bytes], datadir: str):
-    """
-    Write blocks to disk
-
-    observe max_blockfile_size &
-    number files blk00000.dat, blk00001.dat, ...
-
-    Args:
-        blocks: List[bytes]
-        datadir: str, path to blockchain datadir
-    """
-    if not os.path.exists(datadir):
-        os.makedirs(datadir)
-
-    dat_files = sorted([f for f in os.listdir(datadir) if f.endswith(".dat")])
-    if not dat_files:
-        filepath = os.path.join(datadir, "blk00000.dat")
-    else:
-        filepath = os.path.join(datadir, dat_files[-1])
-
-    dat_file = open(filepath, "ab")
-    for blk in blocks:
-        blk_data = MAGIC_START_BYTES + len(blk).to_bytes(4, "little") + blk
-        if len(blk_data) + dat_file.tell() <= MAX_BLOCKFILE_SIZE:
-            dat_file.write(blk_data)
-        else:
-            dat_file.close()
-            new_blk_no = (
-                int(os.path.split(filepath)[-1].split(".dat")[0].split("blk")[-1]) + 1
-            )
-            filename = f"blk{new_blk_no.zfill(5)}.dat"
-            filepath = os.path.join(datadir, filename)
-            dat_file = open(filepath, "ab")
-    dat_file.close()
-
-
-class PeerThread(Thread):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.exit_event = Event()
-
-    def exit(self):
-        self.exit_event.set()
+        log.warning(f"no parser {parse_fn_name}")
 
 
 class Peer:
-    def __init__(self, host: Union[str, bytes], port: int):
+    def __init__(self, host: Union[str, bytes], port: int, network: str):
         self.host = host
         self.port = port
+        if network.lower() == "mainnet":
+            self.magic_start_bytes = MAINNET_START
+        elif network.lower() == "testnet":
+            self.magic_start_bytes = TESTNET_START
+        elif network.lower() == "regtest":
+            self.magic_start_bytes = REGTEST_START
+        else:
+            raise ValueError(f"network not recognized: {network}")
 
-        self.socket = socket.socket()
-        self.connect_socket()
+        self._last_recv_msg_time: float = None
+        self.data = {}
 
-        self.thread = PeerThread(
-            target=self.recv_loop,
-        )
+        self.reader: StreamReader = None
+        self.writer: StreamWriter = None
 
-        self.unhandled_command_queue = deque([])
-        self._last_recvd_msg_time = None
+        self.exit_event = Event()
 
-    def connect_socket(self):
+    async def connect(self):
+        reader, writer = await asyncio.open_connection(self.host, self.port)
+        log.info(f"connection opened to peer @ {self.host}:{self.port}")
+        self.reader = reader
+        self.writer = writer
+
+    async def close(self):
+        self.writer.close()
+        await self.writer.wait_closed()
+        log.info(f"closed socket connection to peer @ {self.host}:{self.port} ")
+
+    async def recv_msg(self) -> Tuple[bytes, bytes, bytes]:
         """
-        Connect peer socket
-        """
-        self.socket.connect((self.host, self.port))
-        self.socket.setblocking(True)
-        self.socket.settimeout(5)
-        log.info(f"socket connected to peer @ {self.host}:{self.port}")
-
-    def start_thread(self):
-        self.thread.start()
-
-    def stop_thread(self):
-        self.thread.exit()
-
-    def save_version_data(self, data: dict):
-        self.version_data = data
-
-    def recv_msg(self) -> Tuple[bytes, bytes, bytes]:
-        """
-        Recv and deserialize message ( header + optional payload )
+        Read and deserialize message ( header + payload )
         """
         msg = b""
         while len(msg) != MSG_HEADER_LEN:
-            msg += self.socket.recv(MSG_HEADER_LEN - len(msg))
+            msg += await self.reader.read(MSG_HEADER_LEN - len(msg))
 
         start_bytes = msg[:4]
         command = msg[4:16].rstrip(b"\x00")
         payload_size = int.from_bytes(msg[16:20], "little")
         checksum = msg[20:24]
-        payload = msg[24:]
+
+        payload = b""
         if payload_size:
             while len(payload) != payload_size:
-                payload += self.socket.recv(payload_size - len(payload))
+                payload += await self.reader.read(payload_size - len(payload))
 
-        # sanity checks
-        if len(payload) != payload_size:
-            raise ValueError(
-                f"payload_size ({payload_size}) does not match length of payload ({len(payload)})"
-            )
         if checksum != bits.crypto.hash256(payload)[:4]:
             raise ValueError(
                 f"checksum failed. {checksum} != {bits.crypto.hash256(payload)[:4]}"
             )
-        if start_bytes != MAGIC_START_BYTES:
+        if start_bytes != self.magic_start_bytes:
             raise ValueError(
-                f"network mismatch - {start_bytes} not equal to magic start bytes {MAGIC_START_BYTES}"
+                f"magic network bytes mismatch - {start_bytes} not equal to magic start bytes {self.magic_start_bytes}"
             )
         log.info(
-            f"received {len(start_bytes + command + payload)} bytes from peer @ {self.host}:{self.port}. command: {command}"
+            f"read {len(start_bytes + command + payload)} bytes from peer @ {self.host}:{self.port}. command: {command}"
         )
         log.debug(f"payload: {payload}")
-        self._last_recvd_msg_time = time.time()
+        self._last_recv_msg_time = time.time()
         return start_bytes, command, payload
 
-    def recv_loop(self):
-        """
-        Recv loop; receive msg, add to msg queue
-        """
-        while not self.thread.exit_event.is_set():
-            try:
-                start_bytes, command, payload = self.recv_msg()
-                payload = parse_payload(command, payload)
-                log.info(f"payload (parsed): {payload}")
-                self.handle_command(command, payload)
-            except TimeoutError:
-                log.debug("recv msg timeout, continuing...")
-                if time.time() - self._last_recvd_msg_time > 90 * 60:
-                    # if it's been > 90 min since last message
-                    self.stop_thread()
-                continue
-        log.debug("Exiting recv_loop...")
-        self.socket.close()
-        log.info(f"peer @ {self.host}:{self.port} socket is closed.")
-
-    def send_command(self, command: bytes, payload: bytes):
-        msg = msg_ser(MAGIC_START_BYTES, command, payload)
-        self.socket.sendall(msg)
-
-    ### handlers ###
-    def handle_command(self, command: bytes, payload: dict):
-        handle_fn_name = f"handle_{command.decode('ascii')}_command"
-        handle_fn = getattr(self, handle_fn_name, None)
-        if handle_fn:
-            log.info(f"handling {command} command...")
-            return handle_fn(command, payload)  # pylint: disable=not-callable
-        else:
-            log.warning(
-                f"no handler {handle_fn_name}, adding to unhandled_command_queue"
-            )
-            self.unhandled_command_queue.append((command, payload))
-
-    def handle_inv_command(self, command: bytes, payload: dict):
-        count = payload["count"]
-        if count == 500:
-            recv_inventories = payload["inventory"]
-            inventories = [
-                inventory(inv["type_id"], inv["hash"].encode("ascii"))
-                for inv in recv_inventories[:128]
-            ]
-            msg = msg_ser(MAGIC_START_BYTES, b"getdata", inv_payload(128, inventories))
-            log.info("handle_inv_command: sending getdata command ...")
-            self.socket.sendall(msg)
-
-    def handle_feefilter_command(self, command: bytes, payload: dict):
-        log.info("handle_feefilter_command: no action implemented")
-
-    def handle_getheaders_command(self, command: bytes, payload: dict):
-        msg = msg_ser(MAGIC_START_BYTES, "headers", b"")
-        log.info(
-            f"handle_getheaders_command: sending empty headers message to peer @ {self.host}:{self.port}..."
-        )
-        self.socket.sendall(msg)
-
-    def handle_ping_command(self, command: bytes, payload: dict):
-        """
-        Handle ping command by sending a 'pong' message
-        """
-        msg = msg_ser(MAGIC_START_BYTES, b"pong", ping_payload(payload["nonce"]))
-        log.info(
-            f"handle_ping_command: sending pong to peer @ {self.host}:{self.port}..."
-        )
-        self.socket.sendall(msg)
-
-    def handle_sendheaders_command(self, command: bytes, payload: dict):
-        log.info("handle_sendheaders_command: no action implemented")
+    def save_version_data(self, version_data: dict):
+        self.data = {"version": version_data}
 
 
 class Node:
@@ -628,9 +498,11 @@ class Node:
         self,
         seeds: List[str],
         datadir: str,
+        network: str,
         protocol_version: int = 70015,
         services: int = NODE_NETWORK,
         relay: bool = True,
+        user_agent: bytes = BITS_USER_AGENT,
     ):
         """
         bits P2P node
@@ -642,20 +514,37 @@ class Node:
             services: int
             relay: bool
         """
-        self._peers = []
         self.seeds = seeds
+        self.datadir = datadir
         self.protocol_version = protocol_version
         self.services = services
         self.relay = relay
-        self.user_agent = f"/bits:{bits.__version__}/".encode("utf8")
-        self.datadir = datadir
+        self.user_agent = user_agent
+        if network.lower() == "mainnet":
+            self.magic_start_bytes = MAINNET_START
+        elif network.lower() == "testnet":
+            self.magic_start_bytes = TESTNET_START
+        elif network.lower() == "regtest":
+            self.magic_start_bytes = REGTEST_START
+        else:
+            raise ValueError(f"network not recognized: {network}")
+        self.network = network
 
-    def connect_peer(self, peer: Peer):
+        self.message_queue = deque([])
+
+        self.peers: list[Peer] = []
+        self.addrs = {}
+
+        self.exit_event = Event()
+
+    async def connect_to_peer(self, peer: Peer):
         """
-        Connect peer by performing version / verack handshake
+        Connect to peer by performing version / verack handshake
+        https://developer.bitcoin.org/devguide/p2p_network.html#connecting-to-peers
         """
         log.info(f"sending version message to peer @ {peer.host}:{peer.port}...")
-        local_host, local_port = peer.socket.getsockname()
+        trans_sock = peer.writer.transport.get_extra_info("socket")
+        local_host, local_port = trans_sock.getsockname()
         versionp = version_payload(
             0,
             peer.port,
@@ -663,12 +552,14 @@ class Node:
             protocol_version=self.protocol_version,
             services=self.services,
             relay=self.relay,
+            user_agent=self.user_agent,
         )
-        msg = msg_ser(MAGIC_START_BYTES, b"version", versionp)
-        peer.socket.sendall(msg)
+        msg = msg_ser(self.magic_start_bytes, b"version", versionp)
+        peer.writer.write(msg)
+        await peer.writer.drain()
 
         # wait for version message
-        start_bytes, command, payload = peer.recv_msg()
+        start_bytes, command, payload = await peer.recv_msg()
         assert command == b"version", f"expected version command not {command}"
         payload = parse_payload(command, payload)
         log.debug(f"payload (parsed): {payload}")
@@ -677,44 +568,164 @@ class Node:
         peer.save_version_data(payload)
 
         # send verack
-        msg = msg_ser(MAGIC_START_BYTES, b"verack", b"")
+        msg = msg_ser(self.magic_start_bytes, b"verack", b"")
         log.info(f"sending verack message to peer @ {peer.host}:{peer.port}...")
-        peer.socket.sendall(msg)
+        peer.writer.write(msg)
+        await peer.writer.drain()
 
-        start_bytes, command, payload = peer.recv_msg()
+        start_bytes, command, payload = await peer.recv_msg()
         assert command == b"verack", f"expected verack command, not {command}"
         payload = parse_payload(command, payload)
         log.debug(f"payload (parsed): {payload}")
+        log.info(f"connection handshake established for @ {peer.host}:{peer.port}")
 
-        log.info(
-            f"connection handshake established for @ {peer.host}:{peer.port}. starting peer peer recv_loop thread..."
-        )
-        peer.start_thread()
-
-    def start(self):
+    async def connect_seeds(self):
+        """
+        Connect seeds as peers, and schedule outgoing peer recv loop task
+        """
         for seed in self.seeds:
             host, port = seed.split(":")
             port = int(port)
-            peer = Peer(host, port)
-            self.connect_peer(peer)
-            self._peers.append(peer)
+            peer = Peer(host, port, self.network)
+            await peer.connect()
+            await self.connect_to_peer(peer)
+            self.peers.append(peer)
+            asyncio.create_task(self.outgoing_peer_recv_loop(peer))
+
+    async def outgoing_peer_recv_loop(self, peer: Peer):
+        recv_msg_timeout = 10  # sec to wait before timing out and looping again
+        PEER_INACTIVITY_TIMEOUT = 5400  # 90 minutes
+        while not peer.exit_event.is_set():
+            try:
+                start_bytes, command, payload = await asyncio.wait_for(
+                    peer.recv_msg(), recv_msg_timeout
+                )
+            except asyncio.TimeoutError:
+                log.debug(f"{recv_msg_timeout} sec recv_msg_timeout, continuing...")
+                if time.time() - peer._last_recv_msg_time > PEER_INACTIVITY_TIMEOUT:
+                    peer.exit_event.set()
+            else:
+                payload = parse_payload(command, payload)
+                self.message_queue.append((peer, command, payload))
+        log.info(f"exiting peer recv loop for peer @ {peer.host}:{peer.port}")
+        await peer.close()
+        log.info(f"peer @ {peer.host}:{peer.port} socket is closed.")
+
+    async def start_incoming_peer_server(self):
+        # TODO
+        return
+
+    async def message_handler_loop(self):
+        while not self.exit_event.is_set():
+            if self.message_queue:
+                peer, command, payload = self.message_queue.pop()
+                await self.handle_command(peer, command, payload)
+            await asyncio.sleep(1)
+
+    ### handlers ###
+    async def handle_command(self, peer: Peer, command: bytes, payload: dict):
+        command = command.decode("utf8")
+        handle_fn_name = f"handle_{command}_command"
+        handle_fn = getattr(self, handle_fn_name, None)
+        if handle_fn:
+            log.info(f"handling {command} command...")
+            await handle_fn(peer, command, payload)  # pylint: disable=not-callable
+        else:
+            log.warning(f"no handler {handle_fn_name}, for {command} command")
+
+    # async def handle_inv_command(self, peer: Peer, command: bytes, payload: dict):
+    #     count = payload["count"]
+    #     if count == 500:
+    #         recv_inventories = payload["inventory"]
+    #         inventories = [
+    #             inventory(inv["type_id"], inv["hash"].encode("ascii"))
+    #             for inv in recv_inventories[:128]
+    #         ]
+    #         msg = msg_ser(self.magic_start_bytes, b"getdata", inv_payload(128, inventories))
+    #         log.info("handle_inv_command: sending getdata command ...")
+    #         peer.writer.write(msg)
+    #         await peer.writer.drain()
+
+    # def handle_getheaders_command(self, command: bytes, payload: dict):
+    #     msg = msg_ser(self.magic_start_bytes, "headers", b"")
+    #     log.info(
+    #         f"handle_getheaders_command: sending empty headers message to peer @ {self.host}:{self.port}..."
+    #     )
+    #     self.socket.sendall(msg)
+
+    async def handle_ping_command(self, peer: Peer, command: bytes, payload: dict):
+        """
+        Handle ping command by sending a 'pong' message
+        """
+        msg = msg_ser(self.magic_start_bytes, b"pong", ping_payload(payload["nonce"]))
+        log.info(
+            f"handle_ping_command: sending pong to peer @ {peer.host}:{peer.port}..."
+        )
+        peer.writer.write(msg)
+        await peer.writer.drain()
+
+    async def run(self):
+        await self.connect_seeds()
+        await self.message_handler_loop()
+
+    def start(self):
+        asyncio.run(self.run())
+        log.info("node stopped.")
+
+    def stop(self):
+        self.exit_event.set()
+        log.info("node exit event is set")
+
+    async def main_loop(self):
+        return
+
+    async def peer_getaddr(self, peer: Peer):
+        return
 
     def ibd(self):
         """
         Initial Block Download
         """
         gb = genesis_block()
-        write_blocks_to_disk([gb], self.datadir)
+        self.write_blocks_to_disk([gb])
         msg = msg_ser(
-            MAGIC_START_BYTES,
+            self.magic_start_bytes,
             b"getblocks",
             getblocks_payload([bits.crypto.hash256(gb[:80])]),
         )
-        self._peers[0].socket.sendall(msg)
+        self.peers[0].socket.sendall(msg)
 
-    def stop(self):
-        for peer in self._peers:
-            peer.stop_thread()  # should close socket too
+    def write_blocks_to_disk(self, blocks: List[bytes]):
+        """
+        Write blocks to disk
 
+        observe max_blockfile_size &
+        number files blk00000.dat, blk00001.dat, ...
 
-set_magic_start_bytes()
+        Args:
+            blocks: List[bytes]
+        """
+        if not os.path.exists(self.datadir):
+            os.makedirs(self.datadir)
+
+        dat_files = sorted([f for f in os.listdir(self.datadir) if f.endswith(".dat")])
+        if not dat_files:
+            filepath = os.path.join(self.datadir, "blk00000.dat")
+        else:
+            filepath = os.path.join(self.datadir, dat_files[-1])
+
+        dat_file = open(filepath, "ab")
+        for blk in blocks:
+            blk_data = self.magic_start_bytes + len(blk).to_bytes(4, "little") + blk
+            if len(blk_data) + dat_file.tell() <= MAX_BLOCKFILE_SIZE:
+                dat_file.write(blk_data)
+            else:
+                dat_file.close()
+                new_blk_no = (
+                    int(os.path.split(filepath)[-1].split(".dat")[0].split("blk")[-1])
+                    + 1
+                )
+                filename = f"blk{new_blk_no.zfill(5)}.dat"
+                filepath = os.path.join(self.datadir, filename)
+                dat_file = open(filepath, "ab")
+        dat_file.close()
