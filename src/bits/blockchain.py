@@ -139,7 +139,7 @@ def genesis_coinbase_tx():
 
 def genesis_block():
     """
-    Hard coded genesis block - mainnet
+    Hard coded genesis block
     >>> gb = genesis_block()
     >>> header = gb[:80]
     >>> import hashlib

@@ -1,10 +1,16 @@
 log_level="error"
 network="mainnet"
 
+input_format="hex"
+output_format="hex"
+
+datadir=""
+seeds=[]
+dns_seeds=[]
+
+
+# connection to bitcoind daemon
 rpc_url=""
 rpc_user=""
 rpc_password=""
 rpc_datadir=""
-
-input_format="hex"
-output_format="hex"

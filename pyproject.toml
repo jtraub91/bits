@@ -24,14 +24,14 @@ classifiers = [
 
 [project.optional-dependencies]
 dev = [
-    "black",
+    "black==22.6.0",
     "build",
     "ipdb",
     "pip-chill",
     "pre-commit",
     "pylint",
     "pytest-cov",
-    "reorder-python-imports",
+    "reorder-python-imports==3.8.2",
     "twine"
 ]
 
