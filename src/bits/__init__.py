@@ -24,31 +24,11 @@ from .utils import wif_encode
 from .utils import witness_script_hash
 
 
-def init_logging(bitsconfig: dict = {}):
+def init_logging(log_file: str = ""):
     """
     Initialize logging
     """
     log = logging.getLogger(__name__)
-    formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
-    sh = logging.StreamHandler()
-    sh.setFormatter(formatter)
-    sh.setLevel(logging.ERROR)
-    log.addHandler(sh)
-
-    if bitsconfig:
-        # TODO: future support for config
-        if not os.path.exists(os.path.split(bitsconfig["logfile"])[0]):
-            os.makedirs(os.path.split(bitsconfig["logfile"])[0])
-
-        loglevel = bitsconfig.get("loglevel", "error")
-
-        fh = logging.FileHandler(bitsconfig["logfile"])
-        fh.setFormatter(formatter)
-
-        logfile_loglevel = bitsconfig.get("logfile_loglevel", loglevel).upper()
-        fh.setLevel(getattr(logging, logfile_loglevel))
-        log.addHandler(fh)
-
     return log
 
 
@@ -56,6 +36,12 @@ def set_log_level(log_level: str):
     """
     Set log level on all handlers
     """
+    global log
+    formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
+    sh = logging.StreamHandler()
+    sh.setFormatter(formatter)
+    sh.setLevel(logging.ERROR)
+    log.addHandler(sh)
     for handler in log.handlers:
         handler.setLevel(getattr(logging, log_level.upper()))
 

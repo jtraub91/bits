@@ -139,7 +139,7 @@ def genesis_coinbase_tx():
 
 def genesis_block():
     """
-    Hard coded genesis block - mainnet
+    Hard coded genesis block
     >>> gb = genesis_block()
     >>> header = gb[:80]
     >>> import hashlib
@@ -192,3 +192,11 @@ def block_deser(block: bytes) -> dict:
         len(txns) == number_of_txns
     ), "error during parsing - number of txns does not match"
     return block_header_deser(header) | {"txns": txns}
+
+
+def block_validation(block: bytes):
+    """
+    Returns:
+        True, if we confirm the block is valid
+    """
+    return

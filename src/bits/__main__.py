@@ -870,6 +870,13 @@ See "bits wif -h" for help on creating WIF-encoded keys.
         type=json.loads,
         help="list of seed nodes host:port, e.g. '[\"127.0.0.1:18333\"]'",
     )
+    p2p_parser.add_argument(
+        "--datadir",
+        type=str,
+        required=True,
+        action=ExplicitOption,
+        help="p2p node data directory. blockchain data files will be stored in a subdirectory 'blocks'",
+    )
     add_common_arguments(p2p_parser)
 
     blockchain_parser = sub_parser.add_parser(
@@ -948,7 +955,7 @@ def main():
     args = parser.parse_args()
 
     config = Config(**vars(args))
-    config.load_config(config_dir=args.config_dir)
+    config.load_config()
     explicit_options = {
         option: value
         for option, value in vars(args).items()
