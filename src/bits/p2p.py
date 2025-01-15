@@ -229,10 +229,13 @@ def parse_ping_payload(payload: bytes) -> dict:
 
 
 def getblocks_payload(
-    block_header_hashes: List[bytes], protocol_version: int = 70015
+    block_header_hashes: List[bytes],
+    stop_hash: bytes = b"\x00" * 32,
+    protocol_version: int = 70015,
 ) -> bytes:
-    """ """
-    stop_hash = b"\x00" * 32
+    """
+    https://developer.bitcoin.org/reference/p2p_networking.html#getblocks
+    """
     return (
         protocol_version.to_bytes(4, "little")
         + bits.compact_size_uint(len(block_header_hashes))
@@ -343,6 +346,9 @@ def parse_inv_payload(payload: bytes) -> dict:
     return ret
 
 
+parse_notfound_payload = parse_inv_payload
+
+
 def inv_payload(count: int, inventories: List[bytes]) -> bytes:
     return bits.compact_size_uint(count) + b"".join(inventories)
 
@@ -415,13 +421,14 @@ def parse_addr_payload(payload: bytes) -> dict:
     return {"addrs": network_ip_addrs}
 
 
-def parse_payload(command, payload):
+def parse_payload(command, payload) -> Union[bytes, dict]:
     parse_fn_name = f"parse_{command.decode('ascii')}_payload"
     parse_fn = globals().get(parse_fn_name)
     if parse_fn:
         return parse_fn(payload)
     else:
         log.warning(f"no parser {parse_fn_name}")
+        return payload
 
 
 class Peer:
@@ -482,15 +489,24 @@ class Peer:
             raise ValueError(
                 f"magic network bytes mismatch - {start_bytes} not equal to magic start bytes {self.magic_start_bytes}"
             )
+        payload = parse_payload(command, payload)
         log.info(
-            f"read {len(start_bytes + command + payload)} bytes from peer @ {self.host}:{self.port}. command: {command}"
+            f"read {len(start_bytes + command + payload)} bytes from peer @ {self.host}:{self.port}. command: {command}, payload: {payload}"
         )
-        log.debug(f"payload: {payload}")
         self._last_recv_msg_time = time.time()
+
         return start_bytes, command, payload
 
-    def save_version_data(self, version_data: dict):
-        self.data = {"version": version_data}
+    def save_data(self, key: str, value: Union[str, list, dict, int, float]):
+        log.info(f"saving {key} data for peer @ {self.host}:{self.port}...")
+        self.data.update({key: value})
+
+    async def send_command(self, command: bytes, payload: bytes = b""):
+        log.info(
+            f"sending {command} and {len(payload)} payload bytes to peer @ {self.host}:{self.port}..."
+        )
+        self.writer.write(msg_ser(self.magic_start_bytes, command, payload))
+        await self.writer.drain()
 
 
 class Node:
@@ -509,13 +525,23 @@ class Node:
 
         Args:
             seeds: list[str], list of seed nodes to connect to, <host:port> e.g. ["127.0.0.1:18443",]
-            datadir: str, directory to store blockchain data
+            datadir: str, data directory, block data will be stored in <datadir>/blocks
+            network: str, network, e.g. "mainnet", "testnet", or "regtest", sets magic start bytes
             protocol_version: int
             services: int
             relay: bool
+            user_agent: bytes
         """
+        self._id = bits.keys.key().hex()  # peer id
         self.seeds = seeds
+        datadir = os.path.expanduser(datadir)
+        if not os.path.exists(datadir):
+            os.makedirs(datadir)
         self.datadir = datadir
+        blocksdir = os.path.join(self.datadir, "blocks")
+        if not os.path.exists(blocksdir):
+            os.mkdir(blocksdir)
+        self.blocksdir = blocksdir
         self.protocol_version = protocol_version
         self.services = services
         self.relay = relay
@@ -530,12 +556,31 @@ class Node:
             raise ValueError(f"network not recognized: {network}")
         self.network = network
 
+        block_files = os.listdir(self.blocksdir)
+        if not block_files:
+            # write genesis block
+            gb = genesis_block()
+            self.write_blocks_to_disk([gb])
+
         self.message_queue = deque([])
 
         self.peers: list[Peer] = []
         self.addrs = {}
 
         self.exit_event = Event()
+
+    def setup_logfile(self, filename: str, log_level: str):
+        """
+        add FileHandler to enable p2p logs
+        """
+        global log
+        fh = logging.FileHandler(filename, "a")
+        formatter = logging.Formatter(
+            "[%(asctime)s] %(levelname)s [%(name)s] %(message)s"
+        )
+        fh.setFormatter(formatter)
+        fh.setLevel(getattr(logging, log_level.upper()))
+        log.addHandler(fh)
 
     async def connect_to_peer(self, peer: Peer):
         """
@@ -554,9 +599,7 @@ class Node:
             relay=self.relay,
             user_agent=self.user_agent,
         )
-        msg = msg_ser(self.magic_start_bytes, b"version", versionp)
-        peer.writer.write(msg)
-        await peer.writer.drain()
+        await peer.send_command(b"version", versionp)
 
         # wait for version message
         start_bytes, command, payload = await peer.recv_msg()
@@ -565,13 +608,10 @@ class Node:
         log.debug(f"payload (parsed): {payload}")
 
         # save version payload peer data
-        peer.save_version_data(payload)
+        peer.save_data("version", payload)
 
         # send verack
-        msg = msg_ser(self.magic_start_bytes, b"verack", b"")
-        log.info(f"sending verack message to peer @ {peer.host}:{peer.port}...")
-        peer.writer.write(msg)
-        await peer.writer.drain()
+        await peer.send_command(b"verack")
 
         start_bytes, command, payload = await peer.recv_msg()
         assert command == b"verack", f"expected verack command, not {command}"
@@ -592,59 +632,69 @@ class Node:
             self.peers.append(peer)
             asyncio.create_task(self.outgoing_peer_recv_loop(peer))
 
-    async def outgoing_peer_recv_loop(self, peer: Peer):
-        recv_msg_timeout = 10  # sec to wait before timing out and looping again
+    async def outgoing_peer_recv_loop(self, peer: Peer, msg_timeout: int = 15):
+        """
+        Args:
+            msg_timeout: int, sec to wait before timing out recv_msg and looping until exit_event has been set
+        """
         PEER_INACTIVITY_TIMEOUT = 5400  # 90 minutes
         while not peer.exit_event.is_set():
             try:
                 start_bytes, command, payload = await asyncio.wait_for(
-                    peer.recv_msg(), recv_msg_timeout
+                    peer.recv_msg(), int(msg_timeout)
                 )
             except asyncio.TimeoutError:
-                log.debug(f"{recv_msg_timeout} sec recv_msg_timeout, continuing...")
                 if time.time() - peer._last_recv_msg_time > PEER_INACTIVITY_TIMEOUT:
                     peer.exit_event.set()
             else:
-                payload = parse_payload(command, payload)
                 self.message_queue.append((peer, command, payload))
         log.info(f"exiting peer recv loop for peer @ {peer.host}:{peer.port}")
         await peer.close()
         log.info(f"peer @ {peer.host}:{peer.port} socket is closed.")
 
-    async def start_incoming_peer_server(self):
+    async def incoming_peer_server(self):
         # TODO
         return
 
     async def message_handler_loop(self):
         while not self.exit_event.is_set():
             if self.message_queue:
-                peer, command, payload = self.message_queue.pop()
-                await self.handle_command(peer, command, payload)
+                peer, command, payload = self.message_queue.popleft()
+                asyncio.create_task(self.handle_command(peer, command, payload))
             await asyncio.sleep(1)
 
     ### handlers ###
     async def handle_command(self, peer: Peer, command: bytes, payload: dict):
-        command = command.decode("utf8")
-        handle_fn_name = f"handle_{command}_command"
+        handle_fn_name = f"handle_{command.decode('utf8')}_command"
         handle_fn = getattr(self, handle_fn_name, None)
         if handle_fn:
-            log.info(f"handling {command} command...")
+            log.info(f"handling {command.decode('utf8')} command...")
             await handle_fn(peer, command, payload)  # pylint: disable=not-callable
         else:
-            log.warning(f"no handler {handle_fn_name}, for {command} command")
+            self.message_queue.append((peer, command, payload))
+            log.warning(
+                f"no handler {handle_fn_name}, for {command.decode('utf8')} command"
+            )
 
-    # async def handle_inv_command(self, peer: Peer, command: bytes, payload: dict):
-    #     count = payload["count"]
-    #     if count == 500:
-    #         recv_inventories = payload["inventory"]
-    #         inventories = [
-    #             inventory(inv["type_id"], inv["hash"].encode("ascii"))
-    #             for inv in recv_inventories[:128]
-    #         ]
-    #         msg = msg_ser(self.magic_start_bytes, b"getdata", inv_payload(128, inventories))
-    #         log.info("handle_inv_command: sending getdata command ...")
-    #         peer.writer.write(msg)
-    #         await peer.writer.drain()
+    async def handle_addr_command(self, peer: Peer, command: bytes, payload: dict):
+        peer.save_data("addr", payload)
+
+    async def handle_inv_command(self, peer: Peer, command: bytes, payload: dict):
+        count = payload["count"]
+        recv_inventories = payload["inventory"]
+        inventories = [
+            inventory(inv["type_id"], inv["hash"].encode("ascii"))
+            for inv in recv_inventories[:128]
+        ]
+        await peer.send_command(b"getdata", inv_payload(len(inventories), inventories))
+
+        if count > 128:
+            for inv in recv_inventories[128:]:
+                inventories = [inventory(inv["type_id"], inv["hash"].encode("ascii"))]
+                await peer.send_command(b"getdata", inv_payload(1, inventories))
+
+    def handle_block_command(self):
+        return
 
     # def handle_getheaders_command(self, command: bytes, payload: dict):
     #     msg = msg_ser(self.magic_start_bytes, "headers", b"")
@@ -657,43 +707,58 @@ class Node:
         """
         Handle ping command by sending a 'pong' message
         """
-        msg = msg_ser(self.magic_start_bytes, b"pong", ping_payload(payload["nonce"]))
-        log.info(
-            f"handle_ping_command: sending pong to peer @ {peer.host}:{peer.port}..."
-        )
-        peer.writer.write(msg)
-        await peer.writer.drain()
+        await peer.send_command(b"pong", ping_payload(payload["nonce"]))
 
-    async def run(self):
+    async def main(self):
         await self.connect_seeds()
+        asyncio.create_task(self.main_loop())
         await self.message_handler_loop()
 
-    def start(self):
-        asyncio.run(self.run())
+    def run(self):
+        asyncio.run(self.main())
         log.info("node stopped.")
+
+    def start(self):
+        self.exit_event.clear()
+        self._thread = Thread(target=self.run)
+        self._thread.start()
 
     def stop(self):
         self.exit_event.set()
         log.info("node exit event is set")
 
     async def main_loop(self):
-        return
+        for peer in self.peers:
+            await peer.send_command(b"getaddr")
 
-    async def peer_getaddr(self, peer: Peer):
-        return
+        # store addrs info from all peers to db?
+        # how to decide which peers to connect from
+        # new config option for max outgoing connections
+        # need to eventual persist to disk, key-value, sqlite, pickle?
 
-    def ibd(self):
+        # while not self.exit_event.is_set():
+
+        await self.ibd()
+
+    async def ibd(self):
         """
         Initial Block Download
+
+        blocks first method, for simplicity
+        https://developer.bitcoin.org/devguide/p2p_network.html#blocks-first
         """
+        # parse latest dat file for most recent block (which should be genesis block for this blocks-first ibd)
+        blk_files = sorted(os.listdir(self.blocksdir))
+        blocks = self.parse_dat_file(os.path.join(self.blocksdir, blk_files[-1]))
+        most_recent_block = blocks[-1]
         gb = genesis_block()
-        self.write_blocks_to_disk([gb])
-        msg = msg_ser(
-            self.magic_start_bytes,
+        assert most_recent_block == gb, "most recent doesn't match genesis block"
+
+        sync_node = self.peers[0]
+        await sync_node.send_command(
             b"getblocks",
-            getblocks_payload([bits.crypto.hash256(gb[:80])]),
+            getblocks_payload([bits.crypto.hash256(most_recent_block[:80])]),
         )
-        self.peers[0].socket.sendall(msg)
 
     def write_blocks_to_disk(self, blocks: List[bytes]):
         """
@@ -705,14 +770,13 @@ class Node:
         Args:
             blocks: List[bytes]
         """
-        if not os.path.exists(self.datadir):
-            os.makedirs(self.datadir)
-
-        dat_files = sorted([f for f in os.listdir(self.datadir) if f.endswith(".dat")])
+        dat_files = sorted(
+            [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
+        )
         if not dat_files:
-            filepath = os.path.join(self.datadir, "blk00000.dat")
+            filepath = os.path.join(self.blocksdir, "blk00000.dat")
         else:
-            filepath = os.path.join(self.datadir, dat_files[-1])
+            filepath = os.path.join(self.blocksdir, dat_files[-1])
 
         dat_file = open(filepath, "ab")
         for blk in blocks:
@@ -726,6 +790,27 @@ class Node:
                     + 1
                 )
                 filename = f"blk{new_blk_no.zfill(5)}.dat"
-                filepath = os.path.join(self.datadir, filename)
+                filepath = os.path.join(self.blocksdir, filename)
                 dat_file = open(filepath, "ab")
+                dat_file.write(blk_data)
         dat_file.close()
+
+    def parse_dat_file(self, filename) -> List[bytes]:
+        """
+        Read and parse dat file for raw blocks
+        Returns:
+            List[bytes]: list of blocks
+        """
+        blocks = []
+        with open(filename, "rb") as dat_file:
+            while start_bytes := dat_file.read(4):
+                assert (
+                    start_bytes == self.magic_start_bytes
+                ), f"dat file error - {start_bytes} magic start byte does not match expected {self.magic_start_bytes}"
+                length = int.from_bytes(dat_file.read(4), "little")
+                block = dat_file.read(length)
+                assert (
+                    len(block) == length
+                ), f"dat file error, actual block byte length {len(block)} does not equal encoded length {length}"
+                blocks.append(block)
+        return blocks
