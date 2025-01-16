@@ -489,9 +489,9 @@ class Peer:
             raise ValueError(
                 f"magic network bytes mismatch - {start_bytes} not equal to magic start bytes {self.magic_start_bytes}"
             )
-        payload = parse_payload(command, payload)
+        payload_parsed = parse_payload(command, payload)
         log.info(
-            f"read {len(start_bytes + command + payload)} bytes from peer @ {self.host}:{self.port}. command: {command}, payload: {payload}"
+            f"read {len(start_bytes + command + payload)} bytes from peer @ {self.host}:{self.port}. command: {command}, payload: {payload_parsed}"
         )
         self._last_recv_msg_time = time.time()
 
@@ -668,13 +668,19 @@ class Node:
         handle_fn_name = f"handle_{command.decode('utf8')}_command"
         handle_fn = getattr(self, handle_fn_name, None)
         if handle_fn:
+            log.debug(handle_fn)
+            if payload:
+                payload = parse_payload(command, payload)
             log.info(f"handling {command.decode('utf8')} command...")
             await handle_fn(peer, command, payload)  # pylint: disable=not-callable
         else:
-            self.message_queue.append((peer, command, payload))
+            # self.message_queue.append((peer, command, payload))
             log.warning(
                 f"no handler {handle_fn_name}, for {command.decode('utf8')} command"
             )
+
+    async def handle_feefilter_command(self, peer: Peer, command: bytes, payload: dict):
+        peer.save_data("feefilter", payload)
 
     async def handle_addr_command(self, peer: Peer, command: bytes, payload: dict):
         peer.save_data("addr", payload)
@@ -693,15 +699,13 @@ class Node:
                 inventories = [inventory(inv["type_id"], inv["hash"].encode("ascii"))]
                 await peer.send_command(b"getdata", inv_payload(1, inventories))
 
-    def handle_block_command(self):
-        return
+    async def handle_sendcmpct_command(self, peer: Peer, command: bytes, payload: dict):
+        peer.save_data("sendcmpct", payload)
 
-    # def handle_getheaders_command(self, command: bytes, payload: dict):
-    #     msg = msg_ser(self.magic_start_bytes, "headers", b"")
-    #     log.info(
-    #         f"handle_getheaders_command: sending empty headers message to peer @ {self.host}:{self.port}..."
-    #     )
-    #     self.socket.sendall(msg)
+    async def handle_getheaders_command(
+        self, peer: Peer, command: bytes, payload: dict
+    ):
+        await peer.send_command(b"headers")
 
     async def handle_ping_command(self, peer: Peer, command: bytes, payload: dict):
         """
@@ -738,7 +742,7 @@ class Node:
 
         # while not self.exit_event.is_set():
 
-        await self.ibd()
+        # await self.ibd()
 
     async def ibd(self):
         """
