@@ -192,3 +192,11 @@ def block_deser(block: bytes) -> dict:
         len(txns) == number_of_txns
     ), "error during parsing - number of txns does not match"
     return block_header_deser(header) | {"txns": txns}
+
+
+def block_validation(block: bytes):
+    """
+    Returns:
+        True, if we confirm the block is valid
+    """
+    return

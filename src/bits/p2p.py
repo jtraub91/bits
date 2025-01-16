@@ -353,12 +353,14 @@ def inv_payload(count: int, inventories: List[bytes]) -> bytes:
     return bits.compact_size_uint(count) + b"".join(inventories)
 
 
-def inventory(type_id: str, hash: bytes) -> bytes:
+def inventory(type_id: str, hash: str) -> bytes:
     """
     inventory data structure
     https://developer.bitcoin.org/glossary.html#term-Inventory
     """
-    return int.to_bytes(INVENTORY_TYPE_ID[type_id.upper()], 4, "little") + hash
+    return int.to_bytes(
+        INVENTORY_TYPE_ID[type_id.upper()], 4, "little"
+    ) + bytes.fromhex(hash)
 
 
 def parse_inventory(inventory_: bytes) -> dict:
@@ -451,6 +453,19 @@ class Peer:
         self.writer: StreamWriter = None
 
         self.exit_event = Event()
+        # to store inv messages
+        self.inventories = deque([])
+
+    def save_inventory(self, inventory: dict):
+        """
+        Args:
+            inventory: dict, inventory dictionary, e.g. {"type_id": "MSG_TX", "hash": ""}
+        """
+        if inventory not in self.inventories:
+            log.debug(f"appending to inventory {inventory}")
+            self.inventories.append(inventory)
+        else:
+            log.debug(f"already saved inventory {inventory}")
 
     async def connect(self):
         reader, writer = await asyncio.open_connection(self.host, self.port)
@@ -540,6 +555,14 @@ class Node:
         blocksdir = os.path.join(self.datadir, "blocks")
         if not os.path.exists(blocksdir):
             os.mkdir(blocksdir)
+        fh = logging.FileHandler(os.path.join(self.datadir, "debug.log"), "a")
+        formatter = logging.Formatter(
+            "[%(asctime)s] %(levelname)s [%(name)s] %(message)s"
+        )
+        fh.setFormatter(formatter)
+        fh.setLevel(logging.DEBUG)
+        global log
+        log.addHandler(fh)
         self.blocksdir = blocksdir
         self.protocol_version = protocol_version
         self.services = services
@@ -563,24 +586,14 @@ class Node:
 
         self.message_queue = deque([])
         self._unhandled_message_queue = deque([])
+        self._ibd: bool = False
+        self._inventories = []
+        self._blocks = deque([])
 
         self.peers: list[Peer] = []
         self.addrs = {}
 
         self.exit_event = Event()
-
-    def setup_logfile(self, filename: str, log_level: str):
-        """
-        add FileHandler to enable p2p logs
-        """
-        global log
-        fh = logging.FileHandler(filename, "a")
-        formatter = logging.Formatter(
-            "[%(asctime)s] %(levelname)s [%(name)s] %(message)s"
-        )
-        fh.setFormatter(formatter)
-        fh.setLevel(getattr(logging, log_level.upper()))
-        log.addHandler(fh)
 
     async def connect_to_peer(self, peer: Peer):
         """
@@ -648,6 +661,7 @@ class Node:
                     peer.exit_event.set()
             else:
                 self.message_queue.append((peer, command, payload))
+            await asyncio.sleep(0)
         log.info(f"exiting peer recv loop for peer @ {peer.host}:{peer.port}")
         await peer.close()
         log.info(f"peer @ {peer.host}:{peer.port} socket is closed.")
@@ -661,60 +675,83 @@ class Node:
             if self.message_queue:
                 peer, command, payload = self.message_queue.popleft()
                 asyncio.create_task(self.handle_command(peer, command, payload))
-            await asyncio.sleep(1)
+            await asyncio.sleep(0)
 
     ### handlers ###
     async def handle_command(self, peer: Peer, command: bytes, payload: dict):
         handle_fn_name = f"handle_{command.decode('utf8')}_command"
         handle_fn = getattr(self, handle_fn_name, None)
         if handle_fn:
-            if payload:
-                payload = parse_payload(command, payload)
-            log.info(f"handling {command} command...")
             try:
                 await handle_fn(peer, command, payload)  # pylint: disable=not-callable
             except Exception as err:
                 log.error(f"Error while handling {command}: {err.args}")
                 self._unhandled_message_queue.append((peer, command, payload))
         else:
-            # self.message_queue.append((peer, command, payload))
-            log.warning(f"no handler {handle_fn_name}, for {command}")
+            log.warning(
+                f"no handler {handle_fn_name} for {command}, saving to unhandled_message_queue"
+            )
             self._unhandled_message_queue.append((peer, command, payload))
-            await asyncio.sleep(1)
+            await asyncio.sleep(0)
 
-    async def handle_feefilter_command(self, peer: Peer, command: bytes, payload: dict):
+    async def handle_block_command(self, peer: Peer, command: bytes, payload: bytes):
+        # TODO: block validation logic important !
+        # for now assume it's valid
+        if self._ibd:
+            block_header_hash = bits.crypto.hash256(payload[:80])
+            log.info(
+                f"writing to disk block with block header hash {block_header_hash.hex()}..."
+            )
+            self.write_blocks_to_disk([payload])
+            if self._inventories:
+                # request another block from the inventory
+                inv = self._inventories[0]
+                self._inventories = self._inventories[1:]
+                inventory_list = [inventory(inv["type_id"], inv["hash"])]
+                await peer.send_command(
+                    b"getdata", inv_payload(len(inventory_list), inventory_list)
+                )
+
+    async def handle_feefilter_command(
+        self, peer: Peer, command: bytes, payload: bytes
+    ):
+        payload = parse_feefilter_payload(payload)
         peer.save_data("feefilter", payload)
 
-    async def handle_addr_command(self, peer: Peer, command: bytes, payload: dict):
+    async def handle_addr_command(self, peer: Peer, command: bytes, payload: bytes):
+        payload = parse_addr_payload(payload)
         peer.save_data("addr", payload)
 
-    async def handle_inv_command(self, peer: Peer, command: bytes, payload: dict):
-        raise NotImplementedError()
+    async def handle_inv_command(self, peer: Peer, command: bytes, payload: bytes):
+        payload = parse_inv_payload(payload)
         count = payload["count"]
-        recv_inventories = payload["inventory"]
-        inventories = [
-            inventory(inv["type_id"], inv["hash"].encode("ascii"))
-            for inv in recv_inventories[:128]
-        ]
-        await peer.send_command(b"getdata", inv_payload(len(inventories), inventories))
+        inventories = payload["inventory"]
+        if self._ibd:
+            # ignore non MSG_BLOCK inv messages during ibd
+            if all([inv["type_id"] == "MSG_BLOCK" for inv in inventories]):
+                self._inventories.extend(inventories)
+            else:
+                log.info("handle_inv - ignoring non MSG_BLOCK inv messages during ibd")
+        else:
+            log.info("handle_inv - not implemented yet while not in ibd")
 
-        if count > 128:
-            for inv in recv_inventories[128:]:
-                inventories = [inventory(inv["type_id"], inv["hash"].encode("ascii"))]
-                await peer.send_command(b"getdata", inv_payload(1, inventories))
-
-    async def handle_sendcmpct_command(self, peer: Peer, command: bytes, payload: dict):
+    async def handle_sendcmpct_command(
+        self, peer: Peer, command: bytes, payload: bytes
+    ):
+        payload = parse_sendcmpct_payload(payload)
         peer.save_data("sendcmpct", payload)
 
     async def handle_getheaders_command(
-        self, peer: Peer, command: bytes, payload: dict
+        self, peer: Peer, command: bytes, payload: bytes
     ):
+        payload = parse_getheaders_payload(payload)
         await peer.send_command(b"headers")
 
-    async def handle_ping_command(self, peer: Peer, command: bytes, payload: dict):
+    async def handle_ping_command(self, peer: Peer, command: bytes, payload: bytes):
         """
         Handle ping command by sending a 'pong' message
         """
+        payload = parse_ping_payload(payload)
         await peer.send_command(b"pong", ping_payload(payload["nonce"]))
 
     async def main(self):
@@ -744,29 +781,61 @@ class Node:
         # new config option for max outgoing connections
         # need to eventual persist to disk, key-value, sqlite, pickle?
 
-        # while not self.exit_event.is_set():
+        # choose a peer as sync node
+        sync_node = self.peers[0]
 
-        # await self.ibd()
+        # parse latest dat file for most recent block
+        blk_files = sorted(os.listdir(self.blocksdir))
+        blocks = self.parse_dat_file(os.path.join(self.blocksdir, blk_files[-1]))
+        local_latest_block = blocks[-1]
+        local_latest_block_deser = bits.blockchain.block_deser(local_latest_block)
+        coinbase_tx = local_latest_block_deser["txns"][0]
 
-    async def ibd(self):
+        # treat coinbase tx version as the block height, even for pre-BIP34 blocks,
+        # since we're only using it to determine whether we enter ibd mode or not
+        local_block_height = coinbase_tx["version"]
+        if sync_node.data["version"]["start_height"] - local_block_height > 144:
+            await self.ibd(sync_node)
+
+    async def ibd(self, sync_node: Peer):
         """
         Initial Block Download
 
         blocks first method, for simplicity
         https://developer.bitcoin.org/devguide/p2p_network.html#blocks-first
         """
-        # parse latest dat file for most recent block (which should be genesis block for this blocks-first ibd)
+        self._ibd = True
+        # parse latest dat file for local latest block
         blk_files = sorted(os.listdir(self.blocksdir))
         blocks = self.parse_dat_file(os.path.join(self.blocksdir, blk_files[-1]))
-        most_recent_block = blocks[-1]
-        gb = genesis_block()
-        assert most_recent_block == gb, "most recent doesn't match genesis block"
+        local_latest_block = blocks[-1]
 
-        sync_node = self.peers[0]
         await sync_node.send_command(
             b"getblocks",
-            getblocks_payload([bits.crypto.hash256(most_recent_block[:80])]),
+            getblocks_payload([bits.crypto.hash256(local_latest_block[:80])]),
         )
+
+        while not self._inventories:
+            # wait until block inventories are saved from inv message handler
+            await asyncio.sleep(0)
+
+        # maximum of 128 blocks requested at a time
+        if len(self._inventories) > 128:
+            inventories = self._inventories[:128]
+            self._inventories = self._inventories[128:]
+        else:
+            inventories = self._inventories
+            self._inventories = []
+        inventory_list = [inventory(inv["type_id"], inv["hash"]) for inv in inventories]
+        await sync_node.send_command(
+            b"getdata", inv_payload(len(inventory_list), inventory_list)
+        )
+
+        while not self._blocks:
+            # wait until we have block messages saved from block message handler
+            await asyncio.sleep(0)
+
+        self._ibd = False
 
     def write_blocks_to_disk(self, blocks: List[bytes]):
         """
