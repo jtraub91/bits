@@ -29,11 +29,6 @@ def init_logging(log_file: str = ""):
     Initialize logging
     """
     log = logging.getLogger(__name__)
-    formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
-    sh = logging.StreamHandler()
-    sh.setFormatter(formatter)
-    sh.setLevel(logging.ERROR)
-    log.addHandler(sh)
     return log
 
 
@@ -42,6 +37,11 @@ def set_log_level(log_level: str):
     Set log level on all handlers
     """
     global log
+    formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
+    sh = logging.StreamHandler()
+    sh.setFormatter(formatter)
+    sh.setLevel(logging.ERROR)
+    log.addHandler(sh)
     for handler in log.handlers:
         handler.setLevel(getattr(logging, log_level.upper()))
 

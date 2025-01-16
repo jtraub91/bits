@@ -23,7 +23,7 @@ from typing import Optional
 from typing import Tuple
 from typing import Union
 
-import bits
+import bits.crypto
 from bits.blockchain import genesis_block
 
 
@@ -489,9 +489,8 @@ class Peer:
             raise ValueError(
                 f"magic network bytes mismatch - {start_bytes} not equal to magic start bytes {self.magic_start_bytes}"
             )
-        payload_parsed = parse_payload(command, payload)
         log.info(
-            f"read {len(start_bytes + command + payload)} bytes from peer @ {self.host}:{self.port}. command: {command}, payload: {payload_parsed}"
+            f"read {len(start_bytes + command + payload)} bytes from peer @ {self.host}:{self.port}. command: {command}"
         )
         self._last_recv_msg_time = time.time()
 
@@ -563,6 +562,7 @@ class Node:
             self.write_blocks_to_disk([gb])
 
         self.message_queue = deque([])
+        self._unhandled_message_queue = deque([])
 
         self.peers: list[Peer] = []
         self.addrs = {}
@@ -588,6 +588,7 @@ class Node:
         https://developer.bitcoin.org/devguide/p2p_network.html#connecting-to-peers
         """
         log.info(f"sending version message to peer @ {peer.host}:{peer.port}...")
+
         trans_sock = peer.writer.transport.get_extra_info("socket")
         local_host, local_port = trans_sock.getsockname()
         versionp = version_payload(
@@ -604,19 +605,17 @@ class Node:
         # wait for version message
         start_bytes, command, payload = await peer.recv_msg()
         assert command == b"version", f"expected version command not {command}"
-        payload = parse_payload(command, payload)
-        log.debug(f"payload (parsed): {payload}")
 
         # save version payload peer data
-        peer.save_data("version", payload)
+        peer.save_data("version", parse_payload(command, payload))
 
         # send verack
         await peer.send_command(b"verack")
 
+        # wait for verack message
         start_bytes, command, payload = await peer.recv_msg()
         assert command == b"verack", f"expected verack command, not {command}"
-        payload = parse_payload(command, payload)
-        log.debug(f"payload (parsed): {payload}")
+
         log.info(f"connection handshake established for @ {peer.host}:{peer.port}")
 
     async def connect_seeds(self):
@@ -630,6 +629,7 @@ class Node:
             await peer.connect()
             await self.connect_to_peer(peer)
             self.peers.append(peer)
+
             asyncio.create_task(self.outgoing_peer_recv_loop(peer))
 
     async def outgoing_peer_recv_loop(self, peer: Peer, msg_timeout: int = 15):
@@ -668,16 +668,19 @@ class Node:
         handle_fn_name = f"handle_{command.decode('utf8')}_command"
         handle_fn = getattr(self, handle_fn_name, None)
         if handle_fn:
-            log.debug(handle_fn)
             if payload:
                 payload = parse_payload(command, payload)
-            log.info(f"handling {command.decode('utf8')} command...")
-            await handle_fn(peer, command, payload)  # pylint: disable=not-callable
+            log.info(f"handling {command} command...")
+            try:
+                await handle_fn(peer, command, payload)  # pylint: disable=not-callable
+            except Exception as err:
+                log.error(f"Error while handling {command}: {err.args}")
+                self._unhandled_message_queue.append((peer, command, payload))
         else:
             # self.message_queue.append((peer, command, payload))
-            log.warning(
-                f"no handler {handle_fn_name}, for {command.decode('utf8')} command"
-            )
+            log.warning(f"no handler {handle_fn_name}, for {command}")
+            self._unhandled_message_queue.append((peer, command, payload))
+            await asyncio.sleep(1)
 
     async def handle_feefilter_command(self, peer: Peer, command: bytes, payload: dict):
         peer.save_data("feefilter", payload)
@@ -686,6 +689,7 @@ class Node:
         peer.save_data("addr", payload)
 
     async def handle_inv_command(self, peer: Peer, command: bytes, payload: dict):
+        raise NotImplementedError()
         count = payload["count"]
         recv_inventories = payload["inventory"]
         inventories = [
