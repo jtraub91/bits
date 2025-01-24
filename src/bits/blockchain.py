@@ -22,21 +22,40 @@ MAX_TARGET_REGTEST = 0x7FFFFF000000000000000000000000000000000000000000000000000
 # https://en.bitcoin.it/wiki/Difficulty
 
 
-# TODO: why nBits arg in rpc-byte order?
 def target_threshold(nBits: bytes) -> int:
     """
     Calculate target threshold from compact nBits
     # https://developer.bitcoin.org/reference/block_chain.html#target-nbits
     Args:
-        nBits: bytes, rpc byte order
-    >>> target = target_threshold(bytes.fromhex("207fffff"))
+        nBits: bytes, internal byte order
+    >>> target = target_threshold(bytes.fromhex("207fffff")[::-1])
     >>> hex(target)
     '0x7fffff0000000000000000000000000000000000000000000000000000000000'
     """
-    mantissa = nBits[-3:]
-    exponent = int.from_bytes(nBits[:-3], "big")
-    target = int.from_bytes(mantissa, "big") * 256 ** (exponent - len(mantissa))
+    mantissa = nBits[:3]
+    exponent = int.from_bytes(nBits[3:], "little")
+    target = int.from_bytes(mantissa, "little") * 256 ** (exponent - len(mantissa))
     return target
+
+
+def n_bits(target: int) -> bytes:
+    """
+    Convert target threshold to nBits compact representation
+    Args:
+        target: int, target threshold
+    >>> n_bits(0x7fffff0000000000000000000000000000000000000000000000000000000000)[::-1].hex()
+    '207fffff'
+    """
+    target_bytes = target.to_bytes(32, "big")
+    bytes_shifted = 0
+    while target_bytes[0] == 0:
+        target <<= 8
+        target_bytes = target.to_bytes(32, "big")
+        bytes_shifted += 1
+    target >>= 29 * 8  # shift right 29 bytes to truncate
+    mantissa = target.to_bytes(3, "little")
+    exponent = (32 - bytes_shifted).to_bytes(1, "little")
+    return mantissa + exponent
 
 
 def difficulty(target: int, network: str = "mainnet") -> float:
@@ -97,17 +116,35 @@ def merkle_root(txns: typing.List[bytes]) -> bytes:
 
     Args:
         txns: list[bytes], list of txids
+
+    >>> # genesis block 0
+    >>> txn_ids = ["4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"]
+    >>> txn_ids = [bytes.fromhex(txn)[::-1] for txn in txn_ids]
+    >>> merkle_root(txn_ids)[::-1].hex()
+    '4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b'
+    >>> # block 100,000
+    >>> txn_ids = ["8c14f0db3df150123e6f3dbbf30f8b955a8249b62ac1d1ff16284aefa3d06d87", "fff2525b8931402dd09222c50775608f75787bd2b87e56995a7bdd30f79702c4", "6359f0868171b1d194cbee1af2f16ea598ae8fad666d9b012c8ed2b79a236ec4", "e9a66845e05d5abc0ad04ec80f774a7e585c6e8db975962d069a522137b80c1d"]
+    >>> txn_ids = [bytes.fromhex(txn)[::-1] for txn in txn_ids]
+    >>> merkle_root(txn_ids)[::-1].hex()
+    'f3e94742aca4b5ef85488dc37c06c3282295ffec960994b2c0d5ac2a25a95766'
+    >>> # block 100,002
+    >>> txn_ids = ["ef1d870d24c85b89d92ad50f4631026f585d6a34e972eaf427475e5d60acf3a3", "f9fc751cb7dc372406a9f8d738d5e6f8f63bab71986a39cf36ee70ee17036d07", "db60fb93d736894ed0b86cb92548920a3fe8310dd19b0da7ad97e48725e1e12e", "220ebc64e21abece964927322cba69180ed853bb187fbc6923bac7d010b9d87a", "71b3dbaca67e9f9189dad3617138c19725ab541ef0b49c05a94913e9f28e3f4e", "fe305e1ed08212d76161d853222048eea1f34af42ea0e197896a269fbf8dc2e0", "21d2eb195736af2a40d42107e6abd59c97eb6cffd4a5a7a7709e86590ae61987", "dd1fd2a6fc16404faf339881a90adbde7f4f728691ac62e8f168809cdfae1053", "74d681e0e03bafa802c8aa084379aa98d9fcd632ddc2ed9782b586ec87451f20"]
+    >>> txn_ids = [bytes.fromhex(txn)[::-1] for txn in txn_ids]
+    >>> merkle_root(txn_ids)[::-1].hex()
+    '2fda58e5959b0ee53c5253da9b9f3c0c739422ae04946966991cf55895287552'
     """
     row = copy.copy(txns)
     if len(row) == 1:
         return row[0]
     elif len(row) % 2:
         row += [row[-1]]
-    while len(row) >= 2:
+    while len(row) > 1:
         branches = []
         for i in range(0, len(row), 2):
             branches.append(bits.crypto.hash256(row[i] + row[i + 1]))
         row = branches
+        if len(row) > 1 and len(row) % 2:
+            row += [row[-1]]
     return row[0]
 
 
@@ -137,20 +174,39 @@ def genesis_coinbase_tx():
     return coinbase_tx
 
 
-def genesis_block():
+def genesis_block(network: str = "mainnet"):
     """
     Hard coded genesis block
+    Args:
+        network: str, mainnet, testnet, or regtest
+
     >>> gb = genesis_block()
     >>> header = gb[:80]
     >>> import hashlib
     >>> hashlib.sha256(hashlib.sha256(header).digest()).digest()[::-1].hex()
     '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f'
     """
-    # https://github.com/bitcoin/bitcoin/blob/v0.1.5/main.cpp#L1495-L1498
-    version: int = 1
-    nTime = 1231006505
-    nBits = 0x1D00FFFF
-    nNonce = 2083236893
+    if network.lower() == "mainnet":
+        # https://github.com/bitcoin/bitcoin/blob/v0.1.5/main.cpp#L1495-L1498
+        # https://github.com/bitcoin/bitcoin/blob/v28.0/src/kernel/chainparams.cpp#L135
+        version: int = 1
+        nTime = 1231006505
+        nBits = 0x1D00FFFF
+        nNonce = 2083236893
+    elif network.lower() == "testnet":
+        # https://github.com/bitcoin/bitcoin/blob/v28.0/src/kernel/chainparams.cpp#L254
+        version: int = 1
+        nTime = 1296688602
+        nBits = 0x1D00FFFF
+        nNonce = 414098458
+    elif network.lower() == "regtest":
+        # https://github.com/bitcoin/bitcoin/blob/v28.0/src/kernel/chainparams.cpp#L596
+        version: int = 1
+        nTime = 1296688602
+        nBits = 0x207FFFFF
+        nNonce = 2
+    else:
+        raise ValueError(f"network not recognized: {network}")
 
     coinbase_tx = genesis_coinbase_tx()
     merkle_ = merkle_root([bits.tx.txid(coinbase_tx)])
@@ -168,10 +224,10 @@ def block_header_deser(blk_hdr: bytes) -> dict:
     assert len(blk_hdr) == 80, "block header not length 80"
     return {
         "version": int.from_bytes(blk_hdr[:4], "little"),
-        "prev_blockheaderhash": blk_hdr[4:36].hex(),
-        "merkle_root_hash": blk_hdr[36:68].hex(),
+        "prev_blockheaderhash": blk_hdr[4:36][::-1].hex(),
+        "merkle_root_hash": blk_hdr[36:68][::-1].hex(),
         "nTime": int.from_bytes(blk_hdr[68:72], "little"),
-        "nBits": blk_hdr[72:76].hex(),
+        "nBits": blk_hdr[72:76][::-1].hex(),
         "nNonce": int.from_bytes(blk_hdr[76:], "little"),
     }
 
@@ -192,11 +248,3 @@ def block_deser(block: bytes) -> dict:
         len(txns) == number_of_txns
     ), "error during parsing - number of txns does not match"
     return block_header_deser(header) | {"txns": txns}
-
-
-def block_validation(block: bytes):
-    """
-    Returns:
-        True, if we confirm the block is valid
-    """
-    return

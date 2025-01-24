@@ -77,6 +77,15 @@ def add_common_arguments(
     include_network: bool = True,
     include_log_level: bool = True,
 ):
+    parser.add_argument(
+        "--config-dir",
+        type=str,
+        action=ExplicitOption,
+        help="Directory to look for optional config file (config.toml or config.json). "
+        + "TOML will take precedence over JSON if both files are defined, "
+        + "but TOML is only available for python 3.11+ ",
+        default=os.path.join(os.path.expanduser("~"), ".bits"),
+    )
     if include_network:
         parser.add_argument(
             "--network",
@@ -202,14 +211,6 @@ Examples:
         formatter_class=RawDescriptionDefaultsHelpFormatter,
     )
     parser.add_argument("-v", "-V", "--version", action="version", version=__version__)
-    # TODO: consider renaming to --data-dir and allowing BITS_DATADIR envvar as in tests
-    parser.add_argument(
-        "--config-dir",
-        help="Directory to look for optional config file (config.toml or config.json). "
-        + "TOML will take precedence over JSON if both files are defined, "
-        + "but TOML is only available for python 3.11+ ",
-        default=os.path.join(os.path.expanduser("~"), ".bits"),
-    )
     add_common_arguments(parser, include_network=False)
     add_input_arguments(parser)
     add_output_arguments(parser)
@@ -868,12 +869,12 @@ See "bits wif -h" for help on creating WIF-encoded keys.
     p2p_parser.add_argument(
         "--seeds",
         type=json.loads,
+        action=ExplicitOption,
         help="list of seed nodes host:port, e.g. '[\"127.0.0.1:18333\"]'",
     )
     p2p_parser.add_argument(
         "--datadir",
         type=str,
-        required=True,
         action=ExplicitOption,
         help="p2p node data directory. blockchain data files will be stored in a subdirectory 'blocks'",
     )
@@ -955,7 +956,7 @@ def main():
     args = parser.parse_args()
 
     config = Config(**vars(args))
-    config.load_config()
+    config.load_config(config_dir=args.config_dir)
     explicit_options = {
         option: value
         for option, value in vars(args).items()
@@ -1284,7 +1285,7 @@ def main():
                 break
     elif args.subcommand == "p2p":
         p2p_node = bits.p2p.Node(
-            args.seeds,
+            config.seeds,
             config.datadir,
             config.network,
         )
