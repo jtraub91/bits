@@ -9,10 +9,12 @@ https://en.bitcoin.it/wiki/Protocol_documentation
 import asyncio
 import base64
 import binascii
+import json
 import logging
 import os
 import socket
 import time
+import traceback
 from asyncio import StreamReader
 from asyncio import StreamWriter
 from collections import deque
@@ -533,6 +535,7 @@ class Node:
         services: int = NODE_NETWORK,
         relay: bool = True,
         user_agent: bytes = BITS_USER_AGENT,
+        reindex: bool = False,
     ):
         """
         bits P2P node
@@ -578,20 +581,54 @@ class Node:
             raise ValueError(f"network not recognized: {network}")
         self.network = network
 
-        block_files = os.listdir(self.blocksdir)
-        if not block_files:
-            # write genesis block
-            gb = genesis_block()
-            self.write_blocks_to_disk([gb])
+        # check for local block dat file
+        blocksdir_files = os.listdir(self.blocksdir)
+        block_dat_files = [f for f in blocksdir_files if f.endswith(".dat")]
+        assert (
+            blocksdir_files == block_dat_files
+        ), f"non .dat files found in {self.blocksdir}"
+
+        self.indexdir = os.path.join(self.datadir, "index")
+        if not os.path.exists(self.indexdir):
+            os.mkdir(self.indexdir)
+        self.blockhash_index_path = os.path.join(self.indexdir, "blockhashindex.json")
+        self.blockheader_index_path = os.path.join(
+            self.indexdir, "blockheaderindex.json"
+        )
+
+        if not block_dat_files:
+            # if there are no dat files yet,
+
+            # create empty indexes,
+            if not os.path.exists(self.blockhash_index_path):
+                with open(self.blockhash_index_path, "w") as bh_index_file:
+                    json.dump({}, bh_index_file)
+            if not os.path.exists(self.blockheader_index_path):
+                with open(self.blockheader_index_path, "w") as bh_index_file:
+                    json.dump({}, bh_index_file)
+
+            # and write genesis block
+            gb = genesis_block(network=self.network)
+            self.save_blocks([gb])
+        else:
+            # some block dat files exist,
+
+            # check for indexes,
+            # build if non-existent (shouldn't really happen) or reindex=True
+            if (
+                reindex
+                or not os.path.exists(self.blockhash_index_path)
+                or not os.path.exists(self.blockheader_index_path)
+            ):
+                self.rebuild_indexes()
 
         self.message_queue = deque([])
         self._unhandled_message_queue = deque([])
         self._ibd: bool = False
         self._inventories = []
-        self._blocks = deque([])
+        self._orphaned_blocks = deque([])
 
         self.peers: list[Peer] = []
-        self.addrs = {}
 
         self.exit_event = Event()
 
@@ -686,6 +723,8 @@ class Node:
                 await handle_fn(peer, command, payload)  # pylint: disable=not-callable
             except Exception as err:
                 log.error(f"Error while handling {command}: {err.args}")
+                log.debug(traceback.format_exc())
+                log.debug((peer, command, payload))
                 self._unhandled_message_queue.append((peer, command, payload))
         else:
             log.warning(
@@ -694,23 +733,108 @@ class Node:
             self._unhandled_message_queue.append((peer, command, payload))
             await asyncio.sleep(0)
 
+    def calculate_new_target(self) -> float:
+        blockheight = self.get_blockchain_height()
+        latest_blockhash = self.get_blockhash(blockheight)
+        latest_blockheader = self.get_blockheader(latest_blockhash)
+
+        beginning_blockhash = self.get_blockhash(blockheight - 2016)
+        beginning_blockheader = self.get_blockheader(beginning_blockhash)
+
+        elapsed_time = latest_blockheader["nTime"] - beginning_blockheader["nTime"]
+        target_time = 2016 * 10 * 60.0
+
+        latest_target = bits.blockchain.difficulty(
+            bits.blockchain.target_threshold(latest_blockheader["nBits"]),
+            network=self.network,
+        )
+
+        new_target = latest_target * elapsed_time / target_time
+
+        if new_target / latest_target > 4:
+            new_target = 4 * latest_target
+        elif new_target / latest_target < 0.25:
+            new_target = 0.25 * latest_target
+        return new_target
+
     async def handle_block_command(self, peer: Peer, command: bytes, payload: bytes):
-        # TODO: block validation logic important !
-        # for now assume it's valid
         if self._ibd:
-            block_header_hash = bits.crypto.hash256(payload[:80])
-            log.info(
-                f"writing to disk block with block header hash {block_header_hash.hex()}..."
+            ### BLOCK VALIDATION ###
+            current_blockheight = self.get_blockchain_height()
+            current_blockhash = self.get_blockhash(current_blockheight)
+            current_blockheader = self.get_blockheader(current_blockhash)
+
+            proposed_block = bits.blockchain.block_deser(payload)
+            proposed_blockhash = bits.crypto.hash256(payload[:80])
+            proposed_blockheader = bits.blockchain.block_header_deser(payload[:80])
+
+            # check if POW is valid
+            target = bits.blockchain.target_threshold(
+                bytes.fromhex(proposed_block["nBits"])[::-1]
             )
-            self.write_blocks_to_disk([payload])
-            if self._inventories:
-                # request another block from the inventory
-                inv = self._inventories[0]
-                self._inventories = self._inventories[1:]
-                inventory_list = [inventory(inv["type_id"], inv["hash"])]
-                await peer.send_command(
-                    b"getdata", inv_payload(len(inventory_list), inventory_list)
+            assert (
+                int.from_bytes(proposed_blockhash, "little") <= target
+            ), f"proposed block does not include valid proof of work. proposed block hash {proposed_blockhash.hex()} is > target {hex(target)}"
+
+            # check merkle root
+            txn_ids = [bytes.fromhex(txn["txid"]) for txn in proposed_block["txns"]]
+            computed_merkle_root_hash = bits.blockchain.merkle_root(txn_ids)[::-1].hex()
+            assert (
+                proposed_block["merkle_root_hash"] == computed_merkle_root_hash
+            ), f"block validation failed: proposed block merkle root hash {proposed_block['merkle_root_hash']} not match one internally computed from proposed block transactions {computed_merkle_root_hash}"
+
+            # check prev block hash matches current block hash
+            if proposed_block["prev_blockheaderhash"] != current_blockhash:
+                log.info(
+                    f"proposed block prev blockheader hash {proposed_block['prev_blockheaderhash']} does not match current blockchain tip header hash {current_blockhash}. adding {proposed_blockhash[::-1].hex()} to orphaned blocks..."
                 )
+                self._orphaned_blocks.append(payload)
+                log.info(f"{len(self._orphaned_blocks)} orphaned blocks in memory")
+            else:
+                # continue with validation
+
+                # check nBits set correctly
+                proposed_block_height = current_blockheight + 1
+                if proposed_block_height % 2016:  # no difficulty adjustment
+                    assert (
+                        proposed_block["nBits"] == current_blockheader["nBits"]
+                    ), f"proposed block nBits {proposed_block['nBits']} differs from current blockchain tip nBits {current_blockheader['nBits']} and we are not in a difficulty adjustment"
+                else:
+                    new_target = self.calculate_new_target()
+                    new_target_nbits = bits.blockchain.n_bits(new_target)[::-1].hex()
+                    assert (
+                        proposed_block["nBits"] == new_target_nbits
+                    ), f"proposed block nBits {proposed_block['nBits']} differs from new calculated target nBits {new_target_nbits} for this difficulty adjustment"
+
+                # check timestamp
+                # ensure timestamp is strictly greater than the median_time
+                # ensure timestamp is not more than two hours in future
+                current_time = time.time()
+                if proposed_block["nTime"] <= self.median_time():
+                    log.info(
+                        f"block validation failed: proposed block nTime {proposed_block['nTime']} is not strictly greater than the median time {self.median_time()}"
+                    )
+                    return False
+                if proposed_block["nTime"] > current_time + 7200:
+                    log.info(
+                        f"block validation failed: proposed block nTime {proposed_block['nTime']} is more than two hours in the future {current_time + 7200}"
+                    )
+                    return False
+
+                # now check transactions
+                # TODO
+                # check chainwork, etc.
+
+                self.save_blocks([payload])
+
+            # if self._inventories:
+            #     # request another block from the inventory
+            #     inv = self._inventories[0]
+            #     self._inventories = self._inventories[1:]
+            #     inventory_list = [inventory(inv["type_id"], inv["hash"])]
+            #     await peer.send_command(
+            #         b"getdata", inv_payload(len(inventory_list), inventory_list)
+            #     )
 
     async def handle_feefilter_command(
         self, peer: Peer, command: bytes, payload: bytes
@@ -731,7 +855,10 @@ class Node:
             if all([inv["type_id"] == "MSG_BLOCK" for inv in inventories]):
                 self._inventories.extend(inventories)
             else:
-                log.info("handle_inv - ignoring non MSG_BLOCK inv messages during ibd")
+                type_ids = set([inv["type_id"] for inv in inventories])
+                log.debug(
+                    f"handle_inv - ignoring {len(inventories)} inv message(s) of type_id {type_ids} during ibd"
+                )
         else:
             log.info("handle_inv - not implemented yet while not in ibd")
 
@@ -784,17 +911,12 @@ class Node:
         # choose a peer as sync node
         sync_node = self.peers[0]
 
-        # parse latest dat file for most recent block
-        blk_files = sorted(os.listdir(self.blocksdir))
-        blocks = self.parse_dat_file(os.path.join(self.blocksdir, blk_files[-1]))
-        local_latest_block = blocks[-1]
-        local_latest_block_deser = bits.blockchain.block_deser(local_latest_block)
-        coinbase_tx = local_latest_block_deser["txns"][0]
-
-        # treat coinbase tx version as the block height, even for pre-BIP34 blocks,
-        # since we're only using it to determine whether we enter ibd mode or not
-        local_block_height = coinbase_tx["version"]
-        if sync_node.data["version"]["start_height"] - local_block_height > 144:
+        # if blockchain is 144 blocks behind peer (~24 hr) enter ibd
+        block_height = self.get_blockchain_height()
+        if sync_node.data["version"]["start_height"] - block_height > 144:
+            log.info(
+                f"local blockchain behind sync node @ {sync_node.host}:{sync_node.port} by {sync_node.data['version']['start_height'] - block_height} blocks. Entering IBD..."
+            )
             await self.ibd(sync_node)
 
     async def ibd(self, sync_node: Peer):
@@ -805,41 +927,38 @@ class Node:
         https://developer.bitcoin.org/devguide/p2p_network.html#blocks-first
         """
         self._ibd = True
-        # parse latest dat file for local latest block
-        blk_files = sorted(os.listdir(self.blocksdir))
-        blocks = self.parse_dat_file(os.path.join(self.blocksdir, blk_files[-1]))
-        local_latest_block = blocks[-1]
+        while True:
+            if len(self.message_queue) == 0:
+                if self._inventories:
+                    # maximum of 128 blocks requested at a time
+                    if len(self._inventories) > 128:
+                        inventories = self._inventories[:128]
+                        self._inventories = self._inventories[128:]
+                    else:
+                        inventories = self._inventories
+                        self._inventories = []
+                    inventory_list = [
+                        inventory(inv["type_id"], inv["hash"]) for inv in inventories
+                    ]
+                    await sync_node.send_command(
+                        b"getdata", inv_payload(len(inventory_list), inventory_list)
+                    )
+                else:
+                    # get latest block
+                    blockheight = self.get_blockchain_height()
+                    blockhash = self.get_blockhash(blockheight)
+                    blockheader = self.get_blockheader(blockhash)
 
-        await sync_node.send_command(
-            b"getblocks",
-            getblocks_payload([bits.crypto.hash256(local_latest_block[:80])]),
-        )
-
-        while not self._inventories:
-            # wait until block inventories are saved from inv message handler
-            await asyncio.sleep(0)
-
-        # maximum of 128 blocks requested at a time
-        if len(self._inventories) > 128:
-            inventories = self._inventories[:128]
-            self._inventories = self._inventories[128:]
-        else:
-            inventories = self._inventories
-            self._inventories = []
-        inventory_list = [inventory(inv["type_id"], inv["hash"]) for inv in inventories]
-        await sync_node.send_command(
-            b"getdata", inv_payload(len(inventory_list), inventory_list)
-        )
-
-        while not self._blocks:
-            # wait until we have block messages saved from block message handler
-            await asyncio.sleep(0)
-
+                    await sync_node.send_command(
+                        b"getblocks",
+                        getblocks_payload([bytes.fromhex(blockhash)[::-1]]),
+                    )
+            await asyncio.sleep(1)
         self._ibd = False
 
-    def write_blocks_to_disk(self, blocks: List[bytes]):
+    def save_blocks(self, blocks: List[bytes]):
         """
-        Write blocks to disk
+        Add blocks to local blockhain, i.e. save to disk, write to relevant indexes
 
         observe max_blockfile_size &
         number files blk00000.dat, blk00001.dat, ...
@@ -857,6 +976,14 @@ class Node:
 
         dat_file = open(filepath, "ab")
         for blk in blocks:
+            # save hash / header to index files, respectively
+            blockheight = self.get_blockchain_height() + 1
+            blockhash = bits.crypto.hash256(blk[:80])[::-1].hex()  # rpc byte order
+            blockheader_data = bits.blockchain.block_header_deser(blk[:80])
+            self.save_blockhash(blockheight, blockhash)
+            self.save_blockheader(blockhash, blockheader_data)
+            log.info(f"block with hash {blockhash} saved to index")
+            # write block data to .dat file(s) on disk
             blk_data = self.magic_start_bytes + len(blk).to_bytes(4, "little") + blk
             if len(blk_data) + dat_file.tell() <= MAX_BLOCKFILE_SIZE:
                 dat_file.write(blk_data)
@@ -870,7 +997,85 @@ class Node:
                 filepath = os.path.join(self.blocksdir, filename)
                 dat_file = open(filepath, "ab")
                 dat_file.write(blk_data)
+            log.info(
+                f"block with hash {blockhash} saved to {os.path.split(filepath)[-1]} on disk"
+            )
         dat_file.close()
+
+    def get_blockchain_height(self) -> int:
+        """
+        Return the current local blockchain height by reading the index
+        """
+        with open(self.blockhash_index_path, "r") as bh_index_file:
+            blockhash_index = json.load(bh_index_file)
+        return len(blockhash_index.keys()) - 1
+
+    def save_blockhash(self, height: int, blockhash: str):
+        with open(self.blockhash_index_path, "r") as bh_index_file:
+            blockhash_index = json.load(bh_index_file)
+        blockhash_index.update({height: blockhash})
+        with open(self.blockhash_index_path, "w") as bh_index_file:
+            json.dump(blockhash_index, bh_index_file)
+
+    def get_blockhash(self, height: int) -> str:
+        with open(self.blockhash_index_path, "r") as bh_index_file:
+            blockhash_index = json.load(bh_index_file)
+        return blockhash_index.get(str(height))
+
+    def save_blockheader(self, blockhash: str, blockheader: dict):
+        with open(self.blockheader_index_path, "r") as bh_index_file:
+            blockheader_index = json.load(bh_index_file)
+        blockheader_index.update({blockhash: blockheader})
+        with open(self.blockheader_index_path, "w") as bh_index_file:
+            json.dump(blockheader_index, bh_index_file)
+
+    def get_blockheader(self, blockhash: str) -> dict:
+        with open(self.blockheader_index_path, "r") as bh_index_file:
+            blockheader_index = json.load(bh_index_file)
+        return blockheader_index.get(blockhash)
+
+    def rebuild_indexes(self):
+        log.info("rebuilding block indexes...")
+        blockhash_index = {}
+        blockheader_index = {}
+        block_dat_files = os.listdir(self.blocksdir)
+        log.info(f"found {len(block_dat_files)} files in {self.blocksdir}")
+        blockheight = 0
+        for i, dat_file in enumerate(block_dat_files):
+            log.info(f"parsing file {i}/{len(block_dat_files)}...")
+            blocks = self.parse_dat_file(os.path.join(self.blocksdir, dat_file))
+            log.info(f"found {len(blocks)} blocks. indexing...")
+            for blk in blocks:
+                blockhash = bits.crypto.hash256(blk[:80]).hex()
+                blockhash_index.update({blockheight: blockhash})
+                block_header_deser = bits.blockchain.block_header_deser(blk[:80])
+                blockheader_index.update({blockhash: block_header_deser})
+                blockheight += 1
+        with open(self.blockhash_index_path, "w") as bh_index_file:
+            json.dump(blockhash_index, bh_index_file)
+        log.info(f"blockhash index saved to disk: {self.blockhash_index_path}")
+        with open(self.blockheader_index_path, "w") as bh_index_file:
+            json.dump(blockheader_index, bh_index_file)
+        log.info(f"blockheader index saved to disk: {self.blockheader_index_path}")
+
+    def get_block_data(self, blockheight: int) -> bytes:
+        """
+        Retrieve raw block data from .dat files on disk by blockheight
+        Args:
+            blockheight: int, block height
+        Returns:
+            block: bytes, raw block data
+        """
+        dat_files = sorted(
+            [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
+        )
+        count = 0
+        for f in dat_files:
+            dat_file_blocks = self.parse_dat_file(f)
+            if blockheight <= count + len(dat_files) - 1:
+                return dat_file_blocks[blockheight - count]
+            count += len(dat_file_blocks)
+        return b""
 
     def parse_dat_file(self, filename) -> List[bytes]:
         """
@@ -891,3 +1096,26 @@ class Node:
                 ), f"dat file error, actual block byte length {len(block)} does not equal encoded length {length}"
                 blocks.append(block)
         return blocks
+
+    def median_time(self):
+        """
+        Return the median time of the last 11 blocks
+        """
+        block_height = self.get_blockchain_height()
+        if block_height == 0:
+            blockhash = self.get_blockhash(block_height)
+            blockheader = self.get_blockheader(blockhash)
+            return blockheader["nTime"]
+        times = []
+        for i in range(min(block_height, 11)):
+            blockhash = self.get_blockhash(block_height - i)
+            blockheader = self.get_blockheader(blockhash)
+            t = blockheader["nTime"]
+            times.append(t)
+        times = sorted(times)
+        if len(times) % 2:
+            # odd
+            median = times[len(times) // 2]
+        else:
+            median = (times[len(times) // 2 - 1] + times[len(times) // 2]) // 2
+        return median

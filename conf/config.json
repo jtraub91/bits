@@ -2,6 +2,7 @@
   "log_level": "error",
   "network": "mainnet",
   "datadir": "",
+  "seeds": [],
   "rpc_url": "",
   "rpc_user": "",
   "rpc_password": "",
