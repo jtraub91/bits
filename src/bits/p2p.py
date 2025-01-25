@@ -724,8 +724,11 @@ class Node:
             except Exception as err:
                 log.error(f"Error while handling {command}: {err.args}")
                 log.debug(traceback.format_exc())
-                log.debug((peer, command, payload))
+                log.debug(f"adding (peer, command, payload) to unhandled_message_queue")
                 self._unhandled_message_queue.append((peer, command, payload))
+                log.debug(
+                    f"there are {len(self._unhandled_message_queue)} messages in unhandled_message_queue"
+                )
         else:
             log.warning(
                 f"no handler {handle_fn_name} for {command}, saving to unhandled_message_queue"
@@ -738,15 +741,14 @@ class Node:
         latest_blockhash = self.get_blockhash(blockheight)
         latest_blockheader = self.get_blockheader(latest_blockhash)
 
-        beginning_blockhash = self.get_blockhash(blockheight - 2016)
+        beginning_blockhash = self.get_blockhash(blockheight - 2015)
         beginning_blockheader = self.get_blockheader(beginning_blockhash)
 
         elapsed_time = latest_blockheader["nTime"] - beginning_blockheader["nTime"]
         target_time = 2016 * 10 * 60.0
 
-        latest_target = bits.blockchain.difficulty(
-            bits.blockchain.target_threshold(latest_blockheader["nBits"]),
-            network=self.network,
+        latest_target = bits.blockchain.target_threshold(
+            bytes.fromhex(latest_blockheader["nBits"])[::-1]
         )
 
         new_target = latest_target * elapsed_time / target_time
@@ -781,60 +783,87 @@ class Node:
             computed_merkle_root_hash = bits.blockchain.merkle_root(txn_ids)[::-1].hex()
             assert (
                 proposed_block["merkle_root_hash"] == computed_merkle_root_hash
-            ), f"block validation failed: proposed block merkle root hash {proposed_block['merkle_root_hash']} not match one internally computed from proposed block transactions {computed_merkle_root_hash}"
+            ), f"proposed block merkle root hash {proposed_block['merkle_root_hash']} not match one internally computed from proposed block transactions {computed_merkle_root_hash}"
 
             # check prev block hash matches current block hash
-            if proposed_block["prev_blockheaderhash"] != current_blockhash:
-                log.info(
-                    f"proposed block prev blockheader hash {proposed_block['prev_blockheaderhash']} does not match current blockchain tip header hash {current_blockhash}. adding {proposed_blockhash[::-1].hex()} to orphaned blocks..."
-                )
-                self._orphaned_blocks.append(payload)
-                log.info(f"{len(self._orphaned_blocks)} orphaned blocks in memory")
-            else:
-                # continue with validation
+            assert (
+                proposed_block["prev_blockheaderhash"] == current_blockhash
+            ), f"proposed block prev blockheader hash {proposed_block['prev_blockheaderhash']} does not match current blockchain tip header hash {current_blockhash}, possible orphaned block"
 
-                # check nBits set correctly
-                proposed_block_height = current_blockheight + 1
-                if proposed_block_height % 2016:  # no difficulty adjustment
+            # continue with validation
+
+            # check nBits set correctly
+            proposed_block_height = current_blockheight + 1
+
+            if self.network == "testnet":
+                # testnet special rule:
+                # if no block mined in last 20 min, set difficulty to 1.0
+                # enforced below
+                elapsed_time_for_last_block = (
+                    proposed_blockheader["nTime"] - current_blockheader["nTime"]
+                )
+
+            if proposed_block_height % 2016:
+                # no difficulty adjustment
+                # pylint: disable-next=possibly-used-before-assignment
+                if self.network == "testnet" and elapsed_time_for_last_block >= 20 * 60:
+                    assert (
+                        proposed_block["nBits"] == "1d00ffff"
+                    ), f"proposed block nBits {proposed_block['nBits']} does not match expected testnet nBits 1d00ffff"
+                else:
                     assert (
                         proposed_block["nBits"] == current_blockheader["nBits"]
                     ), f"proposed block nBits {proposed_block['nBits']} differs from current blockchain tip nBits {current_blockheader['nBits']} and we are not in a difficulty adjustment"
+            else:
+                # difficulty adjustment
+                if self.network == "testnet" and elapsed_time_for_last_block >= 20 * 60:
+                    assert (
+                        proposed_block["nBits"] == "1d00ffff"
+                    ), f"proposed block nBits {proposed_block['nBits']} does not match expected testnet nBits 1d00ffff"
                 else:
-                    new_target = self.calculate_new_target()
-                    new_target_nbits = bits.blockchain.n_bits(new_target)[::-1].hex()
+                    current_target = bits.blockchain.target_threshold(
+                        bytes.fromhex(current_blockheader["nBits"])[::-1]
+                    )
+                    current_difficulty = bits.blockchain.difficulty(current_target)
+
+                    block_0_hash = self.get_blockhash(
+                        current_blockheight - 2015
+                    )  # first block of difficulty period
+                    block_0 = self.get_blockheader(block_0_hash)
+
+                    elapsed_time = current_blockheader["nTime"] - block_0["nTime"]
+
+                    new_difficulty = bits.blockchain.calculate_new_difficulty(
+                        elapsed_time, current_difficulty
+                    )
+                    new_target = bits.blockchain.target(new_difficulty)
+                    new_target_nbits = bits.blockchain.compact_nbits(new_target)[
+                        ::-1
+                    ].hex()
                     assert (
                         proposed_block["nBits"] == new_target_nbits
                     ), f"proposed block nBits {proposed_block['nBits']} differs from new calculated target nBits {new_target_nbits} for this difficulty adjustment"
 
-                # check timestamp
-                # ensure timestamp is strictly greater than the median_time
-                # ensure timestamp is not more than two hours in future
-                current_time = time.time()
-                if proposed_block["nTime"] <= self.median_time():
-                    log.info(
-                        f"block validation failed: proposed block nTime {proposed_block['nTime']} is not strictly greater than the median time {self.median_time()}"
-                    )
-                    return False
-                if proposed_block["nTime"] > current_time + 7200:
-                    log.info(
-                        f"block validation failed: proposed block nTime {proposed_block['nTime']} is more than two hours in the future {current_time + 7200}"
-                    )
-                    return False
+            # check timestamp
+            # ensure timestamp is strictly greater than the median_time
+            # ensure timestamp is not more than two hours in future
+            current_time = time.time()
+            if proposed_block["nTime"] <= self.median_time():
+                log.info(
+                    f"proposed block nTime {proposed_block['nTime']} is not strictly greater than the median time {self.median_time()}"
+                )
+                return False
+            if proposed_block["nTime"] > current_time + 7200:
+                log.info(
+                    f"proposed block nTime {proposed_block['nTime']} is more than two hours in the future {current_time + 7200}"
+                )
+                return False
 
-                # now check transactions
-                # TODO
-                # check chainwork, etc.
+            # now check transactions
+            # TODO
+            # check chainwork, etc.
 
-                self.save_blocks([payload])
-
-            # if self._inventories:
-            #     # request another block from the inventory
-            #     inv = self._inventories[0]
-            #     self._inventories = self._inventories[1:]
-            #     inventory_list = [inventory(inv["type_id"], inv["hash"])]
-            #     await peer.send_command(
-            #         b"getdata", inv_payload(len(inventory_list), inventory_list)
-            #     )
+            self.save_blocks([payload])
 
     async def handle_feefilter_command(
         self, peer: Peer, command: bytes, payload: bytes
@@ -982,7 +1011,7 @@ class Node:
             blockheader_data = bits.blockchain.block_header_deser(blk[:80])
             self.save_blockhash(blockheight, blockhash)
             self.save_blockheader(blockhash, blockheader_data)
-            log.info(f"block with hash {blockhash} saved to index")
+            log.info(f"block {blockheight} saved to index")
             # write block data to .dat file(s) on disk
             blk_data = self.magic_start_bytes + len(blk).to_bytes(4, "little") + blk
             if len(blk_data) + dat_file.tell() <= MAX_BLOCKFILE_SIZE:
@@ -997,9 +1026,7 @@ class Node:
                 filepath = os.path.join(self.blocksdir, filename)
                 dat_file = open(filepath, "ab")
                 dat_file.write(blk_data)
-            log.info(
-                f"block with hash {blockhash} saved to {os.path.split(filepath)[-1]} on disk"
-            )
+            log.info(f"block {blockheight} saved to {os.path.split(filepath)[-1]}")
         dat_file.close()
 
     def get_blockchain_height(self) -> int:

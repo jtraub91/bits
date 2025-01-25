@@ -22,6 +22,29 @@ MAX_TARGET_REGTEST = 0x7FFFFF000000000000000000000000000000000000000000000000000
 # https://en.bitcoin.it/wiki/Difficulty
 
 
+def calculate_new_difficulty(elapsed_time: int, current_difficulty: float) -> float:
+    """
+    Calculate the new difficulty for the next block
+    Args:
+        elapsed_time: int, time elapsed between first and last blocks of difficulty period
+        current_difficulty: float, current difficulty
+    Returns:
+        new_difficulty: float, new difficulty
+    """
+    target_time = 2016 * 10 * 60.0
+    ratio = elapsed_time / target_time
+
+    if ratio > 4:
+        ratio = 4
+    elif ratio < 0.25:
+        ratio = 0.25
+
+    new_difficulty = current_difficulty / ratio
+    if new_difficulty < 1.0:
+        new_difficulty = 1.0
+    return new_difficulty
+
+
 def target_threshold(nBits: bytes) -> int:
     """
     Calculate target threshold from compact nBits
@@ -31,6 +54,9 @@ def target_threshold(nBits: bytes) -> int:
     >>> target = target_threshold(bytes.fromhex("207fffff")[::-1])
     >>> hex(target)
     '0x7fffff0000000000000000000000000000000000000000000000000000000000'
+    >>> target = target_threshold(bytes.fromhex("1d00ffff")[::-1])
+    >>> hex(target)
+    '0xffff0000000000000000000000000000000000000000000000000000'
     """
     mantissa = nBits[:3]
     exponent = int.from_bytes(nBits[3:], "little")
@@ -38,22 +64,34 @@ def target_threshold(nBits: bytes) -> int:
     return target
 
 
-def n_bits(target: int) -> bytes:
+def compact_nbits(target: int) -> bytes:
     """
     Convert target threshold to nBits compact representation
     Args:
         target: int, target threshold
     >>> n_bits(0x7fffff0000000000000000000000000000000000000000000000000000000000)[::-1].hex()
     '207fffff'
+    >>> n_bits(0xffff0000000000000000000000000000000000000000000000000000)[::-1].hex()
+    '1d00ffff'
     """
+    if target > MAX_TARGET_REGTEST:
+        raise ValueError("target greater than max")
     target_bytes = target.to_bytes(32, "big")
     bytes_shifted = 0
     while target_bytes[0] == 0:
+        # shift left until we get value in most significant byte
         target <<= 8
         target_bytes = target.to_bytes(32, "big")
         bytes_shifted += 1
-    target >>= 29 * 8  # shift right 29 bytes to truncate
-    mantissa = target.to_bytes(3, "little")
+    while (target_bytes[0] or target_bytes[1]) and not target_bytes[2]:
+        # significant digits should be in least signifcant position
+        target >>= 8
+        target_bytes = target.to_bytes(32, "big")
+        bytes_shifted -= 1
+    target >>= 29 * 8  # finally shift back 29 bytes to truncate
+    mantissa = target.to_bytes(
+        3, "little"
+    )  # take 3 bytes, little endian (internal byte order)
     exponent = (32 - bytes_shifted).to_bytes(1, "little")
     return mantissa + exponent
 
@@ -67,6 +105,23 @@ def difficulty(target: int, network: str = "mainnet") -> float:
         return MAX_TARGET / target
     elif network == "regtest":
         return MAX_TARGET_REGTEST / target
+    else:
+        raise ValueError("unrecognized network")
+
+
+def target(diff: float, network: str = "mainnet") -> int:
+    """
+    Calculate target from difficulty
+    Args:
+        diff: float, difficulty
+        network: str, mainnet, testnet, or regtest
+    Returns:
+        target
+    """
+    if network == "mainnet" or network == "testnet":
+        return int(MAX_TARGET / diff)
+    elif network == "regtest":
+        return int(MAX_TARGET_REGTEST / diff)
     else:
         raise ValueError("unrecognized network")
 
