@@ -736,29 +736,6 @@ class Node:
             self._unhandled_message_queue.append((peer, command, payload))
             await asyncio.sleep(0)
 
-    def calculate_new_target(self) -> float:
-        blockheight = self.get_blockchain_height()
-        latest_blockhash = self.get_blockhash(blockheight)
-        latest_blockheader = self.get_blockheader(latest_blockhash)
-
-        beginning_blockhash = self.get_blockhash(blockheight - 2015)
-        beginning_blockheader = self.get_blockheader(beginning_blockhash)
-
-        elapsed_time = latest_blockheader["nTime"] - beginning_blockheader["nTime"]
-        target_time = 2016 * 10 * 60.0
-
-        latest_target = bits.blockchain.target_threshold(
-            bytes.fromhex(latest_blockheader["nBits"])[::-1]
-        )
-
-        new_target = latest_target * elapsed_time / target_time
-
-        if new_target / latest_target > 4:
-            new_target = 4 * latest_target
-        elif new_target / latest_target < 0.25:
-            new_target = 0.25 * latest_target
-        return new_target
-
     async def handle_block_command(self, peer: Peer, command: bytes, payload: bytes):
         if self._ibd:
             ### BLOCK VALIDATION ###
@@ -948,6 +925,9 @@ class Node:
             )
             await self.ibd(sync_node)
 
+        while not self.exit_event.is_set():
+            await asyncio.sleep(1)
+
     async def ibd(self, sync_node: Peer):
         """
         Initial Block Download
@@ -958,7 +938,12 @@ class Node:
         self._ibd = True
         while True:
             if len(self.message_queue) == 0:
+                # wait until message_queue is empty
+                # outgoing_peer_recv_loop is reading messages and adding to queue
+                # message handler loop is handling them in order, by scheduling handle_command
+                # thus, a lot of logic is in the handle_xxx_command functions, respectively
                 if self._inventories:
+
                     # maximum of 128 blocks requested at a time
                     if len(self._inventories) > 128:
                         inventories = self._inventories[:128]
@@ -973,6 +958,7 @@ class Node:
                         b"getdata", inv_payload(len(inventory_list), inventory_list)
                     )
                 else:
+                    # if no inventories, send getblocks to request inventories
                     # get latest block
                     blockheight = self.get_blockchain_height()
                     blockhash = self.get_blockhash(blockheight)
