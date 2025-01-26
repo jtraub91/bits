@@ -351,10 +351,6 @@ def parse_inv_payload(payload: bytes) -> dict:
 parse_notfound_payload = parse_inv_payload
 
 
-def inv_payload(count: int, inventories: List[bytes]) -> bytes:
-    return bits.compact_size_uint(count) + b"".join(inventories)
-
-
 def inventory(type_id: str, hash: str) -> bytes:
     """
     inventory data structure
@@ -363,6 +359,16 @@ def inventory(type_id: str, hash: str) -> bytes:
     return int.to_bytes(
         INVENTORY_TYPE_ID[type_id.upper()], 4, "little"
     ) + bytes.fromhex(hash)
+
+
+def inv_payload(count: int, inventories: List[inventory]) -> bytes:
+    """
+    Create inv message payload
+    Args:
+        count: int, number of inventories
+        inventories: List[inventory], list of inventory data structures
+    """
+    return bits.compact_size_uint(count) + b"".join(inventories)
 
 
 def parse_inventory(inventory_: bytes) -> dict:
@@ -454,20 +460,13 @@ class Peer:
         self.reader: StreamReader = None
         self.writer: StreamWriter = None
 
-        self.exit_event = Event()
-        # to store inv messages
         self.inventories = deque([])
+        self.blocks = deque([])
+        self._orphan_blocks = deque([])
+        self._pending_getdata_requests = deque([])
+        self._pending_getblocks_requests = deque([])
 
-    def save_inventory(self, inventory: dict):
-        """
-        Args:
-            inventory: dict, inventory dictionary, e.g. {"type_id": "MSG_TX", "hash": ""}
-        """
-        if inventory not in self.inventories:
-            log.debug(f"appending to inventory {inventory}")
-            self.inventories.append(inventory)
-        else:
-            log.debug(f"already saved inventory {inventory}")
+        self.exit_event = Event()
 
     async def connect(self):
         reader, writer = await asyncio.open_connection(self.host, self.port)
@@ -625,12 +624,112 @@ class Node:
         self.message_queue = deque([])
         self._unhandled_message_queue = deque([])
         self._ibd: bool = False
-        self._inventories = []
-        self._orphaned_blocks = deque([])
 
         self.peers: list[Peer] = []
 
         self.exit_event = Event()
+
+    ### handlers ###
+    async def handle_command(self, peer: Peer, command: bytes, payload: dict):
+        handle_fn_name = f"handle_{command.decode('utf8')}_command"
+        handle_fn = getattr(self, handle_fn_name, None)
+        if handle_fn:
+            try:
+                await handle_fn(peer, command, payload)  # pylint: disable=not-callable
+            except Exception as err:
+                log.error(f"Error while handling {command}: {err.args}")
+                log.debug(traceback.format_exc())
+                log.debug(f"adding (peer, command, payload) to unhandled_message_queue")
+                self._unhandled_message_queue.append((peer, command, payload))
+                log.debug(
+                    f"there are {len(self._unhandled_message_queue)} messages in unhandled_message_queue"
+                )
+        else:
+            log.warning(
+                f"no handler {handle_fn_name} for {command}, saving to unhandled_message_queue"
+            )
+            self._unhandled_message_queue.append((peer, command, payload))
+            await asyncio.sleep(0)
+
+    async def handle_feefilter_command(
+        self, peer: Peer, command: bytes, payload: bytes
+    ):
+        payload = parse_feefilter_payload(payload)
+        peer.save_data("feefilter", payload)
+
+    async def handle_addr_command(self, peer: Peer, command: bytes, payload: bytes):
+        payload = parse_addr_payload(payload)
+        peer.save_data("addr", payload)
+
+    async def handle_inv_command(self, peer: Peer, command: bytes, payload: bytes):
+        parsed_payload = parse_inv_payload(payload)
+        count = parsed_payload["count"]
+        inventories = parsed_payload["inventory"]
+
+        peer_inventories = peer.inventories
+
+        new_inventories = [inv for inv in inventories if inv not in peer_inventories]
+        peer.inventories.extend(new_inventories)
+
+    async def handle_block_command(self, peer: Peer, command: bytes, payload: bytes):
+        blockhash = bits.crypto.hash256(payload[:80])[::-1].hex()
+        block = bits.blockchain.block_deser(payload)
+        pending_getdata_request = next(
+            filter(
+                lambda inv: inv["type_id"] == "MSG_BLOCK" and inv["hash"] == blockhash,
+                peer._pending_getdata_requests,
+            ),
+            None,
+        )
+
+        pending_getblocks_request = next(
+            # criteria for matching pending getblocks request
+            filter(
+                lambda b_hash: b_hash == block["prev_blockhash"],
+                peer._pending_getblocks_requests,
+            ),
+            None,
+        )
+
+        peer._pending_getblocks_requests.remove(pending_getdata_request)
+        peer.blocks.append(payload)
+        if pending_getdata_request:
+            peer._pending_getdata_requests.remove(pending_getdata_request)
+        if pending_getblocks_request:
+            peer._pending_getblocks_requests.remove(pending_getblocks_request)
+
+    async def handle_sendcmpct_command(
+        self, peer: Peer, command: bytes, payload: bytes
+    ):
+        payload = parse_sendcmpct_payload(payload)
+        peer.save_data("sendcmpct", payload)
+
+    async def handle_getheaders_command(
+        self, peer: Peer, command: bytes, payload: bytes
+    ):
+        payload = parse_getheaders_payload(payload)
+        await peer.send_command(b"headers")
+
+    async def handle_ping_command(self, peer: Peer, command: bytes, payload: bytes):
+        """
+        Handle ping command by sending a 'pong' message
+        """
+        payload = parse_ping_payload(payload)
+        await peer.send_command(b"pong", ping_payload(payload["nonce"]))
+
+    async def connect_seeds(self):
+        """
+        Connect seeds as peers, and schedule outgoing peer recv loop task
+        """
+        for seed in self.seeds:
+            host, port = seed.split(":")
+            port = int(port)
+            peer = Peer(host, port, self.network)
+            await peer.connect()
+            await self.connect_to_peer(peer)
+            self.peers.append(peer)
+
+            asyncio.create_task(self.outgoing_peer_recv_loop(peer))
 
     async def connect_to_peer(self, peer: Peer):
         """
@@ -668,20 +767,6 @@ class Node:
 
         log.info(f"connection handshake established for @ {peer.host}:{peer.port}")
 
-    async def connect_seeds(self):
-        """
-        Connect seeds as peers, and schedule outgoing peer recv loop task
-        """
-        for seed in self.seeds:
-            host, port = seed.split(":")
-            port = int(port)
-            peer = Peer(host, port, self.network)
-            await peer.connect()
-            await self.connect_to_peer(peer)
-            self.peers.append(peer)
-
-            asyncio.create_task(self.outgoing_peer_recv_loop(peer))
-
     async def outgoing_peer_recv_loop(self, peer: Peer, msg_timeout: int = 15):
         """
         Args:
@@ -704,8 +789,7 @@ class Node:
         log.info(f"peer @ {peer.host}:{peer.port} socket is closed.")
 
     async def incoming_peer_server(self):
-        # TODO
-        return
+        raise NotImplementedError()
 
     async def message_handler_loop(self):
         while not self.exit_event.is_set():
@@ -713,179 +797,6 @@ class Node:
                 peer, command, payload = self.message_queue.popleft()
                 asyncio.create_task(self.handle_command(peer, command, payload))
             await asyncio.sleep(0)
-
-    ### handlers ###
-    async def handle_command(self, peer: Peer, command: bytes, payload: dict):
-        handle_fn_name = f"handle_{command.decode('utf8')}_command"
-        handle_fn = getattr(self, handle_fn_name, None)
-        if handle_fn:
-            try:
-                await handle_fn(peer, command, payload)  # pylint: disable=not-callable
-            except Exception as err:
-                log.error(f"Error while handling {command}: {err.args}")
-                log.debug(traceback.format_exc())
-                log.debug(f"adding (peer, command, payload) to unhandled_message_queue")
-                self._unhandled_message_queue.append((peer, command, payload))
-                log.debug(
-                    f"there are {len(self._unhandled_message_queue)} messages in unhandled_message_queue"
-                )
-        else:
-            log.warning(
-                f"no handler {handle_fn_name} for {command}, saving to unhandled_message_queue"
-            )
-            self._unhandled_message_queue.append((peer, command, payload))
-            await asyncio.sleep(0)
-
-    async def handle_block_command(self, peer: Peer, command: bytes, payload: bytes):
-        if self._ibd:
-            ### BLOCK VALIDATION ###
-            current_blockheight = self.get_blockchain_height()
-            current_blockhash = self.get_blockhash(current_blockheight)
-            current_blockheader = self.get_blockheader(current_blockhash)
-
-            proposed_block = bits.blockchain.block_deser(payload)
-            proposed_blockhash = bits.crypto.hash256(payload[:80])
-            proposed_blockheader = bits.blockchain.block_header_deser(payload[:80])
-
-            # check if POW is valid
-            target = bits.blockchain.target_threshold(
-                bytes.fromhex(proposed_block["nBits"])[::-1]
-            )
-            assert (
-                int.from_bytes(proposed_blockhash, "little") <= target
-            ), f"proposed block does not include valid proof of work. proposed block hash {proposed_blockhash.hex()} is > target {hex(target)}"
-
-            # check merkle root
-            txn_ids = [bytes.fromhex(txn["txid"]) for txn in proposed_block["txns"]]
-            computed_merkle_root_hash = bits.blockchain.merkle_root(txn_ids)[::-1].hex()
-            assert (
-                proposed_block["merkle_root_hash"] == computed_merkle_root_hash
-            ), f"proposed block merkle root hash {proposed_block['merkle_root_hash']} not match one internally computed from proposed block transactions {computed_merkle_root_hash}"
-
-            # check prev block hash matches current block hash
-            assert (
-                proposed_block["prev_blockheaderhash"] == current_blockhash
-            ), f"proposed block prev blockheader hash {proposed_block['prev_blockheaderhash']} does not match current blockchain tip header hash {current_blockhash}, possible orphaned block"
-
-            # continue with validation
-
-            # check nBits set correctly
-            proposed_block_height = current_blockheight + 1
-
-            if self.network == "testnet":
-                # testnet special rule:
-                # if no block mined in last 20 min, set difficulty to 1.0
-                # enforced below
-                elapsed_time_for_last_block = (
-                    proposed_blockheader["nTime"] - current_blockheader["nTime"]
-                )
-
-            if proposed_block_height % 2016:
-                # no difficulty adjustment
-                # pylint: disable-next=possibly-used-before-assignment
-                if self.network == "testnet" and elapsed_time_for_last_block >= 20 * 60:
-                    assert (
-                        proposed_block["nBits"] == "1d00ffff"
-                    ), f"proposed block nBits {proposed_block['nBits']} does not match expected testnet nBits 1d00ffff"
-                else:
-                    assert (
-                        proposed_block["nBits"] == current_blockheader["nBits"]
-                    ), f"proposed block nBits {proposed_block['nBits']} differs from current blockchain tip nBits {current_blockheader['nBits']} and we are not in a difficulty adjustment"
-            else:
-                # difficulty adjustment
-                if self.network == "testnet" and elapsed_time_for_last_block >= 20 * 60:
-                    assert (
-                        proposed_block["nBits"] == "1d00ffff"
-                    ), f"proposed block nBits {proposed_block['nBits']} does not match expected testnet nBits 1d00ffff"
-                else:
-                    current_target = bits.blockchain.target_threshold(
-                        bytes.fromhex(current_blockheader["nBits"])[::-1]
-                    )
-                    current_difficulty = bits.blockchain.difficulty(current_target)
-
-                    block_0_hash = self.get_blockhash(
-                        current_blockheight - 2015
-                    )  # first block of difficulty period
-                    block_0 = self.get_blockheader(block_0_hash)
-
-                    elapsed_time = current_blockheader["nTime"] - block_0["nTime"]
-
-                    new_difficulty = bits.blockchain.calculate_new_difficulty(
-                        elapsed_time, current_difficulty
-                    )
-                    new_target = bits.blockchain.target(new_difficulty)
-                    new_target_nbits = bits.blockchain.compact_nbits(new_target)[
-                        ::-1
-                    ].hex()
-                    assert (
-                        proposed_block["nBits"] == new_target_nbits
-                    ), f"proposed block nBits {proposed_block['nBits']} differs from new calculated target nBits {new_target_nbits} for this difficulty adjustment"
-
-            # check timestamp
-            # ensure timestamp is strictly greater than the median_time
-            # ensure timestamp is not more than two hours in future
-            current_time = time.time()
-            if proposed_block["nTime"] <= self.median_time():
-                log.info(
-                    f"proposed block nTime {proposed_block['nTime']} is not strictly greater than the median time {self.median_time()}"
-                )
-                return False
-            if proposed_block["nTime"] > current_time + 7200:
-                log.info(
-                    f"proposed block nTime {proposed_block['nTime']} is more than two hours in the future {current_time + 7200}"
-                )
-                return False
-
-            # now check transactions
-            # TODO
-            # check chainwork, etc.
-
-            self.save_blocks([payload])
-
-    async def handle_feefilter_command(
-        self, peer: Peer, command: bytes, payload: bytes
-    ):
-        payload = parse_feefilter_payload(payload)
-        peer.save_data("feefilter", payload)
-
-    async def handle_addr_command(self, peer: Peer, command: bytes, payload: bytes):
-        payload = parse_addr_payload(payload)
-        peer.save_data("addr", payload)
-
-    async def handle_inv_command(self, peer: Peer, command: bytes, payload: bytes):
-        payload = parse_inv_payload(payload)
-        count = payload["count"]
-        inventories = payload["inventory"]
-        if self._ibd:
-            # ignore non MSG_BLOCK inv messages during ibd
-            if all([inv["type_id"] == "MSG_BLOCK" for inv in inventories]):
-                self._inventories.extend(inventories)
-            else:
-                type_ids = set([inv["type_id"] for inv in inventories])
-                log.debug(
-                    f"handle_inv - ignoring {len(inventories)} inv message(s) of type_id {type_ids} during ibd"
-                )
-        else:
-            log.info("handle_inv - not implemented yet while not in ibd")
-
-    async def handle_sendcmpct_command(
-        self, peer: Peer, command: bytes, payload: bytes
-    ):
-        payload = parse_sendcmpct_payload(payload)
-        peer.save_data("sendcmpct", payload)
-
-    async def handle_getheaders_command(
-        self, peer: Peer, command: bytes, payload: bytes
-    ):
-        payload = parse_getheaders_payload(payload)
-        await peer.send_command(b"headers")
-
-    async def handle_ping_command(self, peer: Peer, command: bytes, payload: bytes):
-        """
-        Handle ping command by sending a 'pong' message
-        """
-        payload = parse_ping_payload(payload)
-        await peer.send_command(b"pong", ping_payload(payload["nonce"]))
 
     async def main(self):
         await self.connect_seeds()
@@ -909,21 +820,17 @@ class Node:
         for peer in self.peers:
             await peer.send_command(b"getaddr")
 
-        # store addrs info from all peers to db?
-        # how to decide which peers to connect from
-        # new config option for max outgoing connections
-        # need to eventual persist to disk, key-value, sqlite, pickle?
-
         # choose a peer as sync node
         sync_node = self.peers[0]
 
         # if blockchain is 144 blocks behind peer (~24 hr) enter ibd
-        block_height = self.get_blockchain_height()
-        if sync_node.data["version"]["start_height"] - block_height > 144:
+        blockheight = self.get_blockchain_height()
+        if sync_node.data["version"]["start_height"] - blockheight > 144:
             log.info(
-                f"local blockchain behind sync node @ {sync_node.host}:{sync_node.port} by {sync_node.data['version']['start_height'] - block_height} blocks. Entering IBD..."
+                f"local blockchain is behind sync node @ {sync_node.host}:{sync_node.port} by {sync_node.data['version']['start_height'] - blockheight} blocks. Entering IBD..."
             )
             await self.ibd(sync_node)
+        log.info("exiting IBD...local blockchain is synced with sync node.")
 
         while not self.exit_event.is_set():
             await asyncio.sleep(1)
@@ -936,39 +843,75 @@ class Node:
         https://developer.bitcoin.org/devguide/p2p_network.html#blocks-first
         """
         self._ibd = True
-        while True:
-            if len(self.message_queue) == 0:
-                # wait until message_queue is empty
-                # outgoing_peer_recv_loop is reading messages and adding to queue
-                # message handler loop is handling them in order, by scheduling handle_command
-                # thus, a lot of logic is in the handle_xxx_command functions, respectively
-                if self._inventories:
+        sync_node_start_height = sync_node.data["version"]["start_height"]
+        while sync_node_start_height > self.get_blockchain_height():
 
-                    # maximum of 128 blocks requested at a time
-                    if len(self._inventories) > 128:
-                        inventories = self._inventories[:128]
-                        self._inventories = self._inventories[128:]
-                    else:
-                        inventories = self._inventories
-                        self._inventories = []
-                    inventory_list = [
-                        inventory(inv["type_id"], inv["hash"]) for inv in inventories
-                    ]
-                    await sync_node.send_command(
-                        b"getdata", inv_payload(len(inventory_list), inventory_list)
-                    )
-                else:
-                    # if no inventories, send getblocks to request inventories
-                    # get latest block
-                    blockheight = self.get_blockchain_height()
-                    blockhash = self.get_blockhash(blockheight)
-                    blockheader = self.get_blockheader(blockhash)
+            # get latest blockhash from local blockchain
+            blockheight = self.get_blockchain_height()
+            blockhash = self.get_blockhash(blockheight)
 
-                    await sync_node.send_command(
-                        b"getblocks",
-                        getblocks_payload([bytes.fromhex(blockhash)[::-1]]),
+            await sync_node.send_command(
+                b"getblocks",
+                getblocks_payload([bytes.fromhex(blockhash)[::-1]]),
+            )
+            sync_node._pending_getblocks_requests.append(blockhash)
+
+            # expected inv response is min of 500
+            # or difference between sync_node start_height and local blockchain height
+            # wait until we have at least that many inventories
+            msg_block_inventories = list(
+                filter(lambda inv: inv["type_id"] == "MSG_BLOCK", sync_node.inventories)
+            )
+            while len(msg_block_inventories) < min(
+                500, sync_node_start_height - blockheight
+            ):
+                await asyncio.sleep(0.1)
+                msg_block_inventories = list(
+                    filter(
+                        lambda inv: inv["type_id"] == "MSG_BLOCK", sync_node.inventories
                     )
-            await asyncio.sleep(1)
+                )
+
+            while msg_block_inventories:
+                # while we have msg block inventories
+                # form getdata message in max 128 inventory chunks
+                if len(msg_block_inventories) > 128:
+                    msg_block_inventories = msg_block_inventories[:128]
+                inventory_list = [
+                    inventory(inv["type_id"], inv["hash"])
+                    for inv in msg_block_inventories
+                ]
+                await sync_node.send_command(
+                    b"getdata", inv_payload(len(inventory_list), inventory_list)
+                )
+                # add to pending getdata requests, remove from inventories
+                sync_node._pending_getdata_requests.extend(msg_block_inventories)
+                [sync_node.inventories.remove(inv) for inv in msg_block_inventories]
+
+                while sync_node._pending_getdata_requests:
+                    # wait until all pending getdata requests are fulfilled
+                    # pending getdata requests get removed in handle_block_command()
+                    await asyncio.sleep(0.1)
+
+                while sync_node.blocks:
+                    # while we have blocks, process them
+                    block = sync_node.blocks.popleft()
+                    try:
+                        self.process_block(block)
+                    except Exception as err:
+                        log.error(
+                            f"error processing block: {err.args}, adding to sync_node orphan_blocks..."
+                        )
+                        log.debug(traceback.format_exc())
+                        sync_node.orphan_blocks.append(block)
+                    await asyncio.sleep(0.1)
+
+                msg_block_inventories = list(
+                    filter(
+                        lambda inv: inv["type_id"] == "MSG_BLOCK", sync_node.inventories
+                    )
+                )
+
         self._ibd = False
 
     def save_blocks(self, blocks: List[bytes]):
@@ -1034,6 +977,19 @@ class Node:
         with open(self.blockhash_index_path, "r") as bh_index_file:
             blockhash_index = json.load(bh_index_file)
         return blockhash_index.get(str(height))
+
+    def save_orphan(self, blockhash: str, blockheader: dict):
+        # for debugging purposes
+        if not os.path.exists(os.path.join(self.indexdir, "orphans.json")):
+            with open(
+                os.path.join(self.indexdir, "orphans.json"), "w"
+            ) as orph_index_file:
+                json.dump({}, orph_index_file)
+        with open(os.path.join(self.indexdir, "orphans.json"), "r") as orph_index_file:
+            orphan_index = json.load(orph_index_file)
+        orphan_index.update({blockhash: blockheader})
+        with open(os.path.join(self.indexdir, "orphans.json"), "w") as orph_index_file:
+            json.dump(orphan_index, orph_index_file)
 
     def save_blockheader(self, blockhash: str, blockheader: dict):
         with open(self.blockheader_index_path, "r") as bh_index_file:
@@ -1132,3 +1088,117 @@ class Node:
         else:
             median = (times[len(times) // 2 - 1] + times[len(times) // 2]) // 2
         return median
+
+    def process_block(self, block: bytes):
+        if self._ibd:
+            ### BLOCK VALIDATION ###
+            current_blockheight = self.get_blockchain_height()
+            current_blockhash = self.get_blockhash(current_blockheight)
+            current_blockheader = self.get_blockheader(current_blockhash)
+
+            proposed_block = bits.blockchain.block_deser(block)
+            proposed_blockhash = bits.crypto.hash256(block[:80])
+            proposed_blockheader = bits.blockchain.block_header_deser(block[:80])
+
+            # check if POW is valid
+            target = bits.blockchain.target_threshold(
+                bytes.fromhex(proposed_block["nBits"])[::-1]
+            )
+            assert (
+                int.from_bytes(proposed_blockhash, "little") <= target
+            ), f"proposed block does not include valid proof of work. proposed block hash {proposed_blockhash.hex()} is > target {hex(target)}"
+
+            # check merkle root
+            txn_ids = [bytes.fromhex(txn["txid"]) for txn in proposed_block["txns"]]
+            computed_merkle_root_hash = bits.blockchain.merkle_root(txn_ids)[::-1].hex()
+            assert (
+                proposed_block["merkle_root_hash"] == computed_merkle_root_hash
+            ), f"proposed block merkle root hash {proposed_block['merkle_root_hash']} not match one internally computed from proposed block transactions {computed_merkle_root_hash}"
+
+            # check prev block hash matches current block hash
+            if proposed_block["prev_blockheaderhash"] != current_blockhash:
+                log.warning(
+                    f"possible orphaned block - proposed block prev blockheader hash {proposed_block['prev_blockheaderhash']} does not match current blockchain tip header hash {current_blockhash}"
+                )
+                log.debug(
+                    f"saving {proposed_blockhash[::-1].hex()} to orphaned blocks..."
+                )
+                self.save_orphan(proposed_blockhash[::-1].hex(), proposed_blockheader)
+                return
+
+            # continue with validation
+
+            # check nBits set correctly
+            proposed_block_height = current_blockheight + 1
+
+            if self.network == "testnet":
+                # testnet special rule:
+                # if no block mined in last 20 min, set difficulty to 1.0
+                # enforced below
+                elapsed_time_for_last_block = (
+                    proposed_blockheader["nTime"] - current_blockheader["nTime"]
+                )
+
+            if proposed_block_height % 2016:
+                # no difficulty adjustment
+                # pylint: disable-next=possibly-used-before-assignment
+                if self.network == "testnet" and elapsed_time_for_last_block >= 20 * 60:
+                    assert (
+                        proposed_block["nBits"] == "1d00ffff"
+                    ), f"proposed block nBits {proposed_block['nBits']} does not match expected testnet nBits 1d00ffff"
+                else:
+                    assert (
+                        proposed_block["nBits"] == current_blockheader["nBits"]
+                    ), f"proposed block nBits {proposed_block['nBits']} differs from current blockchain tip nBits {current_blockheader['nBits']} and we are not in a difficulty adjustment"
+            else:
+                # difficulty adjustment
+                if self.network == "testnet" and elapsed_time_for_last_block >= 20 * 60:
+                    assert (
+                        proposed_block["nBits"] == "1d00ffff"
+                    ), f"proposed block nBits {proposed_block['nBits']} does not match expected testnet nBits 1d00ffff"
+                else:
+                    current_target = bits.blockchain.target_threshold(
+                        bytes.fromhex(current_blockheader["nBits"])[::-1]
+                    )
+                    current_difficulty = bits.blockchain.difficulty(current_target)
+
+                    block_0_hash = self.get_blockhash(
+                        current_blockheight - 2015
+                    )  # first block of difficulty period
+                    block_0 = self.get_blockheader(block_0_hash)
+
+                    elapsed_time = current_blockheader["nTime"] - block_0["nTime"]
+
+                    new_difficulty = bits.blockchain.calculate_new_difficulty(
+                        elapsed_time, current_difficulty
+                    )
+                    new_target = bits.blockchain.target(new_difficulty)
+                    new_target_nbits = bits.blockchain.compact_nbits(new_target)[
+                        ::-1
+                    ].hex()
+                    assert (
+                        proposed_block["nBits"] == new_target_nbits
+                    ), f"proposed block nBits {proposed_block['nBits']} differs from new calculated target nBits {new_target_nbits} for this difficulty adjustment"
+
+            # check timestamp
+            # ensure timestamp is strictly greater than the median_time
+            # ensure timestamp is not more than two hours in future
+            current_time = time.time()
+            if proposed_block["nTime"] <= self.median_time():
+                log.info(
+                    f"proposed block nTime {proposed_block['nTime']} is not strictly greater than the median time {self.median_time()}"
+                )
+                return False
+            if proposed_block["nTime"] > current_time + 7200:
+                log.info(
+                    f"proposed block nTime {proposed_block['nTime']} is more than two hours in the future {current_time + 7200}"
+                )
+                return False
+
+            # now check transactions
+            # TODO
+            # check chainwork, etc.
+
+            self.save_blocks([block])
+
+        return
