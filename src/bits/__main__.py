@@ -1294,11 +1294,10 @@ def main():
         if args.blockheight is None:
             block = bits.read_bytes(args.in_file, input_format=config.input_format)
             header = block[:80]
-        elif args.blockheight == 0:
-            block = bits.blockchain.genesis_block()
-            header = block[:80]
         else:
-            raise NotImplementedError("blocks > 0 not implemented per v0")
+            node = bits.p2p.Node(config.seeds, config.datadir, config.network)
+            block = node.get_block_data(args.blockheight)
+            header = block[:80]
         if args.decode:
             block = bits.blockchain.block_deser(block)
             header = bits.blockchain.block_header_deser(header)

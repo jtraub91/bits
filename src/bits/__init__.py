@@ -93,6 +93,8 @@ def write_bytes(
         file_: Optional[IO], file object to write to, if None uses stdout
         output_format: str, 'raw', 'bin', or 'hex'
     """
+    if not data:
+        return
     if output_format == "raw":
         if file_ is not None:
             file_.buffer.write(data)
