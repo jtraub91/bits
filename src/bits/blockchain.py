@@ -303,3 +303,45 @@ def block_deser(block: bytes) -> dict:
         len(txns) == number_of_txns
     ), "error during parsing - number of txns does not match"
     return block_header_deser(header) | {"txns": txns}
+
+
+def validate_block(block: bytes, network: str = "mainnet") -> bool:
+    """
+    Validate block is internally consistent
+    (Full validation requires node blockchain context)
+    Args:
+        block: bytes, block data
+        network: str, mainnet, testnet, or regtest
+    Returns:
+        bool, True if block is valid
+    Throws:
+        AssertionError if block is invalid
+    """
+    blockhash = bits.crypto.hash256(block[:80])[::-1].hex()
+    block_dict = block_deser(block)
+    target = target_threshold(bytes.fromhex(block_dict["nBits"])[::-1])
+    # validate POW
+    assert (
+        int.from_bytes(blockhash, "big") < target
+    ), f"POW not satisfied, {blockhash} > {int.to_bytes(target, 32, 'big').hex()}"
+
+    # validate merkle root
+    merkle_root_hash = merkle_root(
+        [bytes.fromhex(txn["txid"]) for txn in block_dict["txns"]]
+    )[::-1].hex()
+    assert (
+        block_dict["merkle_root_hash"] == merkle_root_hash
+    ), f"merkle root hash {block_dict['merkle_root_hash']} does not match internal computation from block transactions  {merkle_root_hash}"
+
+    # validate nBits
+    target = target_threshold(bytes.fromhex(block_dict["nBits"])[::-1])
+    if network.lower() == "mainnet" or network.lower() == "testnet":
+        assert (
+            target <= MAX_TARGET
+        ), f"target {hex(target)} greater than max {hex(MAX_TARGET)}"
+    elif network.lower() == "regtest":
+        assert (
+            target <= MAX_TARGET_REGTEST
+        ), f"target {hex(target)} greater than max {hex(MAX_TARGET_REGTEST)}"
+    else:
+        raise ValueError(f"unrecognized network: {network}")
