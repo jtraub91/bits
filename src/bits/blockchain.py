@@ -101,8 +101,12 @@ def difficulty(target: int, network: str = "mainnet") -> float:
     difficulty = difficulty_1_target / current_target
     https://en.bitcoin.it/wiki/Difficulty
     """
-    if network == "mainnet" or network == "testnet":
+    if network == "mainnet":
         return MAX_TARGET / target
+    elif network == "testnet":
+        # "Minimum difficulty of 1.0 on testnet is equal to difficulty of 0.5 on mainnet."
+        # https://en.bitcoin.it/wiki/Testnet
+        return 0.5 * MAX_TARGET / target
     elif network == "regtest":
         return MAX_TARGET_REGTEST / target
     else:
@@ -118,8 +122,14 @@ def target(diff: float, network: str = "mainnet") -> int:
     Returns:
         target
     """
-    if network == "mainnet" or network == "testnet":
+    if diff < 1.0:
+        raise ValueError(f"difficulty can't be lower than 1.0: {diff}")
+    if network == "mainnet":
         return int(MAX_TARGET / diff)
+    elif network == "testnet":
+        # "Minimum difficulty of 1.0 on testnet is equal to difficulty of 0.5 on mainnet."
+        # https://en.bitcoin.it/wiki/Testnet
+        return int(2 * MAX_TARGET / diff)
     elif network == "regtest":
         return int(MAX_TARGET_REGTEST / diff)
     else:
@@ -308,7 +318,7 @@ def block_deser(block: bytes) -> dict:
 def validate_block(block: bytes, network: str = "mainnet") -> bool:
     """
     Validate block is internally consistent
-    (Full validation requires node blockchain context)
+
     Args:
         block: bytes, block data
         network: str, mainnet, testnet, or regtest
@@ -317,15 +327,15 @@ def validate_block(block: bytes, network: str = "mainnet") -> bool:
     Throws:
         AssertionError if block is invalid
     """
+    # validate POW - hash of block header is less than target threshold
     blockhash = bits.crypto.hash256(block[:80])[::-1].hex()
     block_dict = block_deser(block)
     target = target_threshold(bytes.fromhex(block_dict["nBits"])[::-1])
-    # validate POW
     assert (
-        int.from_bytes(blockhash, "big") < target
+        int.from_bytes(bytes.fromhex(blockhash), "big") < target
     ), f"POW not satisfied, {blockhash} > {int.to_bytes(target, 32, 'big').hex()}"
 
-    # validate merkle root
+    # validate merkle root matches transactions
     merkle_root_hash = merkle_root(
         [bytes.fromhex(txn["txid"]) for txn in block_dict["txns"]]
     )[::-1].hex()
@@ -333,7 +343,7 @@ def validate_block(block: bytes, network: str = "mainnet") -> bool:
         block_dict["merkle_root_hash"] == merkle_root_hash
     ), f"merkle root hash {block_dict['merkle_root_hash']} does not match internal computation from block transactions  {merkle_root_hash}"
 
-    # validate nBits
+    # validate nBits is below max
     target = target_threshold(bytes.fromhex(block_dict["nBits"])[::-1])
     if network.lower() == "mainnet" or network.lower() == "testnet":
         assert (
@@ -345,3 +355,8 @@ def validate_block(block: bytes, network: str = "mainnet") -> bool:
         ), f"target {hex(target)} greater than max {hex(MAX_TARGET_REGTEST)}"
     else:
         raise ValueError(f"unrecognized network: {network}")
+
+    # check that transactions are valid
+    # check that coinbase tx is first
+    # check block size is less than MAX_BLOCK_SIZE
+    return True

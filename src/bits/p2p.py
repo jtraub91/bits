@@ -108,6 +108,11 @@ log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
 
+class ValidationError(Exception):
+    # thrown to signal a potential orphan block
+    pass
+
+
 def msg_ser(
     start_bytes: bytes,
     command: Union[str, bytes],
@@ -442,7 +447,8 @@ def parse_payload(command, payload) -> Union[bytes, dict]:
 
 
 class Peer:
-    def __init__(self, host: Union[str, bytes], port: int, network: str):
+    def __init__(self, host: Union[str, bytes], port: int, network: str, datadir: str):
+        self._id = bits.keys.key().hex()  # peer id
         self.host = host
         self.port = port
         if network.lower() == "mainnet":
@@ -466,7 +472,23 @@ class Peer:
         self._pending_getdata_requests = deque([])
         self._pending_getblocks_requests = deque([])
 
+        self.peersdir = os.path.join(datadir, "peers")
+        if not os.path.exists(self.peersdir):
+            os.mkdir(self.peersdir)
+        self.orphans_filepath = os.path.join(self.peersdir, f"{self._id}_orphans.json")
+        if not os.path.exists(self.orphans_filepath):
+            with open(self.orphans_filepath, "w") as orphan_file:
+                json.dump({}, orphan_file)
+
         self.exit_event = Event()
+
+    def save_orphan(self, blockhash: str, blockheader: dict):
+        # for debugging purposes
+        with open(self.orphans_filepath, "r") as orph_file:
+            orphans = json.load(orph_file)
+        orphans.update({blockhash: blockheader})
+        with open(self.orphans_filepath, "w") as orph_file:
+            json.dump(orphans, orph_file)
 
     async def connect(self):
         reader, writer = await asyncio.open_connection(self.host, self.port)
@@ -548,7 +570,6 @@ class Node:
             relay: bool
             user_agent: bytes
         """
-        self._id = bits.keys.key().hex()  # peer id
         self.seeds = seeds
         datadir = os.path.expanduser(datadir)
         if not os.path.exists(datadir):
@@ -721,7 +742,7 @@ class Node:
         for seed in self.seeds:
             host, port = seed.split(":")
             port = int(port)
-            peer = Peer(host, port, self.network)
+            peer = Peer(host, port, self.network, self.datadir)
             await peer.connect()
             await self.connect_to_peer(peer)
             self.peers.append(peer)
@@ -893,16 +914,30 @@ class Node:
                 while sync_node.blocks:
                     # while we have blocks, process them
                     block = sync_node.blocks.popleft()
+                    blockhash = bits.crypto.hash256(block[:80])[::-1].hex()
+                    blockheader = bits.blockchain.block_header_deser(block[:80])
                     try:
-                        self.process_block(block)
+                        bits.blockchain.validate_block(block)
                     except AssertionError as err:
                         log.error(
-                            f"error processing block: {err.args}, adding to sync_node orphan_blocks..."
+                            f"block assertion error while validating block: {err.args}. discarding block {blockhash}..."
                         )
-                        sync_node._orphan_blocks.append(block)
+
+                    try:
+                        self.validate_block_as_tip(block)
+                    except ValidationError as err:
+                        log.error(
+                            f"block validation error while validating block as tip: {err.args}, adding block {blockhash} to sync_node orphan_blocks..."
+                        )
+                        sync_node.save_orphan(blockhash, blockheader)
+                    except AssertionError as err:
+                        log.error(
+                            f"block assertion error while validating block as tip: {err.args}. discarding block {blockhash}..."
+                        )
                     else:
+                        # if both validations pass, save block to blockchain
                         self.save_blocks([block])
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0)
 
                 msg_block_inventories = list(
                     filter(
@@ -975,19 +1010,6 @@ class Node:
         with open(self.blockhash_index_path, "r") as bh_index_file:
             blockhash_index = json.load(bh_index_file)
         return blockhash_index.get(str(height))
-
-    def save_orphan(self, blockhash: str, blockheader: dict):
-        # for debugging purposes
-        if not os.path.exists(os.path.join(self.indexdir, "orphans.json")):
-            with open(
-                os.path.join(self.indexdir, "orphans.json"), "w"
-            ) as orph_index_file:
-                json.dump({}, orph_index_file)
-        with open(os.path.join(self.indexdir, "orphans.json"), "r") as orph_index_file:
-            orphan_index = json.load(orph_index_file)
-        orphan_index.update({blockhash: blockheader})
-        with open(os.path.join(self.indexdir, "orphans.json"), "w") as orph_index_file:
-            json.dump(orphan_index, orph_index_file)
 
     def save_blockheader(self, blockhash: str, blockheader: dict):
         with open(self.blockheader_index_path, "r") as bh_index_file:
@@ -1087,8 +1109,19 @@ class Node:
             median = (times[len(times) // 2 - 1] + times[len(times) // 2]) // 2
         return median
 
-    def process_block(self, block: bytes):
-        ### BLOCK VALIDATION ###
+    def validate_block_as_tip(self, block: bytes):
+        """
+        Validate block as new tip
+        Args:
+            block: bytes, raw block data
+        Returns:
+            bool: True if block is valid as new tip
+        Throws:
+            ValidationError: if block is potential orphan
+            AssertionError: if block is invalid
+        """
+        bits.blockchain.validate_block(block, network=self.network)
+
         current_blockheight = self.get_blockchain_height()
         current_blockhash = self.get_blockhash(current_blockheight)
         current_blockheader = self.get_blockheader(current_blockhash)
@@ -1097,52 +1130,59 @@ class Node:
         proposed_blockhash = bits.crypto.hash256(block[:80])
         proposed_blockheader = bits.blockchain.block_header_deser(block[:80])
 
-        # check if POW is valid
-        target = bits.blockchain.target_threshold(
-            bytes.fromhex(proposed_block["nBits"])[::-1]
-        )
-        assert (
-            int.from_bytes(proposed_blockhash, "little") <= target
-        ), f"proposed block does not include valid proof of work. proposed block hash {proposed_blockhash.hex()} is > target {hex(target)}"
-
-        # check merkle root
-        txn_ids = [bytes.fromhex(txn["txid"]) for txn in proposed_block["txns"]]
-        computed_merkle_root_hash = bits.blockchain.merkle_root(txn_ids)[::-1].hex()
-        assert (
-            proposed_block["merkle_root_hash"] == computed_merkle_root_hash
-        ), f"proposed block merkle root hash {proposed_block['merkle_root_hash']} not match one internally computed from proposed block transactions {computed_merkle_root_hash}"
-
         # check prev block hash matches current block hash
-        assert (
-            proposed_block["prev_blockheaderhash"] == current_blockhash
-        ), f"possible orphan block - proposed block {proposed_blockhash[::-1].hex()} prev blockheader hash {proposed_block['prev_blockheaderhash']} does not match current blockchain tip header hash {current_blockhash}"
+        # if not, block is potential orphan
+        if proposed_block["prev_blockheaderhash"] != current_blockhash:
+            raise ValidationError(
+                f"possible orphan block - proposed block {proposed_blockhash[::-1].hex()} prev blockheader hash {proposed_block['prev_blockheaderhash']} does not match current blockchain tip header hash {current_blockhash}"
+            )
 
-        # continue with validation
+        # if prev blockhash field DOES match blockchain tip, the next couple rules (nbits & timestamp checks)
+        # must pass for the block to be considered valid
+        # i.e. if not the block is not a valid orphan (thus AssertionError is thrown)
 
-        # check nBits set correctly
+        # check nBits correctly sets difficulty
         proposed_block_height = current_blockheight + 1
-
         if self.network == "testnet":
             # testnet special rule:
             # if no block mined in last 20 min, set difficulty to 1.0
+            # https://en.bitcoin.it/wiki/Testnet
             # enforced below
             elapsed_time_for_last_block = (
                 proposed_blockheader["nTime"] - current_blockheader["nTime"]
             )
-
         if proposed_block_height % 2016:
-            # no difficulty adjustment
+            # not difficulty adjustment block
             # pylint: disable-next=possibly-used-before-assignment
-            if self.network == "testnet" and elapsed_time_for_last_block >= 20 * 60:
-                assert (
-                    proposed_block["nBits"] == "1d00ffff"
-                ), f"proposed block nBits {proposed_block['nBits']} does not match expected testnet nBits 1d00ffff"
+            if self.network == "testnet":
+                if elapsed_time_for_last_block >= 20 * 60:
+                    assert (
+                        proposed_block["nBits"] == "1d00ffff"
+                    ), f"proposed block nBits {proposed_block['nBits']} does not match expected testnet nBits 1d00ffff"
+                else:
+                    # if we're on testnet, we're not in difficulty adjustment block,
+                    # and elapsed time for last block is NOT >= 20min
+                    # expect difficulty is the last non-minimum difficulty for this difficulty period
+                    expected_nbits = "1d00ffff"
+                    prev_n_block = 1
+                    while expected_nbits == "1d00ffff":
+                        bh = self.get_blockhash(proposed_block_height - prev_n_block)
+                        bhdr = self.get_blockheader(bh)
+                        expected_nbits = bhdr["nBits"]
+                        if not (proposed_block_height - prev_n_block) % 2016:
+                            # we reached beginning of difficulty adjustment period
+                            break
+                        prev_n_block += 1
+
+                    assert (
+                        proposed_block["nBits"] == expected_nbits
+                    ), f"proposed block nBits {proposed_block['nBits']} does not match expected testnet nBits {expected_nbits}"
             else:
                 assert (
                     proposed_block["nBits"] == current_blockheader["nBits"]
                 ), f"proposed block nBits {proposed_block['nBits']} differs from current blockchain tip nBits {current_blockheader['nBits']} and we are not in a difficulty adjustment"
         else:
-            # difficulty adjustment
+            # difficulty adjustment block
             if self.network == "testnet" and elapsed_time_for_last_block >= 20 * 60:
                 assert (
                     proposed_block["nBits"] == "1d00ffff"
@@ -1151,7 +1191,9 @@ class Node:
                 current_target = bits.blockchain.target_threshold(
                     bytes.fromhex(current_blockheader["nBits"])[::-1]
                 )
-                current_difficulty = bits.blockchain.difficulty(current_target)
+                current_difficulty = bits.blockchain.difficulty(
+                    current_target, network=self.network
+                )
 
                 block_0_hash = self.get_blockhash(
                     current_blockheight - 2015
@@ -1163,31 +1205,24 @@ class Node:
                 new_difficulty = bits.blockchain.calculate_new_difficulty(
                     elapsed_time, current_difficulty
                 )
-                new_target = bits.blockchain.target(new_difficulty)
+                new_target = bits.blockchain.target(
+                    new_difficulty, network=self.network
+                )
                 new_target_nbits = bits.blockchain.compact_nbits(new_target)[::-1].hex()
                 assert (
                     proposed_block["nBits"] == new_target_nbits
-                ), f"proposed block nBits {proposed_block['nBits']} differs from new calculated target nBits {new_target_nbits} for this difficulty adjustment"
+                ), f"proposed block nBits {proposed_block['nBits']} differs from node calculated target nBits {new_target_nbits} for this difficulty adjustment"
 
-        # if BIP113, ensure timestamp is strictly greater than the median_time
-        # TODO: if self.get_blockchain_height() >= BIP_113_ACTIVATION_HEIGHT:
-        if proposed_block["nTime"] <= self.median_time():
-            log.info(
-                f"proposed block nTime {proposed_block['nTime']} is not strictly greater than the median time {self.median_time()}"
-            )
-            return False
+        # ensure timestamp is strictly greater than the median_time of last 11 blocks
         # ensure timestamp is not more than two hours in future
+        assert (
+            proposed_block["nTime"] > self.median_time()
+        ), f"proposed block nTime {proposed_block['nTime']} is not strictly greater than the median time {self.median_time()}"
         current_time = time.time()
-        if proposed_block["nTime"] > current_time + 7200:
-            log.info(
-                f"proposed block nTime {proposed_block['nTime']} is more than two hours in the future {current_time + 7200}"
-            )
-            return False
+        assert (
+            proposed_block["nTime"] <= current_time + 7200
+        ), f"proposed block nTime {proposed_block['nTime']} is more than two hours in the future {current_time + 7200}"
 
-        # now check transactions
-        # TODO
-        # check chainwork, etc.
-
-        self.save_blocks([block])
+        # TODO: now check transaction transaction validity, check chainwork, etc.
 
         return True
