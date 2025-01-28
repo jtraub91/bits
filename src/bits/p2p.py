@@ -468,7 +468,6 @@ class Peer:
 
         self.inventories = deque([])
         self.blocks = deque([])
-        self._orphan_blocks = deque([])
         self._pending_getdata_requests = deque([])
         self._pending_getblocks_requests = deque([])
 
@@ -641,6 +640,10 @@ class Node:
                 or not os.path.exists(self.blockheader_index_path)
             ):
                 self.rebuild_indexes()
+            else:
+                # check for internally consistency
+                # TODO
+                pass
 
         self.message_queue = deque([])
         self._unhandled_message_queue = deque([])
@@ -961,13 +964,6 @@ class Node:
 
         dat_file = open(filepath, "ab")
         for blk in blocks:
-            # save hash / header to index files, respectively
-            blockheight = self.get_blockchain_height() + 1
-            blockhash = bits.crypto.hash256(blk[:80])[::-1].hex()  # rpc byte order
-            blockheader_data = bits.blockchain.block_header_deser(blk[:80])
-            self.save_blockhash(blockheight, blockhash)
-            self.save_blockheader(blockhash, blockheader_data)
-            log.info(f"block {blockheight} saved to index")
             # write block data to .dat file(s) on disk
             blk_data = self.magic_start_bytes + len(blk).to_bytes(4, "little") + blk
             if len(blk_data) + dat_file.tell() <= MAX_BLOCKFILE_SIZE:
@@ -983,6 +979,15 @@ class Node:
                 dat_file = open(filepath, "ab")
                 dat_file.write(blk_data)
             log.info(f"block {blockheight} saved to {os.path.split(filepath)[-1]}")
+
+            # save hash / header to index files, respectively
+            blockheight = self.get_blockchain_height() + 1
+            blockhash = bits.crypto.hash256(blk[:80])[::-1].hex()  # rpc byte order
+            blockheader_data = bits.blockchain.block_header_deser(blk[:80])
+            self.save_blockhash(blockheight, blockhash)
+            self.save_blockheader(blockhash, blockheader_data)
+            log.info(f"block {blockheight} saved to index")
+
         dat_file.close()
 
     def get_blockchain_height(self) -> int:
