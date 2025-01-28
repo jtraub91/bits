@@ -66,12 +66,12 @@ def target_threshold(nBits: bytes) -> int:
 
 def compact_nbits(target: int) -> bytes:
     """
-    Convert target threshold to nBits compact representation
+    Convert target threshold to difficulty nBits compact representation
     Args:
         target: int, target threshold
-    >>> n_bits(0x7fffff0000000000000000000000000000000000000000000000000000000000)[::-1].hex()
+    >>> compact_nbits(0x7fffff0000000000000000000000000000000000000000000000000000000000)[::-1].hex()
     '207fffff'
-    >>> n_bits(0xffff0000000000000000000000000000000000000000000000000000)[::-1].hex()
+    >>> compact_nbits(0xffff0000000000000000000000000000000000000000000000000000)[::-1].hex()
     '1d00ffff'
     """
     if target > MAX_TARGET_REGTEST:
@@ -100,17 +100,15 @@ def difficulty(target: int, network: str = "mainnet") -> float:
     """
     difficulty = difficulty_1_target / current_target
     https://en.bitcoin.it/wiki/Difficulty
+    >>> difficulty(MAX_TARGET)
+    1.0
     """
-    if network == "mainnet":
+    if network == "mainnet" or network == "testnet":
         return MAX_TARGET / target
-    elif network == "testnet":
-        # "Minimum difficulty of 1.0 on testnet is equal to difficulty of 0.5 on mainnet."
-        # https://en.bitcoin.it/wiki/Testnet
-        return 0.5 * MAX_TARGET / target
     elif network == "regtest":
         return MAX_TARGET_REGTEST / target
     else:
-        raise ValueError("unrecognized network")
+        raise ValueError(f"unrecognized network: {network}")
 
 
 def target(diff: float, network: str = "mainnet") -> int:
@@ -121,19 +119,17 @@ def target(diff: float, network: str = "mainnet") -> int:
         network: str, mainnet, testnet, or regtest
     Returns:
         target
+    >>> hex(target(1.0))
+    '0xffff0000000000000000000000000000000000000000000000000000'
     """
     if diff < 1.0:
         raise ValueError(f"difficulty can't be lower than 1.0: {diff}")
-    if network == "mainnet":
+    if network == "mainnet" or network == "testnet":
         return int(MAX_TARGET / diff)
-    elif network == "testnet":
-        # "Minimum difficulty of 1.0 on testnet is equal to difficulty of 0.5 on mainnet."
-        # https://en.bitcoin.it/wiki/Testnet
-        return int(2 * MAX_TARGET / diff)
     elif network == "regtest":
         return int(MAX_TARGET_REGTEST / diff)
     else:
-        raise ValueError("unrecognized network")
+        raise ValueError(f"unrecognized network: {network}")
 
 
 def block_header(

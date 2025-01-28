@@ -916,12 +916,6 @@ class Node:
                     block = sync_node.blocks.popleft()
                     blockhash = bits.crypto.hash256(block[:80])[::-1].hex()
                     blockheader = bits.blockchain.block_header_deser(block[:80])
-                    try:
-                        bits.blockchain.validate_block(block)
-                    except AssertionError as err:
-                        log.error(
-                            f"block assertion error while validating block: {err.args}. discarding block {blockhash}..."
-                        )
 
                     try:
                         self.validate_block_as_tip(block)
@@ -1143,72 +1137,89 @@ class Node:
 
         # check nBits correctly sets difficulty
         proposed_block_height = current_blockheight + 1
-        if self.network == "testnet":
-            # testnet special rule:
-            # if no block mined in last 20 min, set difficulty to 1.0
-            # https://en.bitcoin.it/wiki/Testnet
-            # enforced below
-            elapsed_time_for_last_block = (
-                proposed_blockheader["nTime"] - current_blockheader["nTime"]
-            )
+
+        # used for testnet special rule (if applicable)
+        # if no block mined in last 20 min, set difficulty to 1.0
+        # https://en.bitcoin.it/wiki/Testnet
+        # enforced below
+        elapsed_time_for_last_block = (
+            proposed_blockheader["nTime"] - current_blockheader["nTime"]
+        )
         if proposed_block_height % 2016:
             # not difficulty adjustment block
             # pylint: disable-next=possibly-used-before-assignment
             if self.network == "testnet":
-                if elapsed_time_for_last_block >= 20 * 60:
-                    assert (
-                        proposed_block["nBits"] == "1d00ffff"
-                    ), f"proposed block nBits {proposed_block['nBits']} does not match expected testnet nBits 1d00ffff"
-                else:
-                    # if we're on testnet, we're not in difficulty adjustment block,
-                    # and elapsed time for last block is NOT >= 20min
-                    # expect difficulty is the last non-minimum difficulty for this difficulty period
-                    expected_nbits = "1d00ffff"
-                    prev_n_block = 1
-                    while expected_nbits == "1d00ffff":
-                        bh = self.get_blockhash(proposed_block_height - prev_n_block)
-                        bhdr = self.get_blockheader(bh)
-                        expected_nbits = bhdr["nBits"]
-                        if not (proposed_block_height - prev_n_block) % 2016:
-                            # we reached beginning of difficulty adjustment period
-                            break
-                        prev_n_block += 1
 
-                    assert (
-                        proposed_block["nBits"] == expected_nbits
-                    ), f"proposed block nBits {proposed_block['nBits']} does not match expected testnet nBits {expected_nbits}"
+                # TODO: is this necessary?, not even exactly sure what special testnet rule implies
+                # i.e. what are the allowed nbits in each scenario?
+                # find last non-minimum difficulty, if applicably
+                with open(self.blockhash_index_path) as bh_index_file:
+                    blockhash_index = json.load(bh_index_file)
+                blockhash_index = {
+                    count: hash_
+                    for count, hash_ in blockhash_index.items()
+                    if int(count)
+                    in range(
+                        current_blockheight - (current_blockheight % 2016),
+                        current_blockheight,
+                    )
+                }
+                with open(self.blockheader_index_path) as bhdr_index_file:
+                    blockheader_index = json.load(bhdr_index_file)
+                blockheader_index = {
+                    hash_: blockheader_index[hash_]
+                    for _, hash_ in blockhash_index.items()
+                }
+
+                nbits = [val["nBits"] for _, val in blockheader_index.items()]
+                nbits = nbits[::-1]
+                last_non_max_nbits = "1d00ffff"
+                for n in nbits:
+                    if bits.blockchain.target_threshold(
+                        bytes.fromhex(n)[::-1]
+                    ) < bits.blockchain.target_threshold(
+                        bytes.fromhex(last_non_max_nbits)[::-1]
+                    ):
+                        last_non_max_nbits = n
+                        break
+
+            if self.network == "testnet" and elapsed_time_for_last_block >= 1200:
+                assert proposed_block["nBits"] in [
+                    current_blockheader["nBits"],
+                    "1d00ffff",
+                ], f"proposed block nBits {proposed_block['nBits']} differs from current blockchain tip nBits {current_blockheader['nBits']} nor allowed maximum 1d00ffff (due to special testnet >= 20 min ) and we are not in a difficulty adjustment"
             else:
                 assert (
                     proposed_block["nBits"] == current_blockheader["nBits"]
                 ), f"proposed block nBits {proposed_block['nBits']} differs from current blockchain tip nBits {current_blockheader['nBits']} and we are not in a difficulty adjustment"
         else:
             # difficulty adjustment block
-            if self.network == "testnet" and elapsed_time_for_last_block >= 20 * 60:
-                assert (
-                    proposed_block["nBits"] == "1d00ffff"
-                ), f"proposed block nBits {proposed_block['nBits']} does not match expected testnet nBits 1d00ffff"
+            current_target = bits.blockchain.target_threshold(
+                bytes.fromhex(current_blockheader["nBits"])[::-1]
+            )
+            current_difficulty = bits.blockchain.difficulty(
+                current_target, network=self.network
+            )
+
+            block_0_hash = self.get_blockhash(
+                current_blockheight - 2015
+            )  # first block of difficulty period
+            block_0 = self.get_blockheader(block_0_hash)
+
+            elapsed_time = current_blockheader["nTime"] - block_0["nTime"]
+
+            new_difficulty = bits.blockchain.calculate_new_difficulty(
+                elapsed_time, current_difficulty
+            )
+            new_target = bits.blockchain.target(new_difficulty, network=self.network)
+            new_target_nbits = bits.blockchain.compact_nbits(new_target)[::-1].hex()
+
+            if self.network == "testnet" and elapsed_time_for_last_block >= 1200:
+                assert proposed_block["nBits"] in [
+                    "1d00ffff",
+                    new_target_nbits,
+                ], f"proposed block nBits {proposed_block['nBits']} does not match expected nBits {new_target_nbits} nor allowed max 1d00ffff due to testnet >= 20min rule"
             else:
-                current_target = bits.blockchain.target_threshold(
-                    bytes.fromhex(current_blockheader["nBits"])[::-1]
-                )
-                current_difficulty = bits.blockchain.difficulty(
-                    current_target, network=self.network
-                )
-
-                block_0_hash = self.get_blockhash(
-                    current_blockheight - 2015
-                )  # first block of difficulty period
-                block_0 = self.get_blockheader(block_0_hash)
-
-                elapsed_time = current_blockheader["nTime"] - block_0["nTime"]
-
-                new_difficulty = bits.blockchain.calculate_new_difficulty(
-                    elapsed_time, current_difficulty
-                )
-                new_target = bits.blockchain.target(
-                    new_difficulty, network=self.network
-                )
-                new_target_nbits = bits.blockchain.compact_nbits(new_target)[::-1].hex()
                 assert (
                     proposed_block["nBits"] == new_target_nbits
                 ), f"proposed block nBits {proposed_block['nBits']} differs from node calculated target nBits {new_target_nbits} for this difficulty adjustment"
