@@ -29,7 +29,7 @@ import bits.crypto
 from bits.blockchain import genesis_block
 
 
-BITS_USER_AGENT = f"/bits:{bits.__version__}/".encode("utf8")
+BITS_USER_AGENT = f"/bits:{bits.__version__}/"
 
 # Magic start strings
 # https://github.com/bitcoin/bitcoin/blob/v23.0/src/chainparams.cpp#L102-L105
@@ -176,7 +176,9 @@ def parse_version_payload(versionpayload_: bytes) -> dict:
                 f"parse error, data longer than expected: {len(versionpayload_)}"
             )
     else:
-        parsed_payload["user_agent"] = versionpayload_[81 : 81 + user_agent_len]
+        parsed_payload["user_agent"] = versionpayload_[81 : 81 + user_agent_len].decode(
+            "utf8"
+        )
         parsed_payload["start_height"] = int.from_bytes(
             versionpayload_[81 + user_agent_len : 81 + user_agent_len + 4], "little"
         )
@@ -219,7 +221,7 @@ def version_payload(
         + addr_trans_port.to_bytes(2, "big")
         + nonce.to_bytes(8, "little")
         + bits.compact_size_uint(len(user_agent))  # user_agent_bytes
-        + user_agent
+        + user_agent.encode("utf8")
         + start_height.to_bytes(4, "little")
     )
     msg += b"\x01" if relay else b"\x00"
@@ -448,9 +450,11 @@ def parse_payload(command, payload) -> Union[bytes, dict]:
 
 class Peer:
     def __init__(self, host: Union[str, bytes], port: int, network: str, datadir: str):
-        self._id = bits.keys.key().hex()  # peer id
         self.host = host
         self.port = port
+        self._id = bits.crypto.hash256(
+            f"{self.host}:{str(self.port)}".encode("utf8")
+        ).hex()
         if network.lower() == "mainnet":
             self.magic_start_bytes = MAINNET_START
         elif network.lower() == "testnet":
@@ -461,7 +465,6 @@ class Peer:
             raise ValueError(f"network not recognized: {network}")
 
         self._last_recv_msg_time: float = None
-        self.data = {}
 
         self.reader: StreamReader = None
         self.writer: StreamWriter = None
@@ -474,20 +477,12 @@ class Peer:
         self.peersdir = os.path.join(datadir, "peers")
         if not os.path.exists(self.peersdir):
             os.mkdir(self.peersdir)
-        self.orphans_filepath = os.path.join(self.peersdir, f"{self._id}_orphans.json")
-        if not os.path.exists(self.orphans_filepath):
-            with open(self.orphans_filepath, "w") as orphan_file:
-                json.dump({}, orphan_file)
+        self.data_filepath = os.path.join(self.peersdir, f"{self._id}.json")
+        if not os.path.exists(self.data_filepath):
+            with open(self.data_filepath, "w") as data_file:
+                json.dump({}, data_file)
 
         self.exit_event = Event()
-
-    def save_orphan(self, blockhash: str, blockheader: dict):
-        # for debugging purposes
-        with open(self.orphans_filepath, "r") as orph_file:
-            orphans = json.load(orph_file)
-        orphans.update({blockhash: blockheader})
-        with open(self.orphans_filepath, "w") as orph_file:
-            json.dump(orphans, orph_file)
 
     async def connect(self):
         reader, writer = await asyncio.open_connection(self.host, self.port)
@@ -535,7 +530,26 @@ class Peer:
 
     def save_data(self, key: str, value: Union[str, list, dict, int, float]):
         log.info(f"saving {key} data for peer @ {self.host}:{self.port}...")
-        self.data.update({key: value})
+        with open(self.data_filepath, "r") as data_file:
+            data = json.load(data_file)
+        data.update({key: value})
+        with open(self.data_filepath, "w") as data_file:
+            json.dump(data, data_file, indent=2)
+
+    def get_data(self, key: str):
+        with open(self.data_filepath, "r") as data_file:
+            data = json.load(data_file)
+        return data[key]
+
+    def save_orphan(self, blockhash: str, blockheader: dict):
+        # for debugging purposes
+        with open(self.data_filepath, "r") as data_file:
+            data = json.load(data_file)
+        if not data.get("orphans"):
+            data["orphans"] = {}
+        data["orphans"].update({blockhash: blockheader})
+        with open(self.data_filepath, "w") as data_file:
+            json.dump(data, data_file, indent=2)
 
     async def send_command(self, command: bytes, payload: bytes = b""):
         log.info(
@@ -846,9 +860,10 @@ class Node:
 
         # if blockchain is 144 blocks behind peer (~24 hr) enter ibd
         blockheight = self.get_blockchain_height()
-        if sync_node.data["version"]["start_height"] - blockheight > 144:
+        sync_node_version_data = sync_node.get_data("version")
+        if sync_node_version_data["start_height"] - blockheight > 144:
             log.info(
-                f"local blockchain is behind sync node @ {sync_node.host}:{sync_node.port} by {sync_node.data['version']['start_height'] - blockheight} blocks. Entering IBD..."
+                f"local blockchain is behind sync node @ {sync_node.host}:{sync_node.port} by {sync_node_version_data['start_height'] - blockheight} blocks. Entering IBD..."
             )
             await self.ibd(sync_node)
         log.info("exiting IBD...local blockchain is synced with sync node.")
@@ -864,7 +879,8 @@ class Node:
         https://developer.bitcoin.org/devguide/p2p_network.html#blocks-first
         """
         self._ibd = True
-        sync_node_start_height = sync_node.data["version"]["start_height"]
+        sync_node_version_data = sync_node.get_data("version")
+        sync_node_start_height = sync_node_version_data["start_height"]
         while sync_node_start_height > self.get_blockchain_height():
 
             # get latest blockhash from local blockchain
@@ -964,6 +980,10 @@ class Node:
 
         dat_file = open(filepath, "ab")
         for blk in blocks:
+            blockheight = self.get_blockchain_height() + 1
+            blockhash = bits.crypto.hash256(blk[:80])[::-1].hex()  # rpc byte order
+            blockheader_data = bits.blockchain.block_header_deser(blk[:80])
+
             # write block data to .dat file(s) on disk
             blk_data = self.magic_start_bytes + len(blk).to_bytes(4, "little") + blk
             if len(blk_data) + dat_file.tell() <= MAX_BLOCKFILE_SIZE:
@@ -981,9 +1001,6 @@ class Node:
             log.info(f"block {blockheight} saved to {os.path.split(filepath)[-1]}")
 
             # save hash / header to index files, respectively
-            blockheight = self.get_blockchain_height() + 1
-            blockhash = bits.crypto.hash256(blk[:80])[::-1].hex()  # rpc byte order
-            blockheader_data = bits.blockchain.block_header_deser(blk[:80])
             self.save_blockhash(blockheight, blockhash)
             self.save_blockheader(blockhash, blockheader_data)
             log.info(f"block {blockheight} saved to index")
@@ -1045,6 +1062,7 @@ class Node:
         with open(self.blockheader_index_path, "w") as bh_index_file:
             json.dump(blockheader_index, bh_index_file)
         log.info(f"blockheader index saved to disk: {self.blockheader_index_path}")
+        log.info("block index rebuild complete.")
 
     def get_block_data(self, blockheight: int) -> bytes:
         """
@@ -1152,47 +1170,21 @@ class Node:
         )
         if proposed_block_height % 2016:
             # not difficulty adjustment block
-            # pylint: disable-next=possibly-used-before-assignment
-            if self.network == "testnet":
-
-                # TODO: is this necessary?, not even exactly sure what special testnet rule implies
-                # i.e. what are the allowed nbits in each scenario?
-                # find last non-minimum difficulty, if applicably
-                with open(self.blockhash_index_path) as bh_index_file:
-                    blockhash_index = json.load(bh_index_file)
-                blockhash_index = {
-                    count: hash_
-                    for count, hash_ in blockhash_index.items()
-                    if int(count)
-                    in range(
-                        current_blockheight - (current_blockheight % 2016),
-                        current_blockheight,
-                    )
-                }
-                with open(self.blockheader_index_path) as bhdr_index_file:
-                    blockheader_index = json.load(bhdr_index_file)
-                blockheader_index = {
-                    hash_: blockheader_index[hash_]
-                    for _, hash_ in blockhash_index.items()
-                }
-
-                nbits = [val["nBits"] for _, val in blockheader_index.items()]
-                nbits = nbits[::-1]
-                last_non_max_nbits = "1d00ffff"
-                for n in nbits:
-                    if bits.blockchain.target_threshold(
-                        bytes.fromhex(n)[::-1]
-                    ) < bits.blockchain.target_threshold(
-                        bytes.fromhex(last_non_max_nbits)[::-1]
-                    ):
-                        last_non_max_nbits = n
-                        break
 
             if self.network == "testnet" and elapsed_time_for_last_block >= 1200:
                 assert proposed_block["nBits"] in [
                     current_blockheader["nBits"],
                     "1d00ffff",
                 ], f"proposed block nBits {proposed_block['nBits']} differs from current blockchain tip nBits {current_blockheader['nBits']} nor allowed maximum 1d00ffff (due to special testnet >= 20 min ) and we are not in a difficulty adjustment"
+            elif self.network == "testnet":
+                # tesnet is supposed to "snap back" to last non minimum difficulty
+                # if we're not in difficulty adjustment and elapsed time for last block is <20min
+                # find last non-minimum difficulty, if applicably
+                last_non_max_nbits = self.testnet_snap_back_difficulty()
+                assert proposed_block["nBits"] in [
+                    current_blockheader["nBits"],
+                    last_non_max_nbits,
+                ], f"proposed block nBits {proposed_block['nBits']} differs from current blockchain tip nBits {current_blockheader['nBits']} and we are not in a difficulty adjustment"
             else:
                 assert (
                     proposed_block["nBits"] == current_blockheader["nBits"]
@@ -1242,3 +1234,38 @@ class Node:
         # TODO: now check transaction transaction validity, check chainwork, etc.
 
         return True
+
+    def testnet_snap_back_difficulty(self):
+        # tesnet is supposed to "snap back" to last non minimum difficulty
+        # if we're not in difficulty adjustment and elapsed time for last block is <20min
+        # find last non-minimum difficulty for the current difficulty period
+        current_blockheight = self.get_blockchain_height()
+        with open(self.blockhash_index_path) as bh_index_file:
+            blockhash_index = json.load(bh_index_file)
+        blockhash_index = {
+            count: hash_
+            for count, hash_ in blockhash_index.items()
+            if int(count)
+            in range(
+                current_blockheight - (current_blockheight % 2016),
+                current_blockheight,
+            )
+        }
+        with open(self.blockheader_index_path) as bhdr_index_file:
+            blockheader_index = json.load(bhdr_index_file)
+        blockheader_index = {
+            hash_: blockheader_index[hash_] for _, hash_ in blockhash_index.items()
+        }
+
+        nbits = [val["nBits"] for _, val in blockheader_index.items()]
+        nbits = nbits[::-1]
+        last_non_max_nbits = "1d00ffff"
+        for n in nbits:
+            if bits.blockchain.target_threshold(
+                bytes.fromhex(n)[::-1]
+            ) < bits.blockchain.target_threshold(
+                bytes.fromhex(last_non_max_nbits)[::-1]
+            ):
+                last_non_max_nbits = n
+                break
+        return last_non_max_nbits

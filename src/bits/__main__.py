@@ -878,6 +878,9 @@ See "bits wif -h" for help on creating WIF-encoded keys.
         action=ExplicitOption,
         help="p2p node data directory. blockchain data files will be stored in a subdirectory 'blocks'",
     )
+    p2p_parser.add_argument(
+        "--reindex", action="store_true", default=False, help="reindex block indexes"
+    )
     add_common_arguments(p2p_parser)
 
     blockchain_parser = sub_parser.add_parser(
@@ -1288,6 +1291,7 @@ def main():
             config.seeds,
             config.datadir,
             config.network,
+            reindex=args.reindex,
         )
         p2p_node.start()
     elif args.subcommand == "blockchain":
