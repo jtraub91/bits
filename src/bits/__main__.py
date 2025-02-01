@@ -211,6 +211,9 @@ Examples:
         formatter_class=RawDescriptionDefaultsHelpFormatter,
     )
     parser.add_argument("-v", "-V", "--version", action="version", version=__version__)
+    parser.add_argument(
+        "-R", "--reverse-bytes", action="store_true", help="reverse byte order"
+    )
     add_common_arguments(parser, include_network=False)
     add_input_arguments(parser)
     add_output_arguments(parser)
@@ -971,6 +974,8 @@ def main():
 
     if not args.subcommand:
         data = bits.read_bytes(args.in_file, input_format=config.input_format)
+        if args.reverse_bytes:
+            data = data[::-1]
         bits.write_bytes(data, args.out_file, output_format=config.output_format)
     elif args.subcommand == "key":
         # generate Bitcoin secret key

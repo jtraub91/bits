@@ -1,4 +1,5 @@
 from .utils import decode_script
+from .utils import eval_script
 from .utils import multisig_script_pubkey
 from .utils import multisig_script_sig
 from .utils import null_data_script_pubkey

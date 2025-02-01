@@ -5,6 +5,7 @@ https://developer.bitcoin.org/reference/transactions.html
 """
 import base64
 import logging
+import time
 import typing
 
 import bits.constants
@@ -14,8 +15,6 @@ import bits.script.constants
 from bits.bips import bip143
 from bits.bips import bip173
 from bits.bips import bip174
-
-UINT32_MAX = 2**32 - 1
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
@@ -41,14 +40,14 @@ def txin(
 
 
 def txin_deser(txin_: bytes) -> typing.Tuple[dict, bytes]:
-    txid_ = txin_[:32]  # TODO: switch to rpc byte order
+    txid_ = txin_[:32]
     vout = txin_[32:36]
     scriptsig_len, txin_prime = bits.parse_compact_size_uint(txin_[36:])
     scriptsig = txin_prime[:scriptsig_len]
     sequence = txin_prime[scriptsig_len : scriptsig_len + 4]
     txin_ = txin_prime[scriptsig_len + 4 :]
     return {
-        "txid": txid_.hex(),
+        "txid": txid_[::-1].hex(),  # rpc byte order
         "vout": int.from_bytes(vout, "little"),
         "scriptsig": scriptsig.hex(),
         "sequence": sequence.hex(),
@@ -108,11 +107,11 @@ def tx(
     )
 
 
-def txid(tx_: bytes) -> bytes:
+def txid(tx_: bytes) -> str:
     """
-    txid (internal byte order)
+    Returns txid from tx bytes in rpc byte order
     """
-    return bits.crypto.hash256(tx_)
+    return bits.crypto.hash256(tx_)[::-1].hex()
 
 
 def tx_deser(tx_: bytes, include_raw: bool = False) -> typing.Tuple[dict, bytes]:
@@ -122,7 +121,7 @@ def tx_deser(tx_: bytes, include_raw: bool = False) -> typing.Tuple[dict, bytes]
         tx_: bytes, tx data
         include_raw: bool, if True, include raw hex transaction in dict
     Returns:
-        tuple, (deserialized tx, leftove )
+        tuple, (deserialized tx, leftover )
     """
     deserialized_tx = {}
     is_segwit = False
@@ -179,12 +178,12 @@ def tx_deser(tx_: bytes, include_raw: bool = False) -> typing.Tuple[dict, bytes]
                     version=deserialized_tx["version"],
                     locktime=deserialized_tx["locktime"],
                 )
-            ).hex()
+            )
         }
         if is_segwit
-        else {"txid": bits.crypto.hash256(tx_).hex()}
+        else {"txid": bits.tx.txid(tx_)}
     )
-    tx_dict["wtxid"] = bits.crypto.hash256(tx_).hex()
+    tx_dict["wtxid"] = bits.tx.txid(tx_)
     if include_raw:
         tx_dict["raw"] = tx_.hex()
     tx_dict.update(deserialized_tx)
@@ -219,7 +218,7 @@ def coinbase_txin(
     if len(coinbase_script) > 100:
         raise ValueError("script exceeds 100 bytes!")
     return txin(
-        outpoint(b"\x00" * 32, UINT32_MAX),  # null
+        outpoint(b"\x00" * 32, bits.constants.UINT32_MAX),  # null
         coinbase_script,
         sequence=sequence,
     )
@@ -537,6 +536,105 @@ def send_tx(
             locktime=locktime,
         )
     return tx_
+
+
+def is_final(tx_: typing.Union[bytes, dict], blockheight: int = 0) -> bool:
+    # logic based on https://github.com/bitcoin/bitcoin/blob/v0.4.0/src/main.h#L435
+    tx_dict = tx_deser(tx_) if type(tx_) is bytes else tx_
+    txins = tx_dict["txins"]
+    locktime = tx_dict["locktime"]
+    if locktime == 0:
+        return True
+    locktime_comparison = (
+        blockheight if locktime < bits.constants.LOCKTIME_THRESHOLD else time.time()
+    )
+    if locktime < locktime_comparison:
+        return True
+    for txi in txins:
+        if txi["sequence"] != bits.constants.UINT32_MAX:
+            return False
+    return True
+
+
+def assert_coinbase(tx_: typing.Union[bytes, dict]) -> bool:
+    """
+    Assert tx is a coinbase transaction
+    Args:
+        tx_: bytes | dict, transaction bytes or dictionary
+    Returns:
+        True is tx is coinbase transaction
+    Throws:
+        AssertionError if tx is not a coinbase transaction
+    """
+    coinbase_tx = bits.tx.tx_deser(tx_) if type(tx_) is bytes else tx_
+    coinbase_tx_txins = coinbase_tx["txins"]
+    assert (
+        len(coinbase_tx_txins) == 1
+    ), "number of coinbase tx inputs must be equal to 1"
+
+    coinbase_txin = coinbase_tx_txins[0]
+    assert (
+        bytes.fromhex(coinbase_txin["txid"])[::-1] == bits.constants.NULL_32
+    ), "coinbase tx input prev outpoint must be NULL_32"
+
+    assert (
+        coinbase_txin["vout"] == bits.constants.UINT32_MAX
+    ), "coinbase tx input prev outpoint index must be UINT32_MAX"
+    return True
+
+
+def is_coinbase(tx_: typing.Union[bytes, dict], log_error: bool = False) -> bool:
+    """
+    Test whether transaction is a coinbase tx
+    Args:
+        tx_: bytes, transaction
+        log_error: bool, set True to log assertion error, if any
+    Returns:
+        True if transaction is a coinbase transaction, else False
+    """
+    try:
+        return assert_coinbase(tx_)
+    except AssertionError as err:
+        if log_error:
+            log.error(err)
+        return False
+
+
+def check_tx(tx_: bytes) -> bool:
+    """
+    basic transaction checks that don't depend on blockchain context
+
+    ref https://github.com/jtraub91/bitcoin/blob/v0.2.13/main.h#L460
+    """
+    tx_dict = tx_deser(tx_)[0]
+    txins = tx_dict["txins"]
+    txouts = tx_dict["txouts"]
+    if len(txins) == 0:
+        log.error("txins is empty")
+        return False
+    if len(txouts) == 0:
+        log.error("txouts is empty")
+        return False
+
+    # check if any txout value is negative (shouldn't really happen?)
+    for txo in tx_dict["txouts"]:
+        if txo["value"] < 0:
+            log.error("txout output with negative value")
+            return False
+
+    if is_coinbase(tx_):
+        if len(bytes.fromhex(tx_dict["txins"]["scriptSig"])) < 2:
+            log.error("coinbase tx input scriptsig must be 2 bytes or more")
+            return False
+        if len(bytes.fromhex(tx_dict["txins"]["scriptsig"])) > 100:
+            log.error("coinbase tx input scriptsig must not exceed 100 bytes")
+            return False
+    else:
+        for txi in tx_dict["txins"]:
+            if bytes.fromhex(txi["txid"])[::-1] == b"\x00" * 32:
+                log.error("prev outpoint is null")
+                return False
+    return True
 
 
 def create_psbt(tx_: bytes, version: bytes = b"", b64encode: bool = False) -> bytes:
