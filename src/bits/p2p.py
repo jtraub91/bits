@@ -12,7 +12,9 @@ import binascii
 import json
 import logging
 import os
+import shutil
 import socket
+import sqlite3
 import time
 import traceback
 from asyncio import StreamReader
@@ -31,19 +33,10 @@ from bits.blockchain import genesis_block
 
 BITS_USER_AGENT = f"/bits:{bits.__version__}/"
 
-# Magic start strings
-# https://github.com/bitcoin/bitcoin/blob/v23.0/src/chainparams.cpp#L102-L105
-MAINNET_START = b"\xF9\xBE\xB4\xD9"
-TESTNET_START = b"\x0B\x11\x09\x07"
-REGTEST_START = b"\xFA\xBF\xB5\xDA"
-
 # default ports
 MAINNET_PORT = 8333
 TESTNET_PORT = 18333
 REGTEST_PORT = 18444
-
-# https://github.com/bitcoin/bitcoin/blob/v23.0/src/serialize.h#L31
-MAX_SIZE = 0x02000000
 
 MSG_HEADER_LEN = 24
 
@@ -100,16 +93,23 @@ INVENTORY_TYPE_ID = {
 }
 
 
-# https://github.com/bitcoin/bitcoin/blob/v23.0/src/node/blockstorage.h#L43
-MAX_BLOCKFILE_SIZE = 0x8000000  # 128 MiB
-
-
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
 
-class ValidationError(Exception):
-    # thrown to signal a potential orphan block
+class PossibleOrphanError(Exception):
+    pass
+
+
+class ConnectBlockError(Exception):
+    pass
+
+
+class AcceptBlockError(Exception):
+    pass
+
+
+class CheckBlockError(Exception):
     pass
 
 
@@ -125,7 +125,7 @@ def msg_ser(
         command = command.encode("ascii")
     if command not in COMMANDS:
         raise ValueError("invalid command")
-    if len(payload) > MAX_SIZE:
+    if len(payload) > bits.constants.MAX_SIZE:
         raise ValueError("payload exceeds MAX_SIZE")
     while len(command) < 12:
         command += b"\x00"
@@ -456,11 +456,11 @@ class Peer:
             f"{self.host}:{str(self.port)}".encode("utf8")
         ).hex()
         if network.lower() == "mainnet":
-            self.magic_start_bytes = MAINNET_START
+            self.magic_start_bytes = bits.constants.MAINNET_START
         elif network.lower() == "testnet":
-            self.magic_start_bytes = TESTNET_START
+            self.magic_start_bytes = bits.constants.TESTNET_START
         elif network.lower() == "regtest":
-            self.magic_start_bytes = REGTEST_START
+            self.magic_start_bytes = bits.constants.REGTEST_START
         else:
             raise ValueError(f"network not recognized: {network}")
 
@@ -605,11 +605,11 @@ class Node:
         self.relay = relay
         self.user_agent = user_agent
         if network.lower() == "mainnet":
-            self.magic_start_bytes = MAINNET_START
+            self.magic_start_bytes = bits.constants.MAINNET_START
         elif network.lower() == "testnet":
-            self.magic_start_bytes = TESTNET_START
+            self.magic_start_bytes = bits.constants.TESTNET_START
         elif network.lower() == "regtest":
-            self.magic_start_bytes = REGTEST_START
+            self.magic_start_bytes = bits.constants.REGTEST_START
         else:
             raise ValueError(f"network not recognized: {network}")
         self.network = network
@@ -628,7 +628,8 @@ class Node:
         self.blockheader_index_path = os.path.join(
             self.indexdir, "blockheaderindex.json"
         )
-
+        self.utxo_index_path = os.path.join(self.indexdir, "utxoset.json")
+        self.db = sqlite3.connect(os.path.join(self.datadir, "index.db"))
         if not block_dat_files:
             # if there are no dat files yet,
 
@@ -639,6 +640,9 @@ class Node:
             if not os.path.exists(self.blockheader_index_path):
                 with open(self.blockheader_index_path, "w") as bh_index_file:
                     json.dump({}, bh_index_file)
+            if not os.path.exists(self.utxo_index_path):
+                with open(self.utxo_index_path, "w") as utxo_index_file:
+                    json.dump({}, utxo_index_file)
 
             # and write genesis block
             gb = genesis_block(network=self.network)
@@ -839,8 +843,12 @@ class Node:
         await self.message_handler_loop()
 
     def run(self):
-        asyncio.run(self.main())
-        log.info("node stopped.")
+        try:
+            asyncio.run(self.main())
+        except KeyboardInterrupt:
+            log.info("keyboard interrupt...exiting gracefully...")
+        finally:
+            log.info("node stopped.")
 
     def start(self):
         self.exit_event.clear()
@@ -848,8 +856,11 @@ class Node:
         self._thread.start()
 
     def stop(self):
+        for peer in self.peers:
+            peer.exit_event.set()
+            log.info(f"peer {peer._id} exit event set")
         self.exit_event.set()
-        log.info("node exit event is set")
+        log.info("node exit event set")
 
     async def main_loop(self):
         for peer in self.peers:
@@ -930,27 +941,43 @@ class Node:
                     # pending getdata requests get removed in handle_block_command()
                     await asyncio.sleep(1)
 
-                while sync_node.blocks:
+                while sync_node.blocks and not self.exit_event.is_set():
                     # while we have blocks, process them
                     block = sync_node.blocks.popleft()
                     blockhash = bits.crypto.hash256(block[:80])[::-1].hex()
                     blockheader = bits.blockchain.block_header_deser(block[:80])
 
                     try:
-                        self.validate_block_as_tip(block)
-                    except ValidationError as err:
-                        log.error(
-                            f"block validation error while validating block as tip: {err.args}, adding block {blockhash} to sync_node orphan_blocks..."
-                        )
+                        # accept_block(block) checks block independently via bits.blockchain.check_block
+                        # continues with checks in context as new block, saves block to disk and writes
+                        #  to block indexes and utxoset, then continues validation of transactions
+                        # if an error is thrown handle as follows
+                        self.accept_block(block)
+                    except PossibleOrphanError as err:
+                        log.debug(block.hex())
+                        log.warning(err)
+                        log.info(f"saving {blockhash} as potential orphan...")
                         sync_node.save_orphan(blockhash, blockheader)
-                    except AssertionError as err:
-                        log.error(
-                            f"block assertion error while validating block as tip: {err.args}. discarding block {blockhash}..."
+                    except (CheckBlockError, AcceptBlockError) as err:
+                        log.debug(block)
+                        log.error(err)
+                        raise err
+                        # log.error(f"block {blockhash} is not valid, discarding...")
+                    except ConnectBlockError as err:
+                        # roll back block, indexes, and utxoset
+                        log.debug(block)
+                        log.error(err)
+                        log.info("rolling back utxoset...")
+                        shutil.move(
+                            self.utxo_index_path + ".rollback", self.utxo_index_path
                         )
+                        # TODO delete block and block index tips
+                        raise err
                     else:
-                        # if both validations pass, save block to blockchain
-                        self.save_blocks([block])
-                    await asyncio.sleep(0)
+                        # block fully validated, delete rollback utxoset
+                        os.remove(self.utxo_index_path + ".rollback")
+
+                    await asyncio.sleep(0.1)
 
                 msg_block_inventories = list(
                     filter(
@@ -981,12 +1008,13 @@ class Node:
         dat_file = open(filepath, "ab")
         for blk in blocks:
             blockheight = self.get_blockchain_height() + 1
+            block_dict = bits.blockchain.block_deser(blk)
             blockhash = bits.crypto.hash256(blk[:80])[::-1].hex()  # rpc byte order
             blockheader_data = bits.blockchain.block_header_deser(blk[:80])
 
             # write block data to .dat file(s) on disk
             blk_data = self.magic_start_bytes + len(blk).to_bytes(4, "little") + blk
-            if len(blk_data) + dat_file.tell() <= MAX_BLOCKFILE_SIZE:
+            if len(blk_data) + dat_file.tell() <= bits.constants.MAX_BLOCKFILE_SIZE:
                 dat_file.write(blk_data)
             else:
                 dat_file.close()
@@ -1003,6 +1031,18 @@ class Node:
             # save hash / header to index files, respectively
             self.save_blockhash(blockheight, blockhash)
             self.save_blockheader(blockhash, blockheader_data)
+            # # update utxoset
+            # coinbase_tx = block_dict["txns"][0]
+            # for vout in range(len(coinbase_tx["txouts"])):
+            #     self.add_to_utxoset(blockhash, coinbase_tx["txid"], vout)
+            # for txn in block_dict["txns"][1:]:
+            #     for txi in txn["txins"]:
+            #         txid = txi["txid"]
+            #         vout = txi["vout"]
+            #         bh = self.find_blockhash_for_utxo(txid)
+            #         self.remove_from_utxoset(bh, txid, vout)
+            #     for vout in range(len(txn["txouts"])):
+            #         self.add_to_utxoset(blockhash, txn["txid"], vout)
             log.info(f"block {blockheight} saved to index")
 
         dat_file.close()
@@ -1015,24 +1055,105 @@ class Node:
             blockhash_index = json.load(bh_index_file)
         return len(blockhash_index.keys()) - 1
 
+    def find_blockhash_for_utxo(self, txid: str) -> str:
+        """
+        Find blockhash for a given txid in the utxoset
+        Args:
+            txid: str, transaction id
+        Returns:
+            blockhash for a txid in the utxoset, if found, else None
+        """
+        with open(self.utxo_index_path, "r") as utxo_index_file:
+            utxoset = json.load(utxo_index_file)
+        for blockhash, utxos in utxoset.items():
+            utxo_txids = [utxo["txid"] for utxo in utxos]
+            if txid in utxo_txids:
+                utxo_blockhash = blockhash
+                return utxo_blockhash
+
+    def add_to_utxoset(self, blockhash: str, txid: str, vout: int):
+        """
+        Update the utxoset
+        utxoset data structure is:
+            {
+                "<blockhash>": [
+                    {"txid": "<txid>", "vout": <vout>},
+                    ...
+                ],
+                ...
+            }
+        Args:
+            blockhash: str, blockhash for block containing the utxo
+            txid: str, txid for tx containing utxo, rpc byte order
+            vout: int, output index for utxo
+        """
+        with open(self.utxo_index_path, "r") as utxo_index_file:
+            utxoset = json.load(utxo_index_file)
+        block_utxos = utxoset.get(blockhash, [])
+        block_utxos.append({"txid": txid, "vout": vout})
+        utxoset.update({blockhash: block_utxos})
+        with open(self.utxo_index_path, "w") as utxo_index_file:
+            json.dump(utxoset, utxo_index_file, indent=2)
+
+    def get_block_utxos(self, blockhash: str) -> List[dict]:
+        """
+        Get utxos in the utxoset from a given blockhash
+        Args:
+            blockhash: str, blockhash
+        Returns:
+            List[dict], list of utxos e.g. [{"txid": ..., "vout": ...}, ...]
+                in a block given by blockhash in the utxoset
+        """
+        with open(self.utxo_index_path, "r") as utxo_index_file:
+            utxoset = json.load(utxo_index_file)
+        return utxoset.get(blockhash, [])
+
+    def remove_from_utxoset(self, blockhash: str, txid: str, vout: int):
+        with open(self.utxo_index_path, "r") as utxo_index_file:
+            utxoset = json.load(utxo_index_file)
+        block_utxos = utxoset[blockhash]
+        block_utxos.remove({"txid": txid, "vout": vout})
+        utxoset[blockhash] = block_utxos
+        with open(self.utxo_index_path, "w") as utxo_index_file:
+            json.dump(utxoset, utxo_index_file, indent=2)
+
     def save_blockhash(self, height: int, blockhash: str):
         with open(self.blockhash_index_path, "r") as bh_index_file:
             blockhash_index = json.load(bh_index_file)
         blockhash_index.update({height: blockhash})
         with open(self.blockhash_index_path, "w") as bh_index_file:
-            json.dump(blockhash_index, bh_index_file)
+            json.dump(blockhash_index, bh_index_file, indent=2)
 
     def get_blockhash(self, height: int) -> str:
         with open(self.blockhash_index_path, "r") as bh_index_file:
             blockhash_index = json.load(bh_index_file)
         return blockhash_index.get(str(height))
 
+    def get_blockheight(self, blockhash: str) -> int:
+        """
+        Get the blockheight from a given blockhash, from the blockhashindex
+        Args:
+            blockhash: str, blockhash
+        Returns:
+            int, blockheight or -1 if not found
+        """
+        with open(self.blockhash_index_path, "r") as bh_index_file:
+            blockhash_index = json.load(bh_index_file)
+        return next(
+            (
+                int(height)
+                for height, hash_ in blockhash_index.items()
+                if hash_ == blockhash
+            ),
+            -1,
+        )
+
     def save_blockheader(self, blockhash: str, blockheader: dict):
         with open(self.blockheader_index_path, "r") as bh_index_file:
             blockheader_index = json.load(bh_index_file)
         blockheader_index.update({blockhash: blockheader})
         with open(self.blockheader_index_path, "w") as bh_index_file:
-            json.dump(blockheader_index, bh_index_file)
+            json.dump(blockheader_index, bh_index_file, indent=2)
 
     def get_blockheader(self, blockhash: str) -> dict:
         with open(self.blockheader_index_path, "r") as bh_index_file:
@@ -1126,69 +1247,217 @@ class Node:
             median = (times[len(times) // 2 - 1] + times[len(times) // 2]) // 2
         return median
 
-    def validate_block_as_tip(self, block: bytes):
+    def accept_block(self, block: bytes):
         """
         Validate block as new tip
         Args:
             block: bytes, raw block data
         Returns:
-            bool: True if block is valid as new tip
+            bool: True if block is accept as new tip
         Throws:
             ValidationError: if block is potential orphan
             AssertionError: if block is invalid
         """
-        bits.blockchain.validate_block(block, network=self.network)
+        if not bits.blockchain.check_block(block, network=self.network):
+            raise CheckBlockError("block failed context independent checks")
 
         current_blockheight = self.get_blockchain_height()
         current_blockhash = self.get_blockhash(current_blockheight)
         current_blockheader = self.get_blockheader(current_blockhash)
 
         proposed_block = bits.blockchain.block_deser(block)
+        proposed_block_height = current_blockheight + 1
         proposed_blockhash = bits.crypto.hash256(block[:80])
         proposed_blockheader = bits.blockchain.block_header_deser(block[:80])
+
+        # check for duplicate hash
+        if self.get_blockheader(proposed_blockhash[::-1].hex()):
+            raise AcceptBlockError(
+                f"proposed blockhash {proposed_blockhash[::-1].hex()} already found in block index"
+            )
 
         # check prev block hash matches current block hash
         # if not, block is potential orphan
         if proposed_block["prev_blockheaderhash"] != current_blockhash:
-            raise ValidationError(
-                f"possible orphan block - proposed block {proposed_blockhash[::-1].hex()} prev blockheader hash {proposed_block['prev_blockheaderhash']} does not match current blockchain tip header hash {current_blockhash}"
+            raise PossibleOrphanError(
+                f"proposed block {proposed_blockhash[::-1].hex()} prev blockheader hash {proposed_block['prev_blockheaderhash']} does not match current blockchain tip header hash {current_blockhash}"
             )
 
         # if prev blockhash field DOES match blockchain tip, the next couple rules (nbits & timestamp checks)
         # must pass for the block to be considered valid
         # i.e. if not the block is not a valid orphan (thus AssertionError is thrown)
+        # and also these checks don't even make sense if prev_blockheader does not match the tip
 
         # check nBits correctly sets difficulty
-        proposed_block_height = current_blockheight + 1
+        if proposed_block["nBits"] not in self.get_next_nbits(proposed_block):
+            raise AcceptBlockError(
+                f"proposed block nBits {proposed_block['nBits']} is not in {self.get_next_nbits(proposed_block)}"
+            )
+
+        # ensure timestamp is strictly greater than the median_time of last 11 blocks
+        # ensure timestamp is not more than two hours in future
+        if proposed_block["nTime"] <= self.median_time():
+            raise AcceptBlockError(
+                f"proposed block nTime {proposed_block['nTime']} is not strictly greater than the median time {self.median_time()}"
+            )
+        current_time = time.time()
+        if proposed_block["nTime"] > current_time + 7200:
+            raise AcceptBlockError(
+                f"proposed block nTime {proposed_block['nTime']} is more than two hours in the future {current_time + 7200}"
+            )
+
+        # check all transacations are finalized
+        for txn in proposed_block["txns"]:
+            if not bits.tx.is_final(txn):
+                raise AcceptBlockError(
+                    f"block {proposed_blockhash} has non-final transaction"
+                )
+
+        # save block and indexes
+        self.save_blocks([block])
+
+        # full transactions validation of now latest block
+        # take full snapshot of utxoset, update a copy incrementally, and be able to rollback to it upon failure
+        # TODO: migrate block indexes and utxoset to sqlite db backend
+
+        # hacky solution! to be replaced with sqlite transaction rollbacks
+        shutil.copyfile(self.utxo_index_path, self.utxo_index_path + ".rollback")
+        # now should be able to incrementally change utxoset with same functions, and have rollback if needed
+
+        current_blockheight = self.get_blockchain_height()
+        current_block = self.get_block_data(current_blockheight)
+        current_block_dict = bits.blockchain.block_deser(current_block)
+        current_blockhash = self.get_blockhash(current_blockheight)
+        current_blockheader = self.get_blockheader(current_blockhash)
+
+        # TODO check new block is from the most work chain,
+        # shouldn't matter for now since we're only sync from one peer rn
+
+        # get total value spent by coinbase transaction
+        coinbase_tx = current_block_dict["txns"][0]
+        coinbase_tx_txouts = coinbase_tx["txouts"]
+        coinbase_tx_txouts_total_value = 0
+        for txo in coinbase_tx_txouts:
+            coinbase_tx_txouts_total_value += txo["value"]
+
+        # update tmp utxoset with coinbase tx
+        for vout in range(len(coinbase_tx_txouts)):
+            self.add_to_utxoset(current_blockhash, coinbase_tx["txid"], vout)
+
+        # tally transaction fees during for loop
+        min_tx_fee = 0
+        block_fees = 0
+        for txn in current_block_dict["txns"][1:]:
+            value_in = 0
+            value_out = 0
+            # check for double spending by checking that the transaction exists
+            # in the current utxo set
+            for tx_in in txn["txins"]:
+                txid = tx_in["txid"]
+                vout = tx_in["vout"]
+
+                bhash = self.find_blockhash_for_utxo(txid)
+                if not bhash:
+                    raise ConnectBlockError(
+                        f"blockhash for utxo txid {txid} not found in utxoset"
+                    )
+                block_utxos = self.get_block_utxos(bhash)
+                if {"txid": txid, "vout": vout} not in block_utxos:
+                    raise ConnectBlockError("utxo not found in utxoset")
+                # get the utxo transaction in full
+                # if transaction is coinbase transaction, check that it's matured
+                tx_blockheight = self.get_blockheight(bhash)
+                tx_blockhash = self.get_blockhash(tx_blockheight)
+                tx_block = self.get_block_data(tx_blockheight)
+                tx_block_deser = bits.blockchain.block_deser(tx_block)
+                tx_ = next((t for t in tx_block_deser["txns"] if t["txid"] == txid))
+                if bits.tx.is_coinbase(tx_):
+                    if (
+                        proposed_block_height - tx_blockheight
+                        < bits.constants.COINBASE_MATURITY
+                    ):
+                        raise ConnectBlockError(
+                            "coinbase transaction output has not matured"
+                        )
+
+                utxo = tx_["txouts"][vout]
+                utxo_scriptpubkey = utxo["scriptpubkey"]
+                utxo_value = utxo["value"]
+                value_in += utxo_value
+                tx_in_scriptsig = tx_in["scriptsig"]
+                if not bits.script.eval_script(tx_in_scriptsig + utxo_scriptpubkey):
+                    raise ConnectBlockError("script evaluation failed")
+
+                # this tx_in succeeds, update utxoset
+                self.remove_from_utxoset(tx_blockhash, txid, vout)
+            for tx_out in txn["txouts"]:
+                value_out += tx_out["value"]
+            if value_in - value_out < min_tx_fee:
+                raise ConnectBlockError(
+                    f"block {current_blockhash} txid {txn['txid']} transaction fees {value_in - value_out} do not meet minimum tx fee {min_tx_fee}"
+                )
+            block_fees += value_in - value_out
+
+            # add new utxo to utxoset too
+            for vout in range(len(txn["txouts"])):
+                self.add_to_utxoset(current_blockhash, txn["txid"], vout)
+
+        if coinbase_tx_txouts_total_value > self.get_block_reward() + block_fees:
+            raise ConnectBlockError(
+                "coinbase tx spends more than block reward plus block fees"
+            )
+
+        return True
+
+    def get_block_reward(self) -> int:
+        """
+        get the block reward for the current block
+        """
+        blockheight = self.get_blockchain_height()
+        reward = 50 * bits.constants.COIN
+        reward >>= int(blockheight / 210000)
+        return reward
+
+    def get_next_nbits(self, proposed_block: Union[bytes, dict]) -> set:
+        """
+        Determine the allowed set of valid nbits for the next block
+
+        Returns:
+            set, valid nbits for next block
+        """
+        proposed_block = (
+            proposed_block
+            if type(dict)
+            else bits.blockchain.block_deser(proposed_block)
+        )
+
+        current_blockheight = self.get_blockchain_height()
+        current_blockhash = self.get_blockhash(current_blockheight)
+        current_blockheader = self.get_blockheader(current_blockhash)
+
+        proposed_blockheight = current_blockheight + 1
 
         # used for testnet special rule (if applicable)
-        # if no block mined in last 20 min, set difficulty to 1.0
+        # if no block mined in last 20 min, difficulty can be set to 1.0
         # https://en.bitcoin.it/wiki/Testnet
         # enforced below
         elapsed_time_for_last_block = (
-            proposed_blockheader["nTime"] - current_blockheader["nTime"]
+            proposed_block["nTime"] - current_blockheader["nTime"]
         )
-        if proposed_block_height % 2016:
+        if proposed_blockheight % 2016:
             # not difficulty adjustment block
 
             if self.network == "testnet" and elapsed_time_for_last_block >= 1200:
-                assert proposed_block["nBits"] in [
-                    current_blockheader["nBits"],
-                    "1d00ffff",
-                ], f"proposed block nBits {proposed_block['nBits']} differs from current blockchain tip nBits {current_blockheader['nBits']} nor allowed maximum 1d00ffff (due to special testnet >= 20 min ) and we are not in a difficulty adjustment"
+                # testnet allows minimum difficulty when elapsed_time_for_last_block >= 1200
+                return set([current_blockheader["nBits"], "1d00ffff"])
             elif self.network == "testnet":
                 # tesnet is supposed to "snap back" to last non minimum difficulty
                 # if we're not in difficulty adjustment and elapsed time for last block is <20min
                 # find last non-minimum difficulty, if applicably
                 last_non_max_nbits = self.testnet_snap_back_difficulty()
-                assert proposed_block["nBits"] in [
-                    current_blockheader["nBits"],
-                    last_non_max_nbits,
-                ], f"proposed block nBits {proposed_block['nBits']} differs from current blockchain tip nBits {current_blockheader['nBits']} and we are not in a difficulty adjustment"
+                return set([last_non_max_nbits])
             else:
-                assert (
-                    proposed_block["nBits"] == current_blockheader["nBits"]
-                ), f"proposed block nBits {proposed_block['nBits']} differs from current blockchain tip nBits {current_blockheader['nBits']} and we are not in a difficulty adjustment"
+                return set([current_blockheader["nBits"]])
         else:
             # difficulty adjustment block
             current_target = bits.blockchain.target_threshold(
@@ -1212,28 +1481,9 @@ class Node:
             new_target_nbits = bits.blockchain.compact_nbits(new_target)[::-1].hex()
 
             if self.network == "testnet" and elapsed_time_for_last_block >= 1200:
-                assert proposed_block["nBits"] in [
-                    "1d00ffff",
-                    new_target_nbits,
-                ], f"proposed block nBits {proposed_block['nBits']} does not match expected nBits {new_target_nbits} nor allowed max 1d00ffff due to testnet >= 20min rule"
+                return set(["1d00ffff", new_target_nbits])
             else:
-                assert (
-                    proposed_block["nBits"] == new_target_nbits
-                ), f"proposed block nBits {proposed_block['nBits']} differs from node calculated target nBits {new_target_nbits} for this difficulty adjustment"
-
-        # ensure timestamp is strictly greater than the median_time of last 11 blocks
-        # ensure timestamp is not more than two hours in future
-        assert (
-            proposed_block["nTime"] > self.median_time()
-        ), f"proposed block nTime {proposed_block['nTime']} is not strictly greater than the median time {self.median_time()}"
-        current_time = time.time()
-        assert (
-            proposed_block["nTime"] <= current_time + 7200
-        ), f"proposed block nTime {proposed_block['nTime']} is more than two hours in the future {current_time + 7200}"
-
-        # TODO: now check transaction transaction validity, check chainwork, etc.
-
-        return True
+                return set([new_target_nbits])
 
     def testnet_snap_back_difficulty(self):
         # tesnet is supposed to "snap back" to last non minimum difficulty

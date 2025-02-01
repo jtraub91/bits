@@ -2,24 +2,17 @@
 blockchain lulz :P
 """
 import copy
+import logging
 import os
+import time
 import typing
 
+import bits.constants
 import bits.crypto
 import bits.script
 import bits.tx
 
-
-COIN = 100000000  # satoshis / bitcoin
-NULL_32 = b"\x00" * 32
-
-MAX_BLOCKFILE_SIZE = 0x08000000
-
-# https://en.bitcoin.it/wiki/Target
-# https://developer.bitcoin.org/reference/block_chain.html#target-nbits
-MAX_TARGET = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
-MAX_TARGET_REGTEST = 0x7FFFFF0000000000000000000000000000000000000000000000000000000000
-# https://en.bitcoin.it/wiki/Difficulty
+log = logging.getLogger(__name__)
 
 
 def calculate_new_difficulty(elapsed_time: int, current_difficulty: float) -> float:
@@ -74,7 +67,7 @@ def compact_nbits(target: int) -> bytes:
     >>> compact_nbits(0xffff0000000000000000000000000000000000000000000000000000)[::-1].hex()
     '1d00ffff'
     """
-    if target > MAX_TARGET_REGTEST:
+    if target > bits.constants.MAX_TARGET_REGTEST:
         raise ValueError("target greater than max")
     target_bytes = target.to_bytes(32, "big")
     bytes_shifted = 0
@@ -100,13 +93,13 @@ def difficulty(target: int, network: str = "mainnet") -> float:
     """
     difficulty = difficulty_1_target / current_target
     https://en.bitcoin.it/wiki/Difficulty
-    >>> difficulty(MAX_TARGET)
+    >>> difficulty(bits.constants.MAX_TARGET)
     1.0
     """
     if network == "mainnet" or network == "testnet":
-        return MAX_TARGET / target
+        return bits.constants.MAX_TARGET / target
     elif network == "regtest":
-        return MAX_TARGET_REGTEST / target
+        return bits.constants.MAX_TARGET_REGTEST / target
     else:
         raise ValueError(f"unrecognized network: {network}")
 
@@ -114,6 +107,7 @@ def difficulty(target: int, network: str = "mainnet") -> float:
 def target(diff: float, network: str = "mainnet") -> int:
     """
     Calculate target from difficulty
+    https://en.bitcoin.it/wiki/Target
     Args:
         diff: float, difficulty
         network: str, mainnet, testnet, or regtest
@@ -125,9 +119,9 @@ def target(diff: float, network: str = "mainnet") -> int:
     if diff < 1.0:
         raise ValueError(f"difficulty can't be lower than 1.0: {diff}")
     if network == "mainnet" or network == "testnet":
-        return int(MAX_TARGET / diff)
+        return int(bits.constants.MAX_TARGET / diff)
     elif network == "regtest":
-        return int(MAX_TARGET_REGTEST / diff)
+        return int(bits.constants.MAX_TARGET_REGTEST / diff)
     else:
         raise ValueError(f"unrecognized network: {network}")
 
@@ -157,7 +151,7 @@ def block_header(
 
     >>> merkle_root_hash = bytes.fromhex("3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a")
     >>> nBits = (0x1D00FFFF).to_bytes(4, "little")
-    >>> bits.crypto.hash256(block_header(1, NULL_32, merkle_root_hash, 1231006505, nBits, 2083236893)).hex()
+    >>> bits.crypto.hash256(block_header(1, bits.constants.NULL_32, merkle_root_hash, 1231006505, nBits, 2083236893)).hex()
     '6fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000'
     """
     return (
@@ -176,7 +170,7 @@ def merkle_root(txns: typing.List[bytes]) -> bytes:
     https://developer.bitcoin.org/reference/block_chain.html#merkle-trees
 
     Args:
-        txns: list[bytes], list of txids
+        txns: list[bytes], list of txids in internal byte order
 
     >>> # genesis block 0
     >>> txn_ids = ["4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"]
@@ -209,7 +203,7 @@ def merkle_root(txns: typing.List[bytes]) -> bytes:
     return row[0]
 
 
-def genesis_coinbase_tx():
+def genesis_coinbase_tx() -> bytes:
     # https://github.com/bitcoin/bitcoin/blob/v0.1.5/main.cpp#L1490
     # https://github.com/bitcoin/bitcoin/blob/v23.0/src/chainparams.cpp#L54
     satoshis_pk = bytes.fromhex(
@@ -230,7 +224,11 @@ def genesis_coinbase_tx():
     )
     coinbase_tx = bits.tx.tx(
         [bits.tx.coinbase_txin(coinbase_script)],
-        [bits.tx.txout(50 * COIN, bits.script.p2pk_script_pubkey(satoshis_pk))],
+        [
+            bits.tx.txout(
+                50 * bits.constants.COIN, bits.script.p2pk_script_pubkey(satoshis_pk)
+            )
+        ],
     )
     return coinbase_tx
 
@@ -270,9 +268,16 @@ def genesis_block(network: str = "mainnet"):
         raise ValueError(f"network not recognized: {network}")
 
     coinbase_tx = genesis_coinbase_tx()
-    merkle_ = merkle_root([bits.tx.txid(coinbase_tx)])
+    merkle_ = merkle_root([bytes.fromhex(bits.tx.txid(coinbase_tx))[::-1]])
     return block_ser(
-        block_header(1, NULL_32, merkle_, nTime, nBits.to_bytes(4, "little"), nNonce),
+        block_header(
+            1,
+            bits.constants.NULL_32,
+            merkle_,
+            nTime,
+            nBits.to_bytes(4, "little"),
+            nNonce,
+        ),
         [coinbase_tx],
     )
 
@@ -284,6 +289,7 @@ def block_ser(blk_hdr: bytes, txns: typing.List[bytes]) -> bytes:
 def block_header_deser(blk_hdr: bytes) -> dict:
     assert len(blk_hdr) == 80, "block header not length 80"
     return {
+        "blockheaderhash": bits.crypto.hash256(blk_hdr)[::-1].hex(),
         "version": int.from_bytes(blk_hdr[:4], "little"),
         "prev_blockheaderhash": blk_hdr[4:36][::-1].hex(),
         "merkle_root_hash": blk_hdr[36:68][::-1].hex(),
@@ -311,48 +317,82 @@ def block_deser(block: bytes) -> dict:
     return block_header_deser(header) | {"txns": txns}
 
 
-def validate_block(block: bytes, network: str = "mainnet") -> bool:
+def check_block(block: bytes, network: str = "mainnet") -> bool:
     """
-    Validate block is internally consistent
+    Performs several block validation checks that are independent of context
+
+    Full block validation happens in bits.p2p.Node and involves validating the block
+        is the correct new block in the context of the existing chain
+
+    inspiration https://github.com/bitcoin/bitcoin/blob/v0.2.13/main.cpp#L1280
 
     Args:
         block: bytes, block data
         network: str, mainnet, testnet, or regtest
     Returns:
-        bool, True if block is valid
-    Throws:
-        AssertionError if block is invalid
+        bool, True if block is valid, else False
     """
-    # validate POW - hash of block header is less than target threshold
-    blockhash = bits.crypto.hash256(block[:80])[::-1].hex()
-    block_dict = block_deser(block)
-    target = target_threshold(bytes.fromhex(block_dict["nBits"])[::-1])
-    assert (
-        int.from_bytes(bytes.fromhex(blockhash), "big") < target
-    ), f"POW not satisfied, {blockhash} > {int.to_bytes(target, 32, 'big').hex()}"
+    # check block size is less than MAX_BLOCK_SIZE
+    if len(block) == 0:
+        log.error("block is empty")
+        return False
+    if len(block) > bits.constants.MAX_SIZE:
+        log.error("block is larger than MAX_SIZE")
+        return False
 
-    # validate merkle root matches transactions
-    merkle_root_hash = merkle_root(
-        [bytes.fromhex(txn["txid"]) for txn in block_dict["txns"]]
-    )[::-1].hex()
-    assert (
-        block_dict["merkle_root_hash"] == merkle_root_hash
-    ), f"merkle root hash {block_dict['merkle_root_hash']} does not match internal computation from block transactions  {merkle_root_hash}"
+    block_dict = block_deser(block)
+    if block_dict["nTime"] > time.time() + 7200:
+        log.error("block nTime is too far in the future")
+        return False
+
+    # check that first transaction is coinbase tx
+    txns = block_dict["txns"]
+    if len(txns) == 0:
+        log.error("block has no transactions")
+        return False
+    if not bits.tx.is_coinbase(txns[0]):
+        log.error("first block is not coinbase transction")
+        return False
+    # check there is not more than one coinbase
+    for txn in txns[1:]:
+        if bits.tx.is_coinbase(txn):
+            log.error("more than one coinbase")
+            return False
 
     # validate nBits is below max
     target = target_threshold(bytes.fromhex(block_dict["nBits"])[::-1])
     if network.lower() == "mainnet" or network.lower() == "testnet":
-        assert (
-            target <= MAX_TARGET
-        ), f"target {hex(target)} greater than max {hex(MAX_TARGET)}"
+        if target > bits.constants.MAX_TARGET:
+            log.error(
+                f"target {hex(target)} greater than max {hex(bits.constants.MAX_TARGET)}"
+            )
+            return False
     elif network.lower() == "regtest":
-        assert (
-            target <= MAX_TARGET_REGTEST
-        ), f"target {hex(target)} greater than max {hex(MAX_TARGET_REGTEST)}"
+        if target > bits.constants.MAX_TARGET_REGTEST:
+            log.error(
+                f"target {hex(target)} greater than max {hex(bits.constants.MAX_TARGET_REGTEST)}"
+            )
+            return False
     else:
         raise ValueError(f"unrecognized network: {network}")
 
-    # check that transactions are valid
-    # check that coinbase tx is first
-    # check block size is less than MAX_BLOCK_SIZE
+    # check POW - hash of block header is less than target threshold claimed by nBits
+    blockhash = bits.crypto.hash256(block[:80])[::-1].hex()
+    target = target_threshold(bytes.fromhex(block_dict["nBits"])[::-1])
+    if int.from_bytes(bytes.fromhex(blockhash), "big") >= target:
+        log.error(
+            f"POW not satisfied, {blockhash} > {int.to_bytes(target, 32, 'big').hex()}"
+        )
+        return False
+
+    # check merkle root matches transactions
+    merkle_root_hash = merkle_root(
+        [bytes.fromhex(txn["txid"])[::-1] for txn in block_dict["txns"]]
+    )[::-1].hex()
+    if block_dict["merkle_root_hash"] != merkle_root_hash:
+        log.error(
+            f"merkle root hash {block_dict['merkle_root_hash']} does not match internal computation from block transactions  {merkle_root_hash}"
+        )
+        return False
+
     return True

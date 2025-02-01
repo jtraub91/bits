@@ -1,5 +1,6 @@
 import logging
 import typing
+from collections import deque
 
 import bits.base58
 from bits.script import constants
@@ -325,3 +326,23 @@ def decode_script(
             if witness and not witness_stack_len:
                 return decoded, scriptbytes
     return decoded
+
+
+def eval_script(script_: bytes):
+    # https://github.com/jtraub91/bitcoin/blob/v0.2.13/script.cpp
+
+    stack = deque([])
+
+    return True
+
+    # priorities
+    # implement script evaluation, complete at least satoshi level block check, and validation
+    # implement full basic p2p protocol functionality, sending tx relaying tx mining blocks
+    # implement bip34 blocks
+    # migrate to sqlite db
+    # debug crashing out after a lil bit without indication in logs
+
+    # create ordinal database and tracking, parsing
+    # implement more taproot support testing
+    # finish basic implementation of PSBTs
+    # remove rpc integration
