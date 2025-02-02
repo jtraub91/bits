@@ -647,6 +647,15 @@ class Node:
             # and write genesis block
             gb = genesis_block(network=self.network)
             self.save_blocks([gb])
+
+            # write genesis block transaction utxo to utxoset as one off
+            # (normally utxoset is updated transaction by transaction during self.accept_block after block is saved to disk)
+            gb_deser = bits.blockchain.block_deser(gb)
+            genesis_coinbase_tx = gb_deser["txns"][0]
+            self.add_to_utxoset(
+                gb_deser["blockheaderhash"], genesis_coinbase_tx["txid"], 0
+            )
+
         else:
             # some block dat files exist,
 
@@ -843,12 +852,7 @@ class Node:
         await self.message_handler_loop()
 
     def run(self):
-        try:
-            asyncio.run(self.main())
-        except KeyboardInterrupt:
-            log.info("keyboard interrupt...exiting gracefully...")
-        finally:
-            log.info("node stopped.")
+        asyncio.run(self.main())
 
     def start(self):
         self.exit_event.clear()
@@ -971,7 +975,8 @@ class Node:
                         shutil.move(
                             self.utxo_index_path + ".rollback", self.utxo_index_path
                         )
-                        # TODO delete block and block index tips
+                        # rollback block & block index
+                        self.rollback_blocks(1)
                         raise err
                     else:
                         # block fully validated, delete rollback utxoset
@@ -986,6 +991,42 @@ class Node:
                 )
 
         self._ibd = False
+
+    def rollback_blocks(self, n: int):
+        """
+        Rollback n blocks from disk, indexes
+        Args:
+            n: int, rollback n blocks
+        """
+        blockheight = self.get_blockchain_height()
+        for height in range(blockheight, blockheight - n, -1):
+            blockhash = self.get_blockhash(height)
+            self.delete_blockhash(blockhash)
+            self.delete_blockheader(blockhash)
+            self.delete_block(blockhash)
+
+    def delete_block(self, blockhash: str):
+        """
+        Delete the block at tip of blockchain
+        Args:
+            blockhash: str, provided for verification purposes
+        """
+        dat_files = sorted(
+            [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
+        )
+        dat_filename = dat_files[-1]
+        filepath = os.path.join(self.blocksdir, dat_filename)
+        blocks = self.parse_dat_file(filepath)
+        block = blocks.pop()
+        blockhash_calc = bits.crypto.hash256(block[:80])[::-1].hex()
+        assert (
+            blockhash_calc == blockhash
+        ), f"blockhash calculated from block tip {blockhash_calc} not equal to provided blockhash {blockhash}"
+        with open(filepath, "wb") as dat_file_:
+            for blk in blocks:
+                blk_data = self.magic_start_bytes + len(blk).to_bytes(4, "little") + blk
+                dat_file_.write(blk_data)
+        log.info(f"block(blockheaderhash={blockhash}) deleted from {dat_filename}")
 
     def save_blocks(self, blocks: List[bytes]):
         """
@@ -1031,21 +1072,15 @@ class Node:
             # save hash / header to index files, respectively
             self.save_blockhash(blockheight, blockhash)
             self.save_blockheader(blockhash, blockheader_data)
-            # # update utxoset
-            # coinbase_tx = block_dict["txns"][0]
-            # for vout in range(len(coinbase_tx["txouts"])):
-            #     self.add_to_utxoset(blockhash, coinbase_tx["txid"], vout)
-            # for txn in block_dict["txns"][1:]:
-            #     for txi in txn["txins"]:
-            #         txid = txi["txid"]
-            #         vout = txi["vout"]
-            #         bh = self.find_blockhash_for_utxo(txid)
-            #         self.remove_from_utxoset(bh, txid, vout)
-            #     for vout in range(len(txn["txouts"])):
-            #         self.add_to_utxoset(blockhash, txn["txid"], vout)
             log.info(f"block {blockheight} saved to index")
 
         dat_file.close()
+
+    def get_blockchain_info(self) -> dict:
+        return {
+            "blockheight": self.get_blockchain_height(),
+            "network": self.network,
+        }
 
     def get_blockchain_height(self) -> int:
         """
@@ -1116,6 +1151,23 @@ class Node:
         utxoset[blockhash] = block_utxos
         with open(self.utxo_index_path, "w") as utxo_index_file:
             json.dump(utxoset, utxo_index_file, indent=2)
+
+    def delete_blockhash(self, blockhash: str):
+        with open(self.blockhash_index_path, "r") as bh_index_file:
+            blockhash_index = json.load(bh_index_file)
+        height = self.get_blockheight(blockhash)
+        blockhash_index.pop(str(height))
+        with open(self.blockhash_index_path, "w") as bh_index_file:
+            json.dump(blockhash_index, bh_index_file)
+        log.info(f"block {height} deleted from blockhash index")
+
+    def delete_blockheader(self, blockhash: str):
+        with open(self.blockheader_index_path, "r") as bh_index_file:
+            blockheader_index = json.load(bh_index_file)
+        blockheader_index.pop(blockhash)
+        with open(self.blockheader_index_path, "w") as bh_index_file:
+            json.dump(blockheader_index, bh_index_file)
+        log.info(f"block(hash={blockhash}) deleted from blockheader index")
 
     def save_blockhash(self, height: int, blockhash: str):
         with open(self.blockhash_index_path, "r") as bh_index_file:
@@ -1247,16 +1299,19 @@ class Node:
             median = (times[len(times) // 2 - 1] + times[len(times) // 2]) // 2
         return median
 
-    def accept_block(self, block: bytes):
+    def accept_block(self, block: bytes) -> bool:
         """
         Validate block as new tip
         Args:
             block: bytes, raw block data
         Returns:
-            bool: True if block is accept as new tip
+            bool: True if block is accepted
         Throws:
-            ValidationError: if block is potential orphan
-            AssertionError: if block is invalid
+            CheckBlockError: if block fails context indepedent checks
+            AcceptBlockError: if block fails context dependent checks
+            PossibleOrphanError: if block is potential orphan
+            ConnectBlockError: if error is thrown during full tx validation,
+                i.e. after block is saved to disk
         """
         if not bits.blockchain.check_block(block, network=self.network):
             raise CheckBlockError("block failed context independent checks")
@@ -1316,7 +1371,7 @@ class Node:
         # save block and indexes
         self.save_blocks([block])
 
-        # full transactions validation of now latest block
+        # transactions validation of now latest block
         # take full snapshot of utxoset, update a copy incrementally, and be able to rollback to it upon failure
         # TODO: migrate block indexes and utxoset to sqlite db backend
 
@@ -1340,71 +1395,96 @@ class Node:
         for txo in coinbase_tx_txouts:
             coinbase_tx_txouts_total_value += txo["value"]
 
-        # update tmp utxoset with coinbase tx
+        # update utxoset with coinbase tx outputs
         for vout in range(len(coinbase_tx_txouts)):
             self.add_to_utxoset(current_blockhash, coinbase_tx["txid"], vout)
 
-        # tally transaction fees during for loop
-        min_tx_fee = 0
-        block_fees = 0
-        for txn in current_block_dict["txns"][1:]:
-            value_in = 0
-            value_out = 0
-            # check for double spending by checking that the transaction exists
-            # in the current utxo set
-            for tx_in in txn["txins"]:
-                txid = tx_in["txid"]
-                vout = tx_in["vout"]
+        MIN_TX_FEE = 0
 
-                bhash = self.find_blockhash_for_utxo(txid)
-                if not bhash:
+        # tally up the surplus value aka miner fees, block fees,
+        # ... "tips" seems like an apt name
+        miner_tips = 0
+        for txn_i, txn in enumerate(current_block_dict["txns"][1:], start=1):
+            txn_txid = txn["txid"]
+
+            txn_value_in = 0
+            txn_value_out = 0
+            for txin_i, tx_in in enumerate(txn["txins"]):
+                txin_txid = tx_in["txid"]
+                txin_vout = tx_in["vout"]
+
+                # check for double spending by checking that the transaction exists
+                # in the current utxo set
+                utxo_blockhash = self.find_blockhash_for_utxo(txin_txid)
+                if not utxo_blockhash:
                     raise ConnectBlockError(
-                        f"blockhash for utxo txid {txid} not found in utxoset"
+                        f"a matching blockhash for txo {txin_vout} in txid {txin_txid} was not found in the utxoset"
                     )
-                block_utxos = self.get_block_utxos(bhash)
-                if {"txid": txid, "vout": vout} not in block_utxos:
-                    raise ConnectBlockError("utxo not found in utxoset")
+                block_utxos = self.get_block_utxos(utxo_blockhash)
+                if {"txid": txin_txid, "vout": txin_vout} not in block_utxos:
+                    raise ConnectBlockError(
+                        f"utxo not found in utxoset under blockhash {utxo_blockhash}"
+                    )
+
                 # get the utxo transaction in full
+                utxo_blockheight = self.get_blockheight(utxo_blockhash)
+                utxo_block = self.get_block_data(utxo_blockheight)
+                utxo_block_deser = bits.blockchain.block_deser(utxo_block)
+                utxo_tx = next(
+                    (t for t in utxo_block_deser["txns"] if t["txid"] == txin_txid)
+                )
+
                 # if transaction is coinbase transaction, check that it's matured
-                tx_blockheight = self.get_blockheight(bhash)
-                tx_blockhash = self.get_blockhash(tx_blockheight)
-                tx_block = self.get_block_data(tx_blockheight)
-                tx_block_deser = bits.blockchain.block_deser(tx_block)
-                tx_ = next((t for t in tx_block_deser["txns"] if t["txid"] == txid))
-                if bits.tx.is_coinbase(tx_):
+                if bits.tx.is_coinbase(utxo_tx):
                     if (
-                        proposed_block_height - tx_blockheight
+                        current_blockheight - utxo_blockheight
                         < bits.constants.COINBASE_MATURITY
                     ):
                         raise ConnectBlockError(
-                            "coinbase transaction output has not matured"
+                            f"coinbase transaction output in block(height={utxo_blockheight}) was used but has not yet matured, current blockheight={current_blockheight} "
                         )
 
-                utxo = tx_["txouts"][vout]
-                utxo_scriptpubkey = utxo["scriptpubkey"]
+                # get utxo from utxo_tx referenced in tx_in
+                utxo = utxo_tx["txouts"][vout]
                 utxo_value = utxo["value"]
-                value_in += utxo_value
+
+                # add utxo value to total transction value input
+                txn_value_in += utxo_value
+
+                # evaluate tx_in unlocking script for its utxo
                 tx_in_scriptsig = tx_in["scriptsig"]
-                if not bits.script.eval_script(tx_in_scriptsig + utxo_scriptpubkey):
-                    raise ConnectBlockError("script evaluation failed")
+                utxo_scriptpubkey = utxo["scriptpubkey"]
+                script_ = bytes.fromhex(tx_in_scriptsig + utxo_scriptpubkey)
+                if not bits.script.eval_script(script_, utxo_tx):
+                    raise ConnectBlockError(
+                        f"script evaluation failed for txin {txin_i} in txn {txn_i} in block(blockhash={current_blockhash})"
+                    )
 
                 # this tx_in succeeds, update utxoset
-                self.remove_from_utxoset(tx_blockhash, txid, vout)
-            for tx_out in txn["txouts"]:
-                value_out += tx_out["value"]
-            if value_in - value_out < min_tx_fee:
-                raise ConnectBlockError(
-                    f"block {current_blockhash} txid {txn['txid']} transaction fees {value_in - value_out} do not meet minimum tx fee {min_tx_fee}"
-                )
-            block_fees += value_in - value_out
+                self.remove_from_utxoset(utxo_blockhash, txin_txid, txin_vout)
 
-            # add new utxo to utxoset too
+            # now loop over txouts, add to total txn value out
+            for tx_out in txn["txouts"]:
+                txn_value_out += tx_out["value"]
+
+            # check that MIN_TX_FEE is met
+            txn_surplus_value = txn_value_in - txn_value_out
+            if txn_surplus_value < MIN_TX_FEE:
+                raise ConnectBlockError(
+                    f"block {current_blockhash} txn {txn_i} surplus value {txn_surplus_value} does not meet minimum {MIN_TX_FEE}"
+                )
+
+            # add txn surplus to total miner tips
+            miner_tips += txn_surplus_value
+
+            # add newly created utxos to utxoset too
             for vout in range(len(txn["txouts"])):
                 self.add_to_utxoset(current_blockhash, txn["txid"], vout)
 
-        if coinbase_tx_txouts_total_value > self.get_block_reward() + block_fees:
+        max_block_reward = self.get_block_reward() + miner_tips
+        if coinbase_tx_txouts_total_value > max_block_reward:
             raise ConnectBlockError(
-                "coinbase tx spends more than block reward plus block fees"
+                f"block {current_blockhash} coinbase tx spends more than the max block reward"
             )
 
         return True

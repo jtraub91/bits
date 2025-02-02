@@ -156,10 +156,9 @@ def add_output_arguments(
 ):
     """
     Args:
-        parser:
-        output_format: Optional[str], use to specify explicit format,
-            e.g. raw, bin, or hex
-            leave off to allow all three formats as mutually exclusive group
+        parser: ArgumentParser
+        out_file_help: str
+        include_output_format: bool
     """
     parser.add_argument(
         "--out-file",
@@ -244,6 +243,7 @@ for compatibility with external tools, e.g. openssl, if needed.""",
         nargs="?",
         default="hex",
         const="raw",
+        action=ExplicitOption,
         type=format_option,
         help="raw binary (-0), binary string (-0b), hexadecimal string (-0x), or PEM-encoded private key (-0pem)",
     )
@@ -891,18 +891,19 @@ See "bits wif -h" for help on creating WIF-encoded keys.
         help="blockchain explorer",
         formatter_class=RawDescriptionDefaultsHelpFormatter,
         description="""
-Blockchain lulz
+Retrieve blockchainfo, raw block data, and/or decode block data
 """,
     )
     blockchain_parser.add_argument(
         "blockheight", type=int, nargs="?", help="block height"
     )
     blockchain_parser.add_argument(
-        "--header-only", "-H", action="store_true", help="output block header only"
+        "--info", action="store_true", default=False, help="get blockchain info"
     )
     blockchain_parser.add_argument(
-        "--decode", action="store_true", help="decode block provided via in_file"
+        "--header-only", "-H", action="store_true", help="output block header only"
     )
+    blockchain_parser.add_argument("--decode", action="store_true", help="decode block")
     add_common_arguments(blockchain_parser)
     add_input_arguments(blockchain_parser)
     add_output_arguments(blockchain_parser)
@@ -1300,6 +1301,10 @@ def main():
         )
         p2p_node.start()
     elif args.subcommand == "blockchain":
+        if args.info:
+            node = bits.p2p.Node(config.seeds, config.datadir, config.network)
+            print(json.dumps(node.get_blockchain_info()))
+            return
         if args.blockheight is None:
             block = bits.read_bytes(args.in_file, input_format=config.input_format)
             header = block[:80]

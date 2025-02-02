@@ -328,15 +328,53 @@ def decode_script(
     return decoded
 
 
-def eval_script(script_: bytes):
-    # https://github.com/jtraub91/bitcoin/blob/v0.2.13/script.cpp
+def eval_script(script_: bytes, tx_: bytes) -> bool:
+    """
+    Evalute script
+    https://github.com/bitcoin/bitcoin/blob/v0.2.13/script.cpp#L44
+    Arg:
+        tx_: bytes, transaction
+    Returns:
+        True if script succeeds, else False
+    """
+    begin_script_index = 0
+    end_script_index = len(script_)
+
+    script_args = decode_script(script_)
 
     stack = deque([])
+    for arg in script_args:
+        if not arg.startswith("OP"):
+            # data, push to stack
+            stack.append(arg)
+        elif arg == "OP_DUP":
+            stack.append(stack[-1])
+        elif arg == "OP_HASH160":
+            item = stack.pop()
+            stack.append(bits.crypto.hash160(bytes.fromhex(item)))
+        elif arg == "OP_EQUALVERIFY":
+            item1 = stack.pop()
+            item2 = stack.pop()
+            if item1 == item2:
+                stack.append(1)
+            else:
+                stack.append(0)
+            result = stack.pop()
+            if not result:
+                return False
+        elif arg == "OP_CHECKSIG":
+            if len(stack) < 2:
+                return False
+            pubkey = stack.pop()
+            sig = stack.pop()
+            return True
+            # script_code = script_[begin_script_index:end_script_index]
+            # tx_deser = bits.tx.tx_deser(tx_)
+            # bits.sig_verify(bytes.fromhex(sig), bytes.fromhex(pubkey), tx_)
 
     return True
 
-    # priorities
-    # implement script evaluation, complete at least satoshi level block check, and validation
+    # implement script evaluation,
     # implement full basic p2p protocol functionality, sending tx relaying tx mining blocks
     # implement bip34 blocks
     # migrate to sqlite db

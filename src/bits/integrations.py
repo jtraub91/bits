@@ -15,6 +15,11 @@ import bits.script
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
+DEFAULT_MAINNET_RPC_PORT = 8332
+DEFAULT_TESTNET_RPC_PORT = 18332
+DEFAULT_SIGNET_RPC_PORT = 38332
+DEFAULT_REGTEST_RPC_PORT = 18443
+
 
 def median_time(
     rpc_url: str = "", rpc_datadir: str = "", rpc_user: str = "", rpc_password: str = ""
