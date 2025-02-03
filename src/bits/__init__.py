@@ -6,18 +6,12 @@ import sys
 import typing
 
 from .utils import compact_size_uint
-from .utils import compute_point
 from .utils import is_addr, assert_addr
-from .utils import is_point
 from .utils import parse_compact_size_uint
-from .utils import pem_encode_key
-from .utils import point
 from .utils import pubkey
 from .utils import pubkey_hash
 from .utils import script_hash
 from .utils import segwit_addr, decode_segwit_addr, assert_valid_segwit, is_segwit_addr
-from .utils import sig
-from .utils import sig_verify
 from .utils import to_bitcoin_address
 from .utils import wif_decode
 from .utils import wif_encode

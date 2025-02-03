@@ -21,3 +21,5 @@ from .utils import p2wsh_script_pubkey
 from .utils import p2wsh_script_sig
 from .utils import script
 from .utils import scriptpubkey
+from .utils import sig
+from .utils import sig_verify

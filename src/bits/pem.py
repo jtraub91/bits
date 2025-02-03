@@ -7,6 +7,9 @@ import os
 import re
 import typing
 
+import bits.ecmath
+import bits.utils
+
 # monkeypatch base64 global variables for proper PEM encoding
 # via base64.encodebytes
 base64.MAXLINESIZE = 64
@@ -273,3 +276,185 @@ def parse_oid(data: bytes) -> str:
             nodes.append(first_byte)
             data = data[i + 1 :]
     return ".".join([str(node) for node in nodes])
+
+
+def der_encode_sig(r: int, s: int) -> bytes:
+    # https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki#der-encoding
+    r_number_of_bytes = (r.bit_length() + 7) // 8
+    r_bytes = r.to_bytes(r_number_of_bytes, "big")
+    if r_bytes[0] >= 0x80:
+        r_bytes = b"\x00" + r_bytes
+
+    s_number_of_bytes = (s.bit_length() + 7) // 8
+    s_bytes = s.to_bytes(s_number_of_bytes, "big")
+    if s_bytes[0] >= 0x80:
+        s_bytes += b"\x00" + s_bytes
+
+    signature_asn1_data_struct = [
+        [
+            ["SEQUENCE (OF)", "Constructed", "Universal"],
+            len(r_bytes) + len(s_bytes) + 4,
+            [
+                [
+                    ["INTEGER", "Primitive", "Universal"],
+                    len(r_bytes),
+                    r_bytes,
+                ],
+                [
+                    ["INTEGER", "Primitive", "Universal"],
+                    len(s_bytes),
+                    s_bytes,
+                ],
+            ],
+        ]
+    ]
+    return encode_parsed_asn1(signature_asn1_data_struct[0])
+
+
+def der_decode_sig(der: bytes) -> typing.Tuple[int, int]:
+    parsed = parse_asn1(der)
+    r = int.from_bytes(parsed[0][2][0][2], "big")
+    s = int.from_bytes(parsed[0][2][1][2], "big")
+    return r, s
+
+
+def pem_decode_key(
+    pem_: bytes,
+) -> typing.Union[typing.Tuple[bytes, bytes], typing.Tuple[bytes]]:
+    """
+    Decode from pem / der encoded EC private / public key
+    Returns:
+        (privkey, pubkey) or pubkey, respectively
+    """
+    decoded = decode_pem(pem_)
+    parsed = parse_asn1(decoded)
+    if parsed[0][2][0][2] == b"\x01":
+        return parsed[0][2][1][2], parsed[0][2][3][2][0][2][1:]
+    elif parsed[0][2][0][2][0][2] == "id-ecPublicKey":
+        return (parsed[0][2][1][2][1:],)
+    else:
+        raise ValueError("could not identify data as private nor public key")
+
+
+def pem_encode_key(key_: bytes) -> bytes:
+    """
+    Encode (pub)key as pem
+    """
+    if len(key_) == 32:
+        # private secp256k1 key
+        parsed_data_struct = [
+            [
+                ["SEQUENCE (OF)", "Constructed", "Universal"],
+                116,
+                [
+                    [["INTEGER", "Primitive", "Universal"], 1, b"\x01"],
+                    [
+                        ["OCTET STRING", "Primitive", "Universal"],
+                        32,
+                        key_,
+                    ],
+                    [
+                        [0, "Constructed", "Context-specific"],
+                        7,
+                        [
+                            [
+                                ["OBJECT IDENTIFIER", "Primitive", "Universal"],
+                                5,
+                                "id-ansip256k1",
+                            ]
+                        ],
+                    ],
+                    [
+                        [1, "Constructed", "Context-specific"],
+                        68,
+                        [
+                            [
+                                ["BIT STRING", "Primitive", "Universal"],
+                                66,
+                                b"\x00"
+                                + bits.utils.pubkey(*bits.ecmath.compute_point(key_)),
+                            ]
+                        ],
+                    ],
+                ],
+            ]
+        ]
+        return encode_pem(
+            encode_parsed_asn1(parsed_data_struct[0]),
+            header=b"-----BEGIN EC PRIVATE KEY-----",
+            footer=b"-----END EC PRIVATE KEY-----",
+        )
+    elif len(key_) == 33 or len(key_) == 65:
+        parsed_data_struct = [
+            [
+                ["SEQUENCE (OF)", "Constructed", "Universal"],
+                86 if len(key_) == 65 else 54,
+                [
+                    [
+                        ["SEQUENCE (OF)", "Constructed", "Universal"],
+                        16,
+                        [
+                            [
+                                ["OBJECT IDENTIFIER", "Primitive", "Universal"],
+                                7,
+                                "id-ecPublicKey",
+                            ],
+                            [
+                                ["OBJECT IDENTIFIER", "Primitive", "Universal"],
+                                5,
+                                "id-ansip256k1",
+                            ],
+                        ],
+                    ],
+                    [
+                        ["BIT STRING", "Primitive", "Universal"],
+                        66 if len(key_) == 65 else 34,
+                        b"\x00" + key_,
+                    ],
+                ],
+            ]
+        ]
+        return encode_pem(
+            encode_parsed_asn1(parsed_data_struct[0]),
+            header=b"-----BEGIN PUBLIC KEY-----",
+            footer=b"-----END PUBLIC KEY-----",
+        )
+    else:
+        raise ValueError(
+            "key (based on len) not recognized as public nor private key data"
+        )
+
+
+def ensure_sig_low_s(sig_: bytes) -> bytes:
+    """
+    Ensure DER encoded signature has low enough s value
+    https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki#low-s-values-in-signatures
+
+    OpenSSL does not ensure this by default
+    https://bitcoin.stackexchange.com/a/59826/135678
+    Apparently, Bitcoin Core used to do this to get around it
+    https://github.com/bitcoin/bitcoin/blob/v0.9.0/src/key.cpp#L204L224
+
+    Essentially just use s = N - s if s > N / 2
+    """
+    parsed = parse_asn1(sig_)
+    # r_val = int.from_bytes(parsed[0][2][0][2], "big")
+    r_len = parsed[0][2][0][1]
+    s_val = int.from_bytes(parsed[0][2][1][2], "big")
+    s_len = parsed[0][2][1][1]
+    if s_val > bits.ecmath.SECP256K1_N // 2 or s_val < 1:
+        # s_val = SECP256K1_N - s_val
+        s_val = bits.ecmath.sub_mod_p(0, s_val, p=bits.ecmath.SECP256K1_N)
+        parsed[0][2][1][2] = s_val.to_bytes(32, "big")
+        parsed[0][2][1][1] = 32
+        parsed[0][1] = 32 + r_len + 4
+        encoded = encode_parsed_asn1(parsed[0])
+        return encoded
+    return sig_
+
+
+def pubkey_from_pem(pem_: bytes):
+    decoded_key = pem_decode_key(pem_)
+    if len(decoded_key) == 2:
+        return decoded_key[1]
+    return decoded_key

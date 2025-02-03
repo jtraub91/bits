@@ -3,6 +3,9 @@ import typing
 from collections import deque
 
 import bits.base58
+import bits.crypto
+import bits.ecmath
+import bits.pem
 from bits.script import constants
 
 log = logging.getLogger(__name__)
@@ -30,7 +33,7 @@ def scriptpubkey(data: bytes) -> bytes:
     >>> scriptpubkey(b"bc1qvduqal3pk4x5vtfendx9hxgzydd22u8v0pzd7h").hex()
     '001463780efe21b54d462d399b4c5b9902235aa570ec'
     """
-    if bits.is_point(data):
+    if bits.ecmath.is_point(data):
         return p2pk_script_pubkey(data)
     elif bits.base58.is_base58check(data):
         decoded = bits.base58.base58check_decode(data)
@@ -280,6 +283,10 @@ def decode_script(
     Decode Script. Decode witness script by using witness=True. When witness=True,
     you may use parse=True to parse first witness script instead of decoding.
     """
+    # TODO: maybe refactor this?
+    # logic is a little weird with the witness and parse flags,
+    # and script probably needs to be decoded during eval_script
+    # maybe this function is better to be refactored to "parse_script"
     decoded = []
     if witness:
         witness_stack_len, scriptbytes = bits.parse_compact_size_uint(scriptbytes)
@@ -328,31 +335,110 @@ def decode_script(
     return decoded
 
 
-def eval_script(script_: bytes, tx_: bytes) -> bool:
+def check_sig(
+    sig_: bytes, pubkey_: bytes, scriptcode_: bytes, tx_: bytes, txin_n: int
+) -> bool:
     """
-    Evalute script
+    Check signature
+    Args:
+        sig_: bytes, signature
+        pubkey_: bytes, pubkey
+        scriptcode_: bytes, scriptcode inserted
+        tx_: bytes, transaction
+        txin_n: int, index of input in transaction
+    Returns:
+        True if signature verification passes, else False
+    """
+    tx_dict, _ = bits.tx.tx_deser(tx_)
+
+    # insert scriptcode for scriptsig for the txin
+    txin_ = tx_dict["txins"][txin_n]
+    txin_["scriptsig"] = scriptcode_.hex()
+
+    hashtype = sig_[-1]
+
+    anyone_can_pay = hashtype & bits.script.constants.SIGHASH_ANYONECANPAY
+    sighash = hashtype & 0x03
+    if sighash == bits.script.constants.SIGHASH_ALL:
+        # all outputs are included
+        pass
+    elif sighash == bits.script.constants.SIGHASH_NONE:
+        # no outputs included
+        tx_dict["txouts"] = []
+    elif sighash == bits.script.constants.SIGHASH_SINGLE:
+        # only the output with same index as this txin is included
+        txouts = tx_dict["txouts"]
+        tx_dict["txouts"] = [txouts[txin_n]]
+    else:
+        raise ValueError(f"sighash value not recognized: {sighash}")
+    if anyone_can_pay:
+        # only include this txin
+        tx_dict["txins"] = [tx_dict["txins"][txin_n]]
+
+    txins = tx_dict["txins"]
+    txouts = tx_dict["txouts"]
+    version = tx_dict["version"]
+    locktime = tx_dict["locktime"]
+    msg_preimage = bits.tx.tx(
+        txins, txouts, version=version, locktime=locktime
+    ) + hashtype.to_bytes(4, "little")
+    if sig_verify(sig_, pubkey_, msg_preimage, msg_preimage=True) == "OK":
+        return True
+    return False
+
+
+def eval_script(script_: bytes, tx_: bytes, txin_n: int) -> bool:
+    """
+    Evalute script for txin n in tx
     https://github.com/bitcoin/bitcoin/blob/v0.2.13/script.cpp#L44
     Arg:
+        script_: bytes, script
         tx_: bytes, transaction
+        txin_n: int, txin index for which we are evaluating script for
     Returns:
         True if script succeeds, else False
     """
-    begin_script_index = 0
-    end_script_index = len(script_)
+    scriptbytes = script_
+    scriptbytes_index = 0
 
-    script_args = decode_script(script_)
+    begin_script_code = 0
+    end_script_code = len(scriptbytes)
 
     stack = deque([])
-    for arg in script_args:
-        if not arg.startswith("OP"):
-            # data, push to stack
-            stack.append(arg)
-        elif arg == "OP_DUP":
+    while scriptbytes:
+        op = scriptbytes[0]
+        scriptbytes = scriptbytes[1:]
+        scriptbytes_index += 1
+        if op in range(1, 0x4C):
+            # op interpreted as OP_PUSHBYTES_x
+            data = scriptbytes[:op]
+            scriptbytes = scriptbytes[op:]
+            scriptbytes_index += op
+            stack.append(data)
+        elif op == bits.script.constants.OP_PUSHDATA1:
+            push = scriptbytes[0]
+            data = scriptbytes[1 : 1 + push]
+            scriptbytes = scriptbytes[1 + push :]
+            scriptbytes_index += 1 + push
+            stack.append(data)
+        elif op == bits.script.constants.OP_PUSHDATA2:
+            push = int.from_bytes(scriptbytes[:2], "little")
+            data = scriptbytes[2 : 2 + push]
+            scriptbytes = scriptbytes[2 + push :]
+            scriptbytes_index += 2 + push
+            stack.append(data)
+        elif op == bits.script.constants.OP_PUSHDATA4:
+            push = int.from_bytes(scriptbytes[:4], "little")
+            data = scriptbytes[4 : 4 + push]
+            scriptbytes = scriptbytes[4 + push :]
+            scriptbytes_index += 4 + push
+            stack.append(data)
+        elif op == bits.script.constants.OP_DUP:
             stack.append(stack[-1])
-        elif arg == "OP_HASH160":
+        elif op == bits.script.constants.OP_HASH160:
             item = stack.pop()
-            stack.append(bits.crypto.hash160(bytes.fromhex(item)))
-        elif arg == "OP_EQUALVERIFY":
+            stack.append(bits.crypto.hash160(item))
+        elif op == bits.script.constants.OP_EQUALVERIFY:
             item1 = stack.pop()
             item2 = stack.pop()
             if item1 == item2:
@@ -362,25 +448,133 @@ def eval_script(script_: bytes, tx_: bytes) -> bool:
             result = stack.pop()
             if not result:
                 return False
-        elif arg == "OP_CHECKSIG":
+        elif op == bits.script.constants.OP_CODESEPARATOR:
+            begin_script_code = scriptbytes_index
+        elif op in [
+            bits.script.constants.OP_CHECKSIG,
+            bits.script.constants.OP_CHECKSIGVERIFY,
+        ]:
             if len(stack) < 2:
                 return False
-            pubkey = stack.pop()
-            sig = stack.pop()
-            return True
-            # script_code = script_[begin_script_index:end_script_index]
-            # tx_deser = bits.tx.tx_deser(tx_)
-            # bits.sig_verify(bytes.fromhex(sig), bytes.fromhex(pubkey), tx_)
+            pubkey_ = stack.pop()
+            sig_ = stack.pop()
 
-    return True
+            script_code = script_[begin_script_code:end_script_code]
 
-    # implement script evaluation,
-    # implement full basic p2p protocol functionality, sending tx relaying tx mining blocks
-    # implement bip34 blocks
-    # migrate to sqlite db
-    # debug crashing out after a lil bit without indication in logs
+            # remove sig from script_code, since sig can't sign itself
+            script_code = find_and_delete(sig_, script_code)
 
-    # create ordinal database and tracking, parsing
-    # implement more taproot support testing
-    # finish basic implementation of PSBTs
-    # remove rpc integration
+            result = check_sig(sig_, pubkey_, script_code, tx_, txin_n)
+            stack.append(result)
+            if op == bits.script.constants.OP_CHECKSIGVERIFY:
+                result = stack.pop()
+                if not result:
+                    return False
+        else:
+            raise ValueError(f"op code not recognized: {op}")
+
+    result = stack.pop()
+    if result:
+        return True
+    return False
+
+
+def find_and_delete(sig_: bytes, scriptcode_: bytes) -> bytes:
+    """
+    Find and delete signature (plus its preceding push op codes) from scriptcode
+    Handles the case of multiple occurences of signature
+
+    Used during eval_script (OP_CHECKSIG)
+    Args:
+        sig_: bytes, signature
+        scriptcode_: bytes, scriptcode
+    Returns:
+        bytes: scriptcode with signature and opcodes deleted
+    """
+
+    while scriptcode_.find(sig_):
+        # find first occurrence of sig_ in scriptcode_
+        find_index = scriptcode_.find(sig_)
+
+        # figure out preceding number of op push bytes based on sig length
+        if len(sig_) < 0x4C:
+            push_op_code_bytes_length = 1
+        elif len(sig_) <= 0xFF:
+            push_op_code_bytes_length = 2
+        elif len(sig_) <= 0xFFFF:
+            push_op_code_bytes_length = 3
+        else:
+            push_op_code_bytes_length = 5
+
+        # remove these preceding bytes
+        scriptcode_ = (
+            scriptcode_[: find_index - push_op_code_bytes_length]
+            + scriptcode_[find_index]
+        )
+
+        # remove first occurrence of sig_
+        scriptcode_ = scriptcode_.replace(sig_, b"")
+
+    return scriptcode_
+
+
+def sig(
+    key: bytes,
+    msg: bytes,
+    sighash_flag: typing.Optional[int] = None,
+    msg_preimage: bool = False,
+) -> bytes:
+    """
+    Create DER encoded Bitcoin signature from message, optional sighash_flag
+
+    Sighash_flag gets appended to msg, this data is then hashed with HASH256,
+        signed, and DER-encoded
+
+    Args:
+        key: bytes, private key
+        msg: bytes,
+        sighash_flag: Optional[int], appended to msg before HASH256
+        msg_preimage: whether msg is pre-image or not
+            pre-image already has 4 byte sighash flag appended
+            if msg_preimage, msg is still hashed, and 1 byte sighash_flag still appended
+            after signing/der-encoding
+    Returns:
+        bytes, signature(HASH256(msg + sighash_flag))
+    """
+    if not msg_preimage and sighash_flag is not None:
+        msg += sighash_flag.to_bytes(4, "little")
+    elif msg_preimage and sighash_flag is not None:
+        sh_flag = int.from_bytes(msg[-4:], "little")
+        assert (
+            sh_flag == sighash_flag
+        ), "sighash_flag parsed from msg preimage does not match provided sighash_flag argument"
+    elif msg_preimage:
+        sh_flag = int.from_bytes(msg[-4:], "little")
+    sigdata = bits.crypto.hash256(msg)
+    r, s = bits.ecmath.sign(
+        bits.ecmath.privkey_int(key), int.from_bytes(sigdata, "big")
+    )
+    signature_der = bits.pem.der_encode_sig(r, s)
+    if sighash_flag is not None:
+        signature_der += sighash_flag.to_bytes(1, "little")
+    elif msg_preimage:
+        # if msg_preimage=True (msg preimage contains sighash flag) and sighash_flag not provided as arg
+        signature_der += sh_flag.to_bytes(1, "little")
+    return signature_der
+
+
+def sig_verify(
+    sig_: bytes, pubkey_: bytes, msg: bytes, msg_preimage: bool = False
+) -> str:
+    sighash_flag = sig_[-1]
+    r, s = bits.pem.der_decode_sig(sig_[:-1])
+    if not msg_preimage:
+        msg += sighash_flag.to_bytes(4, "little")
+    msg_digest = bits.crypto.hash256(msg)
+    try:
+        result = bits.ecmath.verify(
+            r, s, bits.ecmath.point(pubkey_), int.from_bytes(msg_digest, "big")
+        )
+    except AssertionError as err:
+        return err.args[0]
+    return "OK"

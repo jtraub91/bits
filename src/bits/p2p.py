@@ -958,18 +958,15 @@ class Node:
                         # if an error is thrown handle as follows
                         self.accept_block(block)
                     except PossibleOrphanError as err:
-                        log.debug(block.hex())
                         log.warning(err)
                         log.info(f"saving {blockhash} as potential orphan...")
                         sync_node.save_orphan(blockhash, blockheader)
                     except (CheckBlockError, AcceptBlockError) as err:
-                        log.debug(block)
                         log.error(err)
                         raise err
                         # log.error(f"block {blockhash} is not valid, discarding...")
                     except ConnectBlockError as err:
                         # roll back block, indexes, and utxoset
-                        log.debug(block)
                         log.error(err)
                         log.info("rolling back utxoset...")
                         shutil.move(
@@ -1455,7 +1452,7 @@ class Node:
                 tx_in_scriptsig = tx_in["scriptsig"]
                 utxo_scriptpubkey = utxo["scriptpubkey"]
                 script_ = bytes.fromhex(tx_in_scriptsig + utxo_scriptpubkey)
-                if not bits.script.eval_script(script_, utxo_tx):
+                if not bits.script.eval_script(script_, utxo_tx, txin_i):
                     raise ConnectBlockError(
                         f"script evaluation failed for txin {txin_i} in txn {txn_i} in block(blockhash={current_blockhash})"
                     )

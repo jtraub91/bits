@@ -14,6 +14,7 @@ import bits.base58
 import bits.blockchain
 import bits.crypto
 import bits.p2p
+import bits.pem
 import bits.rpc
 import bits.script
 import bits.tx
@@ -879,7 +880,7 @@ See "bits wif -h" for help on creating WIF-encoded keys.
         "--datadir",
         type=str,
         action=ExplicitOption,
-        help="p2p node data directory. blockchain data files will be stored in a subdirectory 'blocks'",
+        help="p2p node data directory",
     )
     p2p_parser.add_argument(
         "--reindex", action="store_true", default=False, help="reindex block indexes"
@@ -896,6 +897,12 @@ Retrieve blockchainfo, raw block data, and/or decode block data
     )
     blockchain_parser.add_argument(
         "blockheight", type=int, nargs="?", help="block height"
+    )
+    blockchain_parser.add_argument(
+        "--datadir",
+        type=str,
+        action=ExplicitOption,
+        help="p2p node data directory",
     )
     blockchain_parser.add_argument(
         "--info", action="store_true", default=False, help="get blockchain info"
@@ -982,7 +989,7 @@ def main():
         # generate Bitcoin secret key
         privkey = bits.keys.key()
         if config.output_format == "pem":
-            privkey = bits.pem_encode_key(privkey)
+            privkey = bits.pem.pem_encode_key(privkey)
             bits.write_bytes(privkey, args.out_file, output_format="raw")
             return
         bits.write_bytes(privkey, args.out_file, output_format=config.output_format)
@@ -993,12 +1000,12 @@ def main():
             pk = bits.keys.pub(data, compressed=args.compressed)
         elif len(data) == 33 or len(data) == 65:
             # pubkey
-            x, y = bits.point(data)
+            x, y = bits.ecmath.point(data)
             pk = bits.pubkey(x, y, compressed=args.compressed)
         else:
             raise ValueError("data not recognized as private or public key")
         if config.output_format == "pem":
-            pk = bits.pem_encode_key(pk)
+            pk = bits.pem.pem_encode_key(pk)
             bits.write_bytes(pk, args.out_file, output_format="raw")
             return
         bits.write_bytes(
@@ -1236,7 +1243,7 @@ def main():
                 )
             pubkey_ = bits.read_bytes(args.in_file, input_format=config.input_format)
             print(
-                bits.sig_verify(
+                bits.script.sig_verify(
                     args.signature, pubkey_, args.msg, msg_preimage=args.msg_preimage
                 )
             )
@@ -1245,7 +1252,7 @@ def main():
         sighash_flag = getattr(bits.script.constants, f"SIGHASH_{args.sighash.upper()}")
         if args.anyone_can_pay:
             sighash_flag |= bits.script.constants.SIGHASH_ANYONECANPAY
-        sig = bits.sig(
+        sig = bits.script.sig(
             key, args.msg, sighash_flag=sighash_flag, msg_preimage=args.msg_preimage
         )
         bits.write_bytes(sig, args.out_file, output_format=config.output_format)

@@ -5,7 +5,6 @@ import bits.base58
 import bits.crypto
 import bits.ecmath
 import bits.keys
-import bits.pem
 import bits.script.constants
 from bits.bips import bip173
 from bits.bips.bip350 import BECH32M_CONST
@@ -26,60 +25,6 @@ def pubkey(x: int, y: int, compressed=False) -> bytes:
         return prefix + x.to_bytes(32, "big") + y.to_bytes(32, "big")
 
 
-def privkey_int(privkey_: bytes) -> int:
-    assert len(privkey_) == 32
-    p = int.from_bytes(privkey_, "big")
-    assert p > 0 and p < bits.ecmath.SECP256K1_N, f"private key not in range(1, N): {p}"
-    return p
-
-
-def compute_point(privkey_: bytes) -> typing.Tuple[int]:
-    """
-    Compute (x, y) public key point from private key
-
-    >>> compute_point(bytes.fromhex('c3e7b149ad167dc83a5653a9eaae1cc50b36793bfdc050d8efab831d04b876a7'))
-    (88828742484815144809405969644853584197652586004550817561544596238129398385750, 53299775652378523772666068229018059902560429447534834823349875811815397393717)
-    """
-    k = privkey_int(privkey_)
-    return bits.ecmath.point_scalar_mul(
-        k, (bits.ecmath.SECP256K1_Gx, bits.ecmath.SECP256K1_Gy)
-    )
-
-
-def point(pubkey_: bytes) -> typing.Tuple[int]:
-    """
-    Return (x, y) point from SEC1 public key
-
-    >>> point(bytes.fromhex('03c463495bd336bc29636ed6d8c1cf162b45d76adda4df9499370dded242758c56'))
-    (88828742484815144809405969644853584197652586004550817561544596238129398385750, 53299775652378523772666068229018059902560429447534834823349875811815397393717)
-    """
-    assert len(pubkey_) == 33 or len(pubkey_) == 65, "invalid pubkey length"
-    version = pubkey_[0]
-    payload = pubkey_[1:]
-    x = int.from_bytes(payload[:32], "big")
-    if version == 2:
-        # compressed, y even
-        y = [i for i in bits.ecmath.y_from_x(x) if not i % 2][0]
-    elif version == 3:
-        # compressed, y odd
-        y = [i for i in bits.ecmath.y_from_x(x) if i % 2][0]
-    elif version == 4:
-        # uncompressed
-        y = int.from_bytes(payload[32:], "big")
-    else:
-        raise ValueError(f"unrecognized version: {version}")
-    assert bits.ecmath.point_is_on_curve(x, y), "invalid pubkey"
-    return (x, y)
-
-
-def is_point(pubkey_: bytes):
-    try:
-        point(pubkey_)
-        return True
-    except (AssertionError, ValueError):
-        return False
-
-
 def compressed_pubkey(pubkey_: bytes) -> bytes:
     """
     Returns:
@@ -90,7 +35,7 @@ def compressed_pubkey(pubkey_: bytes) -> bytes:
     if prefix in [b"\x02", b"\x03"]:
         return pubkey_
     elif prefix == b"\x04":
-        return pubkey(*point(pubkey_), compressed=True)
+        return pubkey(*bits.ecmath.point(pubkey_), compressed=True)
     else:
         raise ValueError(f"unrecognized prefix {prefix}")
 
@@ -271,6 +216,10 @@ def to_bitcoin_address(
         version = b"\x05"
     elif network in ["testnet", "regtest"] and addr_type == "p2sh":
         version = b"\xc4"
+    else:
+        raise ValueError(
+            f"version could not be set for combination of network ({network}) and addr_type ({addr_type}) provided"
+        )
     return bits.base58.base58check(version + payload)
 
 
@@ -299,41 +248,6 @@ def assert_addr(addr_: bytes) -> bool:
         "addr not identified as base58check nor segwit. "
         + f"Caught errors '{errors[0].args[0]}', '{errors[1].args[0]}', respectively"
     )
-
-
-def ensure_sig_low_s(sig_: bytes) -> bytes:
-    """
-    Ensure DER encoded signature has low enough s value
-    https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki#low-s-values-in-signatures
-
-    OpenSSL does not ensure this by default
-    https://bitcoin.stackexchange.com/a/59826/135678
-    Apparently, Bitcoin Core used to do this to get around it
-    https://github.com/bitcoin/bitcoin/blob/v0.9.0/src/key.cpp#L204L224
-
-    Essentially just use s = N - s if s > N / 2
-    """
-    parsed = bits.pem.parse_asn1(sig_)
-    # r_val = int.from_bytes(parsed[0][2][0][2], "big")
-    r_len = parsed[0][2][0][1]
-    s_val = int.from_bytes(parsed[0][2][1][2], "big")
-    s_len = parsed[0][2][1][1]
-    if s_val > bits.ecmath.SECP256K1_N // 2 or s_val < 1:
-        # s_val = SECP256K1_N - s_val
-        s_val = bits.ecmath.sub_mod_p(0, s_val, p=bits.ecmath.SECP256K1_N)
-        parsed[0][2][1][2] = s_val.to_bytes(32, "big")
-        parsed[0][2][1][1] = 32
-        parsed[0][1] = 32 + r_len + 4
-        encoded = bits.pem.encode_parsed_asn1(parsed[0])
-        return encoded
-    return sig_
-
-
-def pubkey_from_pem(pem_: bytes):
-    decoded_key = pem_decode_key(pem_)
-    if len(decoded_key) == 2:
-        return decoded_key[1]
-    return decoded_key
 
 
 # influenced by electrum
@@ -405,7 +319,7 @@ def wif_encode(
                 (and redeem_script) are implied
             For p2sh-p2wsh, supply witness_script
     """
-    privkey_int(privkey_)  # key validation
+    bits.ecmath.privkey_int(privkey_)  # key validation
     prefix = (WIF_NETWORK_BASE[network] + WIF_SCRIPT_OFFSET[addr_type]).to_bytes(
         1, "big"
     )
@@ -439,209 +353,3 @@ def wif_decode(
         return decoded
     else:
         return version, key_, addtl_data
-
-
-def pem_decode_key(
-    pem_: bytes,
-) -> typing.Union[typing.Tuple[bytes, bytes], typing.Tuple[bytes]]:
-    """
-    Decode from pem / der encoded EC private / public key
-    Returns:
-        (privkey, pubkey) or pubkey, respectively
-    """
-    decoded = bits.pem.decode_pem(pem_)
-    parsed = bits.pem.parse_asn1(decoded)
-    if parsed[0][2][0][2] == b"\x01":
-        return parsed[0][2][1][2], parsed[0][2][3][2][0][2][1:]
-    elif parsed[0][2][0][2][0][2] == "id-ecPublicKey":
-        return (parsed[0][2][1][2][1:],)
-    else:
-        raise ValueError("could not identify data as private nor public key")
-
-
-def pem_encode_key(key_: bytes) -> bytes:
-    """
-    Encode (pub)key as pem
-    """
-    if len(key_) == 32:
-        # private secp256k1 key
-        parsed_data_struct = [
-            [
-                ["SEQUENCE (OF)", "Constructed", "Universal"],
-                116,
-                [
-                    [["INTEGER", "Primitive", "Universal"], 1, b"\x01"],
-                    [
-                        ["OCTET STRING", "Primitive", "Universal"],
-                        32,
-                        key_,
-                    ],
-                    [
-                        [0, "Constructed", "Context-specific"],
-                        7,
-                        [
-                            [
-                                ["OBJECT IDENTIFIER", "Primitive", "Universal"],
-                                5,
-                                "id-ansip256k1",
-                            ]
-                        ],
-                    ],
-                    [
-                        [1, "Constructed", "Context-specific"],
-                        68,
-                        [
-                            [
-                                ["BIT STRING", "Primitive", "Universal"],
-                                66,
-                                b"\x00" + pubkey(*compute_point(key_)),
-                            ]
-                        ],
-                    ],
-                ],
-            ]
-        ]
-        return bits.pem.encode_pem(
-            bits.pem.encode_parsed_asn1(parsed_data_struct[0]),
-            header=b"-----BEGIN EC PRIVATE KEY-----",
-            footer=b"-----END EC PRIVATE KEY-----",
-        )
-    elif len(key_) == 33 or len(key_) == 65:
-        parsed_data_struct = [
-            [
-                ["SEQUENCE (OF)", "Constructed", "Universal"],
-                86 if len(key_) == 65 else 54,
-                [
-                    [
-                        ["SEQUENCE (OF)", "Constructed", "Universal"],
-                        16,
-                        [
-                            [
-                                ["OBJECT IDENTIFIER", "Primitive", "Universal"],
-                                7,
-                                "id-ecPublicKey",
-                            ],
-                            [
-                                ["OBJECT IDENTIFIER", "Primitive", "Universal"],
-                                5,
-                                "id-ansip256k1",
-                            ],
-                        ],
-                    ],
-                    [
-                        ["BIT STRING", "Primitive", "Universal"],
-                        66 if len(key_) == 65 else 34,
-                        b"\x00" + key_,
-                    ],
-                ],
-            ]
-        ]
-        return bits.pem.encode_pem(
-            bits.pem.encode_parsed_asn1(parsed_data_struct[0]),
-            header=b"-----BEGIN PUBLIC KEY-----",
-            footer=b"-----END PUBLIC KEY-----",
-        )
-    else:
-        raise ValueError(
-            "key (based on len) not recognized as public nor private key data"
-        )
-
-
-def der_encode_sig(r: int, s: int) -> bytes:
-    # https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki#der-encoding
-    r_number_of_bytes = (r.bit_length() + 7) // 8
-    r_bytes = r.to_bytes(r_number_of_bytes, "big")
-    if r_bytes[0] >= 0x80:
-        r_bytes = b"\x00" + r_bytes
-
-    s_number_of_bytes = (s.bit_length() + 7) // 8
-    s_bytes = s.to_bytes(s_number_of_bytes, "big")
-    if s_bytes[0] >= 0x80:
-        s_bytes += b"\x00" + s_bytes
-
-    signature_asn1_data_struct = [
-        [
-            ["SEQUENCE (OF)", "Constructed", "Universal"],
-            len(r_bytes) + len(s_bytes) + 4,
-            [
-                [
-                    ["INTEGER", "Primitive", "Universal"],
-                    len(r_bytes),
-                    r_bytes,
-                ],
-                [
-                    ["INTEGER", "Primitive", "Universal"],
-                    len(s_bytes),
-                    s_bytes,
-                ],
-            ],
-        ]
-    ]
-    return bits.pem.encode_parsed_asn1(signature_asn1_data_struct[0])
-
-
-def der_decode_sig(der: bytes) -> typing.Tuple[int, int]:
-    parsed = bits.pem.parse_asn1(der)
-    r = int.from_bytes(parsed[0][2][0][2], "big")
-    s = int.from_bytes(parsed[0][2][1][2], "big")
-    return r, s
-
-
-def sig(
-    key: bytes,
-    msg: bytes,
-    sighash_flag: typing.Optional[int] = None,
-    msg_preimage: bool = False,
-) -> bytes:
-    """
-    Create DER encoded Bitcoin signature from message, optional sighash_flag
-
-    Sighash_flag gets appended to msg, this data is then hashed with HASH256,
-        signed, and DER-encoded
-
-    Args:
-        key: bytes, private key
-        msg: bytes,
-        sighash_flag: Optional[int], appended to msg before HASH256
-        msg_preimage: whether msg is pre-image or not
-            pre-image already has 4 byte sighash flag appended
-            if msg_preimage, msg is still hashed, and 1 byte sighash_flag still appended
-            after signing/der-encoding
-    Returns:
-        bytes, signature(HASH256(msg + sighash_flag))
-    """
-    if not msg_preimage and sighash_flag is not None:
-        msg += sighash_flag.to_bytes(4, "little")
-    elif msg_preimage and sighash_flag is not None:
-        sh_flag = int.from_bytes(msg[-4:], "little")
-        assert (
-            sh_flag == sighash_flag
-        ), "sighash_flag parsed from msg preimage does not match provided sighash_flag argument"
-    elif msg_preimage:
-        sh_flag = int.from_bytes(msg[-4:], "little")
-    sigdata = bits.crypto.hash256(msg)
-    r, s = bits.ecmath.sign(privkey_int(key), int.from_bytes(sigdata, "big"))
-    signature_der = der_encode_sig(r, s)
-    if sighash_flag is not None:
-        signature_der += sighash_flag.to_bytes(1, "little")
-    elif msg_preimage:
-        # if msg_preimage=True (msg preimage contains sighash flag) and sighash_flag not provided as arg
-        signature_der += sh_flag.to_bytes(1, "little")
-    return signature_der
-
-
-def sig_verify(
-    sig_: bytes, pubkey_: bytes, msg: bytes, msg_preimage: bool = False
-) -> str:
-    sighash_flag = sig_[-1]
-    r, s = der_decode_sig(sig_[:-1])
-    if not msg_preimage:
-        msg += sighash_flag.to_bytes(4, "little")
-    msg_digest = bits.crypto.hash256(msg)
-    try:
-        result = bits.ecmath.verify(
-            r, s, point(pubkey_), int.from_bytes(msg_digest, "big")
-        )
-    except AssertionError as err:
-        return err.args[0]
-    return "OK"
