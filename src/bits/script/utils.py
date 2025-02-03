@@ -375,12 +375,31 @@ def check_sig(
         # only include this txin
         tx_dict["txins"] = [tx_dict["txins"][txin_n]]
 
-    txins = tx_dict["txins"]
-    txouts = tx_dict["txouts"]
+    # re-serialize tx bytes from tx_dict
+    # TODO: split this out to function
+    # this is a reason we should re-factor and abstract to Tx class
+    # see https://github.com/jtraub91/bits/issues/15
+    txin_dicts = tx_dict["txins"]
+    txout_dicts = tx_dict["txouts"]
     version = tx_dict["version"]
     locktime = tx_dict["locktime"]
+    txins_ = []
+    for txin_dict in txin_dicts:
+        txin_ = bits.tx.txin(
+            bits.tx.outpoint(bytes.fromhex(txin_dict["txid"])[::-1], txin_dict["vout"]),
+            bytes.fromhex(txin_dict["scriptsig"]),
+            sequence=bytes.fromhex(txin_dict["sequence"]),
+        )
+        txins_.append(txin_)
+    txouts_ = []
+    for txout_dict in txout_dicts:
+        txout_ = bits.tx.txout(
+            txout_dict["value"], bytes.fromhex(txout_dict["scriptpubkey"])
+        )
+        txouts_.append(txout_)
+
     msg_preimage = bits.tx.tx(
-        txins, txouts, version=version, locktime=locktime
+        txins_, txouts_, version=version, locktime=locktime
     ) + hashtype.to_bytes(4, "little")
     if sig_verify(sig_, pubkey_, msg_preimage, msg_preimage=True) == "OK":
         return True
@@ -492,7 +511,7 @@ def find_and_delete(sig_: bytes, scriptcode_: bytes) -> bytes:
         bytes: scriptcode with signature and opcodes deleted
     """
 
-    while scriptcode_.find(sig_):
+    while scriptcode_.find(sig_) != -1:
         # find first occurrence of sig_ in scriptcode_
         find_index = scriptcode_.find(sig_)
 
@@ -506,10 +525,10 @@ def find_and_delete(sig_: bytes, scriptcode_: bytes) -> bytes:
         else:
             push_op_code_bytes_length = 5
 
-        # remove these preceding bytes
+        # remove preceding op code bytes
         scriptcode_ = (
             scriptcode_[: find_index - push_op_code_bytes_length]
-            + scriptcode_[find_index]
+            + scriptcode_[find_index:]
         )
 
         # remove first occurrence of sig_

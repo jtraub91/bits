@@ -968,12 +968,15 @@ class Node:
                     except ConnectBlockError as err:
                         # roll back block, indexes, and utxoset
                         log.error(err)
-                        log.info("rolling back utxoset...")
                         shutil.move(
                             self.utxo_index_path + ".rollback", self.utxo_index_path
                         )
+                        log.info(
+                            f"utxoset rolled back via {self.utxo_index_path + '.rollback'} file"
+                        )
                         # rollback block & block index
-                        self.rollback_blocks(1)
+                        _deleted_blocks = self.rollback_blocks(1)
+                        log.debug(_deleted_blocks[0])
                         raise err
                     else:
                         # block fully validated, delete rollback utxoset
@@ -989,24 +992,28 @@ class Node:
 
         self._ibd = False
 
-    def rollback_blocks(self, n: int):
+    def rollback_blocks(self, n: int) -> List[bytes]:
         """
         Rollback n blocks from disk, indexes
         Args:
             n: int, rollback n blocks
         """
         blockheight = self.get_blockchain_height()
+        deleted_blocks = []
         for height in range(blockheight, blockheight - n, -1):
             blockhash = self.get_blockhash(height)
             self.delete_blockhash(blockhash)
             self.delete_blockheader(blockhash)
-            self.delete_block(blockhash)
+            deleted_blocks.append(self.delete_block(blockhash))
+        return deleted_blocks
 
-    def delete_block(self, blockhash: str):
+    def delete_block(self, blockhash: str) -> bytes:
         """
         Delete the block at tip of blockchain
         Args:
             blockhash: str, provided for verification purposes
+        Returns:
+            bytes, deleted block
         """
         dat_files = sorted(
             [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
@@ -1024,6 +1031,7 @@ class Node:
                 blk_data = self.magic_start_bytes + len(blk).to_bytes(4, "little") + blk
                 dat_file_.write(blk_data)
         log.info(f"block(blockheaderhash={blockhash}) deleted from {dat_filename}")
+        return block
 
     def save_blocks(self, blocks: List[bytes]):
         """
@@ -1442,7 +1450,7 @@ class Node:
                         )
 
                 # get utxo from utxo_tx referenced in tx_in
-                utxo = utxo_tx["txouts"][vout]
+                utxo = utxo_tx["txouts"][txin_vout]
                 utxo_value = utxo["value"]
 
                 # add utxo value to total transction value input
@@ -1451,8 +1459,13 @@ class Node:
                 # evaluate tx_in unlocking script for its utxo
                 tx_in_scriptsig = tx_in["scriptsig"]
                 utxo_scriptpubkey = utxo["scriptpubkey"]
-                script_ = bytes.fromhex(tx_in_scriptsig + utxo_scriptpubkey)
-                if not bits.script.eval_script(script_, utxo_tx, txin_i):
+                # script_ = bytes.fromhex(tx_in_scriptsig + utxo_scriptpubkey)
+                script_ = bits.script.script(
+                    [tx_in_scriptsig, "OP_CODESEPARATOR", utxo_scriptpubkey]
+                )
+                if not bits.script.eval_script(
+                    script_, bytes.fromhex(utxo_tx["raw"]), txin_vout
+                ):
                     raise ConnectBlockError(
                         f"script evaluation failed for txin {txin_i} in txn {txn_i} in block(blockhash={current_blockhash})"
                     )
