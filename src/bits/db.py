@@ -23,9 +23,7 @@ class Db:
                 datafile TEXT,
                 datafile_offset INTEGER
             );
-            CREATE INDEX blockhashindex ON block(blockheight, blockheaderhash);
-            CREATE INDEX blockheaderindex ON block(blockheaderhash, prev_blockheaderhash, merkle_root_hash, nTime, nBits);
-            CREATE INDEX blockdataindex ON block(blockheight, blockheaderhash, datafile, datafile_offset);
+            CREATE INDEX block_index ON block(blockheight, blockheaderhash);
         """
         )
         self._curs.execute(
@@ -35,11 +33,18 @@ class Db:
                 blockheaderhash TEXT,
                 txid TEXT,
                 vout INTEGER
-
+            );
+            CREATE INDEX utxo_index ON utxo(blockheaderhash, txid);
+        """
+        )
+        self._curs.execute(
+            """
+            CREATE TABLE peer(
+                id INTEGER PRIMARY KEY,
+                data TEXT
             )
         """
         )
 
-
-class Block:
-    height: int
+    def get_peer(self, id_: int):
+        query = "SELECT * from peer WHERE id={id_}"

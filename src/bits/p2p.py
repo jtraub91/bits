@@ -92,9 +92,7 @@ INVENTORY_TYPE_ID = {
     "MSG_WITNESS_BLOCK": MSG_WITNESS_BLOCK,
 }
 
-
 log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
 
 
 class PossibleOrphanError(Exception):
@@ -140,10 +138,10 @@ def parse_version_payload(versionpayload_: bytes) -> dict:
         "services": int.from_bytes(versionpayload_[4:12], "little"),
         "timestamp": int.from_bytes(versionpayload_[12:20], "little"),
         "addr_recv_services": int.from_bytes(versionpayload_[20:28], "little"),
-        "addr_recv_ip_addr": versionpayload_[28:44].decode("ascii"),
+        "addr_recv_ip_addr": parse_ip_addr(versionpayload_[28:44]),
         "addr_recv_port": int.from_bytes(versionpayload_[44:46], "big"),
         "addr_trans_services": int.from_bytes(versionpayload_[46:54], "little"),
-        "addr_trans_ip_addr": versionpayload_[54:70].decode("ascii"),
+        "addr_trans_ip_addr": parse_ip_addr(versionpayload_[54:70]),
         "addr_trans_port": int.from_bytes(versionpayload_[70:72], "big"),
         "nonce": int.from_bytes(versionpayload_[72:80], "little"),
     }
@@ -405,19 +403,27 @@ def parse_network_ip_addr(payload: bytes) -> dict:
 
 
 def parse_ip_addr(ip_addr: bytes) -> str:
-    ipv6 = ip_addr[:12]
-    ipv4 = ip_addr[12:]
+    assert len(ip_addr) == 16, "ip_addr must be exactly 16 bytes"
 
-    ipv6_str = ""
-    for n in range(6):
-        nibble = ipv6[2 * n : 2 * n + 2]
+    if ip_addr[:12] == b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff":
+        # https://en.wikipedia.org/wiki/IPv6#IPv4-mapped_IPv6_addresses
+        ip_addr_str = "::ffff:"
+        for i, byte in enumerate(ip_addr[12:]):
+            ip_addr_str += str(byte)
+            if i != 3:
+                # last byte don't append "."
+                ip_addr_str += "."
+        return ip_addr_str
+
+    ip_addr_str = ""
+    for n in range(8):
+        nibble = ip_addr[2 * n : 2 * n + 2]
         if nibble != b"\x00\x00":
-            ipv6_str += nibble.hex().upper()
+            ip_addr_str += nibble.hex().upper()
         else:
-            if ipv6_str[-2:] != "::":
-                ipv6_str += ":"
-
-    return f"{ipv6_str}:{ipv4[0]}.{ipv4[1]}.{ipv4[2]}.{ipv4[3]}"
+            if ip_addr_str[-2:] != "::":
+                ip_addr_str += ":"
+    return ip_addr_str
 
 
 def addr_payload(count: int, addrs: List[bytes]) -> bytes:
@@ -917,7 +923,7 @@ class Node:
             while len(msg_block_inventories) < min(
                 500, sync_node_start_height - blockheight
             ):
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(1)
                 msg_block_inventories = list(
                     filter(
                         lambda inv: inv["type_id"] == "MSG_BLOCK", sync_node.inventories
@@ -1376,7 +1382,7 @@ class Node:
         # save block and indexes
         self.save_blocks([block])
 
-        # transactions validation of now latest block
+        # transaction validation of now latest block
         # take full snapshot of utxoset, update a copy incrementally, and be able to rollback to it upon failure
         # TODO: migrate block indexes and utxoset to sqlite db backend
 
@@ -1410,6 +1416,9 @@ class Node:
         # ... "tips" seems like an apt name
         miner_tips = 0
         for txn_i, txn in enumerate(current_block_dict["txns"][1:], start=1):
+            log.trace(
+                f"validating tx {txn_i} of {len(current_block_dict['txns'])} txns in new block {current_blockheight}..."
+            )
             txn_txid = txn["txid"]
 
             txn_value_in = 0
@@ -1496,6 +1505,9 @@ class Node:
             raise ConnectBlockError(
                 f"block {current_blockhash} coinbase tx spends more than the max block reward"
             )
+        log.debug(
+            f"validated all of {len(current_block_dict['txns'])} txns in block {current_blockheight}."
+        )
 
         return True
 

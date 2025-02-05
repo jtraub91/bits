@@ -17,7 +17,6 @@ from bits.bips import bip173
 from bits.bips import bip174
 
 log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
 
 
 def outpoint(txid_: bytes, index: int) -> bytes:
@@ -326,7 +325,7 @@ def send_tx(
         "rpc_password": rpc_password,
     }
     # scan for utxo for the sender_addr descriptor
-    if bits.is_point(sender_addr):
+    if bits.ecmath.is_point(sender_addr):
         sender_txoutset = bits.rpc.rpc_method(
             "scantxoutset", "start", f'["pk({sender_addr.hex()})"]', **rpc_kwargs
         )
@@ -463,7 +462,9 @@ def send_tx(
             ]
             signatures = [
                 [
-                    bits.sig(key, msg, sighash_flag=sighash_flag, msg_preimage=True)
+                    bits.script.sig(
+                        key, msg, sighash_flag=sighash_flag, msg_preimage=True
+                    )
                     for key in keys
                 ]
                 for msg in msgs
@@ -471,7 +472,9 @@ def send_tx(
         else:
             # p2sh / p2pk / p2pkh / multisig
             msg = tx_
-            signatures = [bits.sig(key, msg, sighash_flag=sighash_flag) for key in keys]
+            signatures = [
+                bits.script.sig(key, msg, sighash_flag=sighash_flag) for key in keys
+            ]
 
         # form final scriptsig / witnesses
         sender_witnesses = []

@@ -13,7 +13,6 @@ import bits.rpc
 import bits.script
 
 log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
 
 DEFAULT_MAINNET_RPC_PORT = 8332
 DEFAULT_TESTNET_RPC_PORT = 18332

@@ -1,4 +1,3 @@
-import logging
 import typing
 from collections import deque
 
@@ -7,9 +6,6 @@ import bits.crypto
 import bits.ecmath
 import bits.pem
 from bits.script import constants
-
-log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
 
 
 def scriptpubkey(data: bytes) -> bytes:

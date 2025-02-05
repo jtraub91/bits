@@ -17,27 +17,33 @@ from .utils import wif_decode
 from .utils import wif_encode
 from .utils import witness_script_hash
 
+logging.TRACE = logging.DEBUG - 1
+logging.addLevelName(logging.TRACE, "TRACE")
 
-def init_logging(log_file: str = ""):
+
+class Logger(logging.getLoggerClass()):
+    def trace(self, msg, *args, **kwargs):
+        if self.isEnabledFor(logging.TRACE):
+            self._log(logging.TRACE, msg, args, **kwargs)
+
+
+logging.setLoggerClass(Logger)
+
+
+def init_logging(log_level: str):
     """
-    Initialize logging
+    Initialize logging with a StreamHandler set to log_level
+    Args:
+        log_level: str, log level
     """
     log = logging.getLogger(__name__)
-    return log
-
-
-def set_log_level(log_level: str):
-    """
-    Set log level on all handlers
-    """
-    global log
+    log.setLevel(logging.TRACE)  # set root logger to lowest level
     formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
     sh = logging.StreamHandler()
     sh.setFormatter(formatter)
-    sh.setLevel(logging.ERROR)
+    sh.setLevel(getattr(logging, log_level.upper()))
     log.addHandler(sh)
-    for handler in log.handlers:
-        handler.setLevel(getattr(logging, log_level.upper()))
+    return log
 
 
 def read_bytes(
@@ -106,6 +112,3 @@ def write_bytes(
             sys.stdout.write(formatted_data)
     else:
         raise ValueError(f"unrecognized output format: {output_format}")
-
-
-log = init_logging()

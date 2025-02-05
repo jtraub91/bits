@@ -26,9 +26,6 @@ from bits.bips import bip39
 from bits.config import Config
 from bits.integrations import mine_block
 
-log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
-
 
 class RawDescriptionDefaultsHelpFormatter(
     argparse.RawDescriptionHelpFormatter, argparse.ArgumentDefaultsHelpFormatter
@@ -57,20 +54,6 @@ def send_fraction(f):
     elif f < 0.0:
         raise ValueError("fraction cannot be negative")
     return f
-
-
-def catch_exception(fun):
-    @functools.wraps(fun)
-    def wrapper():
-        try:
-            return fun()
-        except Exception as err:
-            log.debug(err, exc_info=True)
-            return f"ERROR: {err}"
-        except KeyboardInterrupt:
-            return "keyboard interrupt."
-
-    return wrapper
 
 
 def add_common_arguments(
@@ -105,8 +88,8 @@ def add_common_arguments(
             default="error",
             action=ExplicitOption,
             metavar="LOG_LEVEL",
-            choices=["info", "debug", "warning", "error"],
-            help="log level, e.g. 'info', 'debug', 'warning', or 'error'",
+            choices=["trace", "debug", "info", "warning", "error"],
+            help="log level, e.g. 'trace', 'debug', 'info', 'warning', or 'error'",
         )
 
 
@@ -964,7 +947,6 @@ Mine blocks.
     return parser
 
 
-@catch_exception
 def main():
     parser = setup_parser()
     args = parser.parse_args()
@@ -977,8 +959,7 @@ def main():
         if getattr(args, option + "__explicit", False)
     }
     config.update(**explicit_options)
-
-    bits.set_log_level(config.log_level)
+    log = bits.init_logging(config.log_level)
 
     if not args.subcommand:
         data = bits.read_bytes(args.in_file, input_format=config.input_format)
