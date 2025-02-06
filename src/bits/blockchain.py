@@ -233,7 +233,7 @@ def genesis_coinbase_tx() -> bytes:
     return coinbase_tx
 
 
-def genesis_block(network: str = "mainnet"):
+def genesis_block(network: str = "mainnet") -> bytes:
     """
     Hard coded genesis block
     Args:

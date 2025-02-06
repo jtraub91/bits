@@ -1,10 +1,22 @@
+import json
 import sqlite3
+from typing import List
+from typing import Optional
+from typing import Union
 
 
 class Db:
     def __init__(self, db_filepath: str):
-        self._conn = sqlite3.connect(db_filepath)
+        self._conn = sqlite3.connect(db_filepath, check_same_thread=False)
         self._curs = self._conn.cursor()
+        # if tables don't exist, create them
+        for table in ["block", "utxoset", "peer"]:
+            res = self._curs.execute(
+                f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}';"
+            )
+            if not res.fetchone():
+                self.create_tables()
+                break
 
     def create_tables(self):
         self._curs.execute(
@@ -23,28 +35,202 @@ class Db:
                 datafile TEXT,
                 datafile_offset INTEGER
             );
-            CREATE INDEX block_index ON block(blockheight, blockheaderhash);
         """
         )
+        self._conn.commit()
+        self._curs.execute(
+            "CREATE INDEX block_index ON block(blockheight, blockheaderhash);"
+        )
+        self._conn.commit()
         self._curs.execute(
             """
-            CREATE TABLE utxo(
+            CREATE TABLE utxoset(
                 id INTEGER PRIMARY KEY,
                 blockheaderhash TEXT,
                 txid TEXT,
                 vout INTEGER
             );
-            CREATE INDEX utxo_index ON utxo(blockheaderhash, txid);
         """
         )
+        self._conn.commit()
+        self._conn.execute("CREATE INDEX utxo_index ON utxoset(blockheaderhash, txid);")
+        self._conn.commit()
         self._curs.execute(
             """
             CREATE TABLE peer(
                 id INTEGER PRIMARY KEY,
+                host TEXT,
+                port INTEGER,
                 data TEXT
-            )
+            );
         """
         )
+        self._conn.commit()
 
-    def get_peer(self, id_: int):
-        query = "SELECT * from peer WHERE id={id_}"
+    def delete_block(self, blockheaderhash: str):
+        self._curs.execute(
+            f"DELETE FROM block WHERE blockheaderhash='{blockheaderhash}';"
+        )
+        self._conn.commit()
+
+    def save_block(
+        self,
+        blockheight: int,
+        blockheaderhash: str,
+        version: int,
+        prev_blockheaderhash: str,
+        merkle_root_hash: str,
+        nTime: int,
+        nBits: str,
+        nNonce: int,
+        datafile: str,
+        datafile_offset: int,
+    ):
+        cmd = f"""
+            INSERT INTO block (
+                blockheight,
+                blockheaderhash,
+                version,
+                prev_blockheaderhash,
+                merkle_root_hash,
+                nTime,
+                nBits,
+                nNonce,
+                datafile,
+                datafile_offset
+            ) VALUES (
+                {blockheight},
+                '{blockheaderhash}',
+                {version},
+                '{prev_blockheaderhash}',
+                '{merkle_root_hash}',
+                {nTime},
+                '{nBits}',
+                {nNonce},
+                '{datafile}',
+                {datafile_offset}
+            );
+        """
+        self._curs.execute(cmd)
+        self._conn.commit()
+
+    def get_blockchain_height(self) -> Union[int | None]:
+        res = self._curs.execute(
+            "SELECT blockheight FROM block ORDER BY blockheight DESC LIMIT 1;"
+        )
+        result = res.fetchone()
+        return result[0] if result else None
+
+    def get_block(
+        self, blockheight: int = None, blockheaderhash: str = None
+    ) -> List[dict]:
+        """
+        Get the block db data
+        """
+        if blockheight is not None and blockheaderhash is not None:
+            res = self._curs.execute(
+                f"SELECT * FROM block WHERE blockheight='{blockheight}' AND blockheaderhash='{blockheaderhash}';"
+            )
+        elif blockheaderhash is not None:
+            res = self._curs.execute(
+                f"SELECT * FROM block WHERE blockheaderhash='{blockheaderhash}';"
+            )
+        elif blockheight is not None:
+            res = self._curs.execute(
+                f"SELECT * FROM block WHERE blockheight='{blockheight}';"
+            )
+        else:
+            res = self._curs.execute(f"SELECT * FROM block;")
+        results = res.fetchall()
+        return [
+            {
+                "blockheight": int(result[1]),
+                "blockheaderhash": result[2],
+                "version": int(result[3]),
+                "prev_blockheaderhash": result[4],
+                "merkle_root_hash": result[5],
+                "nTime": int(result[6]),
+                "nBits": result[7],
+                "nNonce": int(result[8]),
+                "datafile": result[9],
+                "datafile_offset": int(result[10]),
+            }
+            for result in results
+        ]
+
+    def remove_from_utxoset(
+        self, blockheaderhash: str, txid: str, vout: int, commit=True
+    ):
+        self._curs.execute(
+            f"DELETE FROM utxoset WHERE blockheaderhash='{blockheaderhash}' AND txid='{txid}' AND vout='{vout}';"
+        )
+        if commit:
+            self._conn.commit()
+
+    def add_to_utxoset(self, blockheaderhash: str, txid: str, vout: int, commit=True):
+        self._curs.execute(
+            f"INSERT INTO utxoset (blockheaderhash, txid, vout) VALUES ('{blockheaderhash}', '{txid}', {vout});"
+        )
+        if commit:
+            self._conn.commit()
+
+    def get_block_utxos(self, blockheaderhash: str) -> List[dict]:
+        res = self._curs.execute(
+            f"SELECT txid, vout FROM utxoset WHERE blockheaderhash='{blockheaderhash}';"
+        )
+        results = res.fetchall()
+        return [{"txid": result[0], "vout": result[1]} for result in results]
+
+    def find_blockheaderhash_for_utxo(self, txid: str, vout: int) -> str:
+        res = self._curs.execute(
+            f"SELECT * FROM utxo WHERE txid='{txid}' AND vout={vout};"
+        )
+        return res.fetchone()[0]
+
+    def save_peer(self, host: str, port: int) -> int:
+        self._curs.execute(f"INSERT INTO peer (host, port) VALUES ('{host}', {port});")
+        self._conn.commit()
+        res = self._curs.execute(
+            f"SELECT id FROM peer WHERE host='{host}' and port='{port}';"
+        )
+        return res.fetchone()[0]
+
+    def save_peer_data(self, peer_id: int, data: dict):
+        res = self._curs.execute(f"SELECT data from peer WHERE id='{peer_id}';")
+        peer_data = res.fetchone()[0]
+        peer_data = json.loads(peer_data) if peer_data else {}
+        peer_data.update(data)
+        peer_data = json.dumps(peer_data)
+        self._curs.execute(f"UPDATE peer SET data='{peer_data}' WHERE id='{peer_id}';")
+        self._conn.commit()
+
+    def get_peer_data(
+        self, peer_id: int, key: Optional[str] = None
+    ) -> Union[None, str, list, dict, int, float]:
+        res = self._curs.execute(f"SELECT data FROM peer WHERE id='{peer_id}';")
+        result = res.fetchone()
+        if result:
+            data = json.loads(result[0]) if result[0] else {}
+        else:
+            data = None
+        if key and result:
+            return data.get(key)
+        return data
+
+    def last_non_min_diff_in_diff_adj_period(self) -> Union[str, None]:
+        """
+        Find the last non minimum difficulty for a block in this difficulty adjustment period
+
+        Used for testnet only, supposed to snap back to this difficulty, the block
+            after artificially setting the difficulty to 1
+            (which is allowed when no block is mined in >= 20 min)
+        Returns:
+            str, last non minimum difficulty in this period, or
+            None, if no non-minimum difficulty is found
+        """
+        current_blockheight = self.get_blockchain_height()
+        res = self._curs.execute(
+            f"SELECT nBits FROM block WHERE nBits!='1d00ffff' AND blockheight>={current_blockheight - (current_blockheight % 2016)} AND blockheight<={current_blockheight} ORDER BY blockheight DESC;"
+        )
+        result = res.fetchone()
+        return result[0] if result else None

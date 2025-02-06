@@ -891,6 +891,9 @@ Retrieve blockchainfo, raw block data, and/or decode block data
         "--info", action="store_true", default=False, help="get blockchain info"
     )
     blockchain_parser.add_argument(
+        "--index", action="store_true", default=False, help="print index data for block"
+    )
+    blockchain_parser.add_argument(
         "--header-only", "-H", action="store_true", help="output block header only"
     )
     blockchain_parser.add_argument("--decode", action="store_true", help="decode block")
@@ -1298,7 +1301,13 @@ def main():
             header = block[:80]
         else:
             node = bits.p2p.Node(config.seeds, config.datadir, config.network)
-            block = node.get_block_data(args.blockheight)
+            block_index_data = node.db.get_block(args.blockheight)
+            if args.index:
+                print(json.dumps(block_index_data))
+                return
+            block = node.get_block_data(
+                block_index_data["datafile"], block_index_data["datafile_offset"]
+            )
             header = block[:80]
         if args.decode:
             block = bits.blockchain.block_deser(block)
