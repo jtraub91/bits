@@ -121,28 +121,39 @@ class Db:
         result = res.fetchone()
         return result[0] if result else None
 
+    def count_blocks(self) -> int:
+        res = self._curs.execute("SELECT COUNT(*) FROM block;")
+        return int(res.fetchone()[0])
+
     def get_block(
         self, blockheight: int = None, blockheaderhash: str = None
-    ) -> List[dict]:
+    ) -> Union[dict, None]:
         """
         Get the block db data
+        Returns:
+            dict, block index db data, or
+            None, if not found
         """
         if blockheight is not None and blockheaderhash is not None:
-            res = self._curs.execute(
-                f"SELECT * FROM block WHERE blockheight='{blockheight}' AND blockheaderhash='{blockheaderhash}';"
+            raise ValueError(
+                "both blockheight and blockheaderhash should not be specified"
             )
-        elif blockheaderhash is not None:
-            res = self._curs.execute(
-                f"SELECT * FROM block WHERE blockheaderhash='{blockheaderhash}';"
-            )
+        elif blockheight is None and blockheaderhash is None:
+            raise ValueError("blockheight or blockheaderhash must be provided")
         elif blockheight is not None:
+            arg = f"blockheight={blockheight}"
             res = self._curs.execute(
                 f"SELECT * FROM block WHERE blockheight='{blockheight}';"
             )
         else:
-            res = self._curs.execute(f"SELECT * FROM block;")
-        results = res.fetchall()
-        return [
+            # blockheaderhash is not None
+            arg = f"blockheaderhash={blockheaderhash}"
+            res = self._curs.execute(
+                f"SELECT * FROM block WHERE blockheaderhash='{blockheaderhash}';"
+            )
+
+        result = res.fetchone()
+        return (
             {
                 "blockheight": int(result[1]),
                 "blockheaderhash": result[2],
@@ -155,8 +166,9 @@ class Db:
                 "datafile": result[9],
                 "datafile_offset": int(result[10]),
             }
-            for result in results
-        ]
+            if result
+            else None
+        )
 
     def remove_from_utxoset(
         self, blockheaderhash: str, txid: str, vout: int, commit=True
@@ -181,11 +193,12 @@ class Db:
         results = res.fetchall()
         return [{"txid": result[0], "vout": result[1]} for result in results]
 
-    def find_blockheaderhash_for_utxo(self, txid: str, vout: int) -> str:
+    def find_blockheaderhash_for_utxo(self, txid: str, vout: int) -> Union[str, None]:
         res = self._curs.execute(
-            f"SELECT * FROM utxo WHERE txid='{txid}' AND vout={vout};"
+            f"SELECT blockheaderhash FROM utxoset WHERE txid='{txid}' AND vout={vout};"
         )
-        return res.fetchone()[0]
+        result = res.fetchone()
+        return result[0] if result else None
 
     def save_peer(self, host: str, port: int) -> int:
         self._curs.execute(f"INSERT INTO peer (host, port) VALUES ('{host}', {port});")

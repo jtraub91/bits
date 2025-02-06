@@ -623,11 +623,23 @@ class Node:
             # check for indexes,
             # build if non-existent (shouldn't really happen) or reindex=True
             if reindex or not os.path.exists(self.index_db_filepath):
-                self.rebuild_indexes()
+                self.rebuild_index()
             else:
                 # check for internally consistency
-                # TODO
-                pass
+                # TODO: make more robust
+                dat_filenames = sorted(
+                    [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
+                )
+                blocks = []
+                for dat_filename in dat_filenames:
+                    blocks += self.parse_dat_file(
+                        os.path.join(self.blocksdir, dat_filename)
+                    )
+                number_of_blocks_on_disk = len(blocks)
+                number_of_blocks_in_index = self.db.count_blocks()
+                assert (
+                    number_of_blocks_on_disk == number_of_blocks_in_index
+                ), f"number of blocks on disk ({number_of_blocks_on_disk}) does not match number in index ({number_of_blocks_in_index})"
 
         self.message_queue = deque([])
         self._unhandled_message_queue = deque([])
@@ -861,7 +873,7 @@ class Node:
 
             # get latest blockhash from local blockchain
             blockheight = self.db.get_blockchain_height()
-            block_index_data = self.db.get_block(blockheight)[0]
+            block_index_data = self.db.get_block(blockheight)
 
             await sync_node.send_command(
                 b"getblocks",
@@ -920,7 +932,7 @@ class Node:
                         # if an error is thrown handle as follows
                         self.accept_block(block)
                     except PossibleOrphanError as err:
-                        sync_node.orphan_blocks(block)
+                        sync_node.orphan_blocks.append(block)
                         log.warning(
                             f"possible orphan block added to pool (size= {len(sync_node.orphan_blocks)} blocks, {sum([len(b) for b in sync_node.orphan_blocks])} bytes)"
                         )
@@ -1038,8 +1050,38 @@ class Node:
             "network": self.network,
         }
 
-    def rebuild_indexes(self):
-        raise NotImplementedError()  # yet
+    def rebuild_index(self):
+        # TODO: need to account for utxoset rebuild
+        dat_filenames = sorted(
+            [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
+        )
+        log.info(f"found {len(dat_filenames)} in {self.blocksdir}")
+        blockheight = 0
+        for i, filename in enumerate(dat_filenames, start=1):
+            log.info(f"parsing {filename} (file {i} of {len(dat_filenames)})... ")
+            with open(os.path.join(self.blocksdir, filename), "rb") as dat_file:
+                start_offset = dat_file.tell()
+                magic = dat_file.read(4)
+                while magic:
+                    assert magic == self.magic_start_bytes, "magic mismatch"
+                    length = int.from_bytes(dat_file.read(4), "little")
+                    block = dat_file.read(length)
+                    assert len(block) == length, "length mismatch"
+                    block_dict = bits.blockchain.block_deser(block)
+                    self.db.save_block(
+                        blockheight,
+                        block_dict["blockheaderhash"],
+                        block_dict["version"],
+                        block_dict["prev_blockheaderhash"],
+                        block_dict["merkle_root_hash"],
+                        block_dict["nTime"],
+                        block_dict["nBits"],
+                        block_dict["nNonce"],
+                        filename,
+                        start_offset,
+                    )
+                    log.info(f"block {blockheight} saved to {self.index_db_filename}")
+                    blockheight += 1
 
     def get_block_data(self, datafile: str, datafile_offset: int) -> bytes:
         """
@@ -1097,12 +1139,12 @@ class Node:
             raise CheckBlockError("block failed context independent checks")
 
         current_blockheight = self.db.get_blockchain_height()
-        current_block = self.db.get_block(blockheight=current_blockheight)[0]
+        current_block = self.db.get_block(blockheight=current_blockheight)
 
         proposed_blockheight = current_blockheight + 1
         proposed_block = bits.blockchain.block_deser(block)
 
-        # check for duplicate hash
+        # check for duplicate hash in blockchain index
         if self.db.get_block(blockheaderhash=proposed_block["blockheaderhash"]):
             raise AcceptBlockError(
                 f"proposed blockhash {proposed_block['blockheaderhash']} already found in block index db"
@@ -1160,7 +1202,7 @@ class Node:
         # and ROLLBACK upon error, if necessary
 
         current_blockheight = self.db.get_blockchain_height()
-        current_block = self.db.get_block(blockheight=current_blockheight)[0]
+        current_block = self.db.get_block(blockheight=current_blockheight)
         current_block_data = self.get_block_data(
             datafile=current_block["datafile"],
             datafile_offset=current_block["datafile_offset"],
@@ -1252,6 +1294,9 @@ class Node:
                 script_ = bits.script.script(
                     [tx_in_scriptsig, "OP_CODESEPARATOR", utxo_scriptpubkey]
                 )
+                log.trace(
+                    f"evaluating script for tx input {txin_i} in txn {txn_i} of new block {current_blockheight}..."
+                )
                 if not bits.script.eval_script(
                     script_, bytes.fromhex(utxo_tx["raw"]), txin_vout
                 ):
@@ -1318,7 +1363,7 @@ class Node:
         )
 
         current_blockheight = self.db.get_blockchain_height()
-        current_block = self.db.get_block(current_blockheight)[0]
+        current_block = self.db.get_block(current_blockheight)
 
         proposed_blockheight = current_blockheight + 1
 
@@ -1353,9 +1398,9 @@ class Node:
                 current_target, network=self.network
             )
 
-            block_0 = self.db.get_block(current_blockheight - 2015)[
-                0
-            ]  # first block of difficulty period
+            block_0 = self.db.get_block(
+                current_blockheight - 2015
+            )  # first block of difficulty period
 
             elapsed_time = current_block["nTime"] - block_0["nTime"]
 
@@ -1376,11 +1421,11 @@ class Node:
         """
         current_blockheight = self.db.get_blockchain_height()
         if current_blockheight == 0:
-            block_index_data = self.db.get_block(current_blockheight)[0]
+            block_index_data = self.db.get_block(current_blockheight)
             return block_index_data["nTime"]
         times = []
         for i in range(min(current_blockheight, 11)):
-            block_index_data = self.db.get_block(current_blockheight - i)[0]
+            block_index_data = self.db.get_block(current_blockheight - i)
             t = block_index_data["nTime"]
             times.append(t)
         times = sorted(times)
