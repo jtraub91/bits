@@ -303,19 +303,34 @@ def block_header_deser(blk_hdr: bytes) -> dict:
 def block_deser(block: bytes) -> dict:
     """
     Deserialize block data
+
+    Includes BIP34 parsing of blockheight from coinbase tx txin scriptsig
+        for version 2 blocks
+    https://github.com/bitcoin/bips/blob/master/bip-0034.mediawiki
+
     Args:
         block: bytes, block data
+    Returns:
+        dict, block dictionary
     """
     header = block[:80]
     number_of_txns, block_prime = bits.parse_compact_size_uint(block[80:])
     txns = []
+    coinbase_tx_deser, block_prime = bits.tx.tx_deser(block_prime, include_raw=True)
+    txns.append(coinbase_tx_deser)
     while block_prime:
         deserialized_tx, block_prime = bits.tx.tx_deser(block_prime, include_raw=True)
         txns.append(deserialized_tx)
     assert (
         len(txns) == number_of_txns
     ), "error during parsing - number of txns does not match"
-    return block_header_deser(header) | {"txns": txns}
+    header_dict = block_header_deser(header)
+    if header_dict["version"] == 2:
+        coinbase_scriptsig = bytes.fromhex(coinbase_tx_deser["txins"][0]["scriptsig"])
+        num_bytes = coinbase_scriptsig[0]
+        blockheight = int.from_bytes(coinbase_scriptsig[1 : num_bytes + 1], "little")
+        header_dict = {"blockheight": blockheight} | header_dict
+    return header_dict | {"txns": txns}
 
 
 def check_block(block: bytes, network: str = "mainnet") -> bool:
