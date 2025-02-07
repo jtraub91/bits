@@ -29,6 +29,7 @@ from typing import Union
 
 import bits.crypto
 import bits.db
+from bits.blockchain import Block
 from bits.blockchain import genesis_block
 
 
@@ -545,6 +546,7 @@ class Node:
         seeds: List[str],
         datadir: str,
         network: str,
+        log_level: str = "debug",
         protocol_version: int = 70015,
         services: int = NODE_NETWORK,
         relay: bool = True,
@@ -571,14 +573,6 @@ class Node:
         blocksdir = os.path.join(self.datadir, "blocks")
         if not os.path.exists(blocksdir):
             os.mkdir(blocksdir)
-        fh = logging.FileHandler(os.path.join(self.datadir, "debug.log"), "a")
-        formatter = logging.Formatter(
-            "[%(asctime)s] %(levelname)s [%(name)s] %(message)s"
-        )
-        fh.setFormatter(formatter)
-        fh.setLevel(logging.DEBUG)
-        global log
-        log.addHandler(fh)
         self.blocksdir = blocksdir
         self.protocol_version = protocol_version
         self.services = services
@@ -593,6 +587,14 @@ class Node:
         else:
             raise ValueError(f"network not recognized: {network}")
         self.network = network
+        self.log_level = log_level
+        fh = logging.FileHandler(os.path.join(self.datadir, "debug.log"), "a")
+        formatter = logging.Formatter(
+            "[%(asctime)s] %(levelname)s [%(name)s] %(message)s"
+        )
+        fh.setFormatter(formatter)
+        fh.setLevel(getattr(logging, self.log_level.upper()))
+        log.addHandler(fh)
 
         # check for local block dat file
         blocksdir_files = os.listdir(self.blocksdir)
@@ -644,6 +646,12 @@ class Node:
         self.message_queue = deque([])
         self._unhandled_message_queue = deque([])
         self._ibd: bool = False
+
+        self._block_cache: dict[str, dict] = {}
+        MAX_BLOCK_CACHE_SIZE = bits.constants.MAX_BLOCKFILE_SIZE
+        # block cache e.g.
+        # {"<blockheaderhash": {"time": <time:int>, "data": <block:byte>}, ...}
+        # upon each entry, record time stamp, and remove oldest entry if greater than MAX_BLOCK_CACHE_SIZE
 
         self.peers: list[Peer] = []
 
@@ -894,7 +902,7 @@ class Node:
             while len(msg_block_inventories) < min(
                 500, sync_node_start_height - blockheight
             ):
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.1)
                 msg_block_inventories = list(
                     filter(
                         lambda inv: inv["type_id"] == "MSG_BLOCK", sync_node.inventories
@@ -920,7 +928,7 @@ class Node:
                 while sync_node._pending_getdata_requests:
                     # wait until all pending getdata requests are fulfilled
                     # pending getdata requests get removed in handle_block_command()
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.1)
 
                 while sync_node.blocks and not self.exit_event.is_set():
                     # while we have blocks, process them
@@ -950,7 +958,7 @@ class Node:
                         log.trace(_deleted_block)
                         raise err
 
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0)
 
                 msg_block_inventories = list(
                     filter(
@@ -1083,7 +1091,9 @@ class Node:
                     log.info(f"block {blockheight} saved to {self.index_db_filename}")
                     blockheight += 1
 
-    def get_block_data(self, datafile: str, datafile_offset: int) -> bytes:
+    def get_block_data(
+        self, datafile: str, datafile_offset: int, cache: bool = False
+    ) -> Block:
         """
         Retrieve raw block data from .dat files by datafile name and datafile byte offset
         Args:
@@ -1099,7 +1109,34 @@ class Node:
             block = dat_file.read(length)
         assert start_bytes == self.magic_start_bytes, "magic mismatch"
         assert len(block) == length, "block length mismatch"
-        return block
+        if cache:
+            blockheaderhash = bits.crypto.hash256(block[:80])[::-1].hex()
+            self._block_cache[blockheaderhash] = {
+                "time": time.time(),
+                "block": Block(block),
+            }
+            log.debug(f"block {blockheaderhash} saved to cache")
+
+            # remove oldest cached blocks if we've reached max
+            total_block_cache_size = sum(
+                [len(bc["block"]) for bc in self._block_cache.values()]
+            )
+            log.trace(f"total block cache size: {total_block_cache_size}")
+            if total_block_cache_size > bits.constants.MAX_BLOCKFILE_SIZE:
+                oldest_cached_blocks = sorted(
+                    self._block_cache.keys(),
+                    key=lambda bh: self._block_cache[bh]["time"],
+                )
+                i = 0
+                while total_block_cache_size > bits.constants.MAX_BLOCKFILE_SIZE:
+                    self._block_cache.pop(oldest_cached_blocks[i])
+                    log.debug(f"block {oldest_cached_blocks[i]} removed from cache")
+                    i += 1
+                    total_block_cache_size = sum(
+                        [len(b["block"]) for b in self._block_cache.values()]
+                    )
+
+        return Block(block)
 
     def parse_dat_file(self, filename) -> List[bytes]:
         """
@@ -1203,11 +1240,18 @@ class Node:
 
         current_blockheight = self.db.get_blockchain_height()
         current_block = self.db.get_block(blockheight=current_blockheight)
-        current_block_data = self.get_block_data(
-            datafile=current_block["datafile"],
-            datafile_offset=current_block["datafile_offset"],
+        cached_current_block_data = self._block_cache.get(
+            current_block["blockheaderhash"]
         )
-        current_block_data_dict = bits.blockchain.block_deser(current_block_data)
+        if cached_current_block_data:
+            current_block_data = cached_current_block_data["block"]
+        else:
+            current_block_data = self.get_block_data(
+                datafile=current_block["datafile"],
+                datafile_offset=current_block["datafile_offset"],
+                cache=True,
+            )
+        current_block_data_dict = current_block_data.dict()
 
         # TODO check new block is from the most work chain,
         # shouldn't matter for now since we're only syncing from one peer rn
@@ -1261,15 +1305,38 @@ class Node:
                     )
 
                 # get the utxo transaction in full
+                log.trace(
+                    f"retrieving utxo(txid={txin_txid}, vout={txin_vout}) block index data..."
+                )
                 utxo_block = self.db.get_block(blockheaderhash=utxo_blockheaderhash)
                 utxo_blockheight = utxo_block["blockheight"]
-                utxo_block_data = self.get_block_data(
-                    utxo_block["datafile"], utxo_block["datafile_offset"]
+                log.trace(
+                    f"utxo(txid={txin_txid}, vout={txin_vout}) block index data retrieved."
                 )
-                utxo_block_data_dict = bits.blockchain.block_deser(utxo_block_data)
+                log.trace(
+                    f"retrieving utxo(txid={txin_txid}, vout={txin_vout}) block data..."
+                )
+                cached_utxo_block_data = self._block_cache.get(utxo_blockheaderhash)
+                if cached_utxo_block_data:
+                    utxo_block_data = cached_utxo_block_data["block"]
+                else:
+                    utxo_block_data = self.get_block_data(
+                        utxo_block["datafile"],
+                        utxo_block["datafile_offset"],
+                        cache=True,
+                    )
+                log.trace(
+                    f"utxo(txid={txin_txid}, vout={txin_vout}) block data retrieved."
+                )
+                utxo_block_data_dict = utxo_block_data.dict()
+                log.trace(
+                    f"utxo(txid={txin_txid}, vout={txin_vout}) block data deserialized."
+                )
+                log.trace(f"filtering for utxo(txid={txin_txid}, vout={txin_vout}...")
                 utxo_tx = next(
                     (t for t in utxo_block_data_dict["txns"] if t["txid"] == txin_txid)
                 )
+                log.trace(f"utxo(txid={txin_txid}, vout={txin_vout}) retrieved.")
 
                 # if transaction is coinbase transaction, check that it's matured
                 if bits.tx.is_coinbase(utxo_tx):

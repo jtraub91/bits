@@ -16,5 +16,5 @@ def pub(privkey: bytes, compressed: bool = False) -> bytes:
     Args:
         privkey: bytes, private key
     """
-    x, y = bits.compute_point(privkey)
+    x, y = bits.ecmath.compute_point(privkey)
     return bits.pubkey(x, y, compressed=compressed)

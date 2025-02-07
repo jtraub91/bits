@@ -2,6 +2,7 @@
 blockchain lulz :P
 """
 import copy
+import json
 import logging
 import os
 import time
@@ -396,3 +397,19 @@ def check_block(block: bytes, network: str = "mainnet") -> bool:
         return False
 
     return True
+
+
+class Block(bytes):
+
+    _dict = None
+
+    def bin(self):
+        return format(int.from_bytes(self, "big"), f"0{len(self) * 8}b")
+
+    def dict(self) -> dict:
+        if not self._dict:
+            self._dict = block_deser(self)
+        return self._dict
+
+    def json(self, indent=None) -> str:
+        return json.dumps(self.dict(), indent=indent)

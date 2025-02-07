@@ -870,36 +870,46 @@ See "bits wif -h" for help on creating WIF-encoded keys.
     )
     add_common_arguments(p2p_parser)
 
-    blockchain_parser = sub_parser.add_parser(
-        "blockchain",
-        help="blockchain explorer",
+    block_parser = sub_parser.add_parser(
+        "block",
+        help="retrieve and / or decode block data, or block chain info",
         formatter_class=RawDescriptionDefaultsHelpFormatter,
         description="""
-Retrieve blockchainfo, raw block data, and/or decode block data
+Retrieve and / or decode blocks from local blockchain or input data.
+
+Examples:
+    bits block 0 -0
+
+    bits block 100
+
+    bits block 100 --decode
+
+    echo <> | bits block --decode
+
+    bits block --chain-info
+
 """,
     )
-    blockchain_parser.add_argument(
-        "blockheight", type=int, nargs="?", help="block height"
-    )
-    blockchain_parser.add_argument(
+    block_parser.add_argument("blockheight", type=int, nargs="?", help="block height")
+    block_parser.add_argument(
         "--datadir",
         type=str,
         action=ExplicitOption,
         help="p2p node data directory",
     )
-    blockchain_parser.add_argument(
-        "--info", action="store_true", default=False, help="get blockchain info"
+    block_parser.add_argument(
+        "--chain-info", action="store_true", default=False, help="get blockchain info"
     )
-    blockchain_parser.add_argument(
+    block_parser.add_argument(
         "--index", action="store_true", default=False, help="print index data for block"
     )
-    blockchain_parser.add_argument(
+    block_parser.add_argument(
         "--header-only", "-H", action="store_true", help="output block header only"
     )
-    blockchain_parser.add_argument("--decode", action="store_true", help="decode block")
-    add_common_arguments(blockchain_parser)
-    add_input_arguments(blockchain_parser)
-    add_output_arguments(blockchain_parser)
+    block_parser.add_argument("--decode", action="store_true", help="decode block")
+    add_common_arguments(block_parser)
+    add_input_arguments(block_parser)
+    add_output_arguments(block_parser)
 
     mine_parser = sub_parser.add_parser(
         "mine",
@@ -1288,19 +1298,24 @@ def main():
             config.seeds,
             config.datadir,
             config.network,
+            config.log_level,
             reindex=args.reindex,
         )
         p2p_node.start()
-    elif args.subcommand == "blockchain":
-        if args.info:
-            node = bits.p2p.Node(config.seeds, config.datadir, config.network)
+    elif args.subcommand == "block":
+        if args.chain_info:
+            node = bits.p2p.Node(
+                config.seeds, config.datadir, config.network, config.log_level
+            )
             print(json.dumps(node.get_blockchain_info()))
             return
         if args.blockheight is None:
             block = bits.read_bytes(args.in_file, input_format=config.input_format)
             header = block[:80]
         else:
-            node = bits.p2p.Node(config.seeds, config.datadir, config.network)
+            node = bits.p2p.Node(
+                config.seeds, config.datadir, config.network, config.log_level
+            )
             block_index_data = node.db.get_block(args.blockheight)
             if args.index:
                 print(json.dumps(block_index_data))

@@ -38,8 +38,10 @@ class Db:
         """
         )
         self._conn.commit()
+        self._curs.execute("CREATE INDEX blockheight_index ON block(blockheight);")
+        self._conn.commit()
         self._curs.execute(
-            "CREATE INDEX block_index ON block(blockheight, blockheaderhash);"
+            "CREATE INDEX blockheaderhash_index ON block(blockheaderhash);"
         )
         self._conn.commit()
         self._curs.execute(
@@ -53,7 +55,11 @@ class Db:
         """
         )
         self._conn.commit()
-        self._conn.execute("CREATE INDEX utxo_index ON utxoset(blockheaderhash, txid);")
+        self._curs.execute("CREATE INDEX utxo_txid_vout_index ON utxoset(txid, vout);")
+        self._conn.commit()
+        self._curs.execute(
+            "CREATE INDEX utxo_blockheaderhash_index ON utxoset(blockheaderhash);"
+        )
         self._conn.commit()
         self._curs.execute(
             """
@@ -129,7 +135,14 @@ class Db:
         self, blockheight: int = None, blockheaderhash: str = None
     ) -> Union[dict, None]:
         """
-        Get the block db data
+        Get the block data from index db, i.e. header data, meta data
+
+        NOTE: only 1 of blockheight or blockheaderhash can be provided as argument,
+            but not both, or else ValueError will be thrown
+
+        Args:
+            blockheight: int, blockheight
+            blockheaderhash: str, blockheaderhash
         Returns:
             dict, block index db data, or
             None, if not found
