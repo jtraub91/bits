@@ -1009,6 +1009,7 @@ class Node:
         )
         filename = "blk00000.dat" if not dat_files else dat_files[-1]
         filepath = os.path.join(self.blocksdir, filename)
+        rel_path = os.path.relpath(filepath, start=self.datadir)
 
         if self.db.get_blockchain_height() is None:
             # genesis block
@@ -1047,7 +1048,7 @@ class Node:
             blockheader_data["nTime"],
             blockheader_data["nBits"],
             blockheader_data["nNonce"],
-            filepath,
+            rel_path,
             start_offset,
         )
         log.info(f"block {blockheight} saved to {self.index_db_filename}")
@@ -1246,8 +1247,9 @@ class Node:
         if cached_current_block_data:
             current_block_data = cached_current_block_data["block"]
         else:
+
             current_block_data = self.get_block_data(
-                datafile=current_block["datafile"],
+                datafile=os.path.join(self.datadir, current_block["datafile"]),
                 datafile_offset=current_block["datafile_offset"],
                 cache=True,
             )
@@ -1321,7 +1323,7 @@ class Node:
                     utxo_block_data = cached_utxo_block_data["block"]
                 else:
                     utxo_block_data = self.get_block_data(
-                        utxo_block["datafile"],
+                        os.path.join(self.datadir, utxo_block["datafile"]),
                         utxo_block["datafile_offset"],
                         cache=True,
                     )
@@ -1478,7 +1480,7 @@ class Node:
             new_target_nbits = bits.blockchain.compact_nbits(new_target)[::-1].hex()
 
             if self.network == "testnet" and elapsed_time_for_last_block >= 1200:
-                return set(["1d00ffff", new_target_nbits])
+                return set([new_target_nbits, "1d00ffff"])
             else:
                 return set([new_target_nbits])
 
