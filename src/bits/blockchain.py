@@ -70,6 +70,10 @@ def compact_nbits(target: int) -> bytes:
     """
     if target > bits.constants.MAX_TARGET_REGTEST:
         raise ValueError("target greater than max")
+    if target == bits.constants.MAX_TARGET:
+        # special case that doesn't follow non-zero MSB in mantissa rule,
+        # and we already know the value
+        return b"\xff\xff\x00\x1d"
     target_bytes = target.to_bytes(32, "big")
     bytes_shifted = 0
     while target_bytes[0] == 0:
@@ -77,11 +81,6 @@ def compact_nbits(target: int) -> bytes:
         target <<= 8
         target_bytes = target.to_bytes(32, "big")
         bytes_shifted += 1
-    while (target_bytes[0] or target_bytes[1]) and not target_bytes[2]:
-        # significant digits should be in least signifcant position
-        target >>= 8
-        target_bytes = target.to_bytes(32, "big")
-        bytes_shifted -= 1
     target >>= 29 * 8  # finally shift back 29 bytes to truncate
     mantissa = target.to_bytes(
         3, "little"
