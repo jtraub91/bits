@@ -1220,7 +1220,9 @@ class Node:
 
         # check all transacations are finalized
         for txn in proposed_block["txns"]:
-            if not bits.tx.is_final(txn):
+            if not bits.tx.is_final(
+                txn, blockheight=proposed_blockheight, blocktime=proposed_block["nTime"]
+            ):
                 raise AcceptBlockError(
                     f"block {proposed_block['blockheaderhash']} has non-final transaction"
                 )

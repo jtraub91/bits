@@ -541,7 +541,15 @@ def send_tx(
     return tx_
 
 
-def is_final(tx_: typing.Union[bytes, dict], blockheight: int = 0) -> bool:
+def is_final(tx_: typing.Union[bytes, dict], blockheight: int, blocktime: int) -> bool:
+    """
+    Check if tx is final based on locktime and the blockheight / blocktime of the block
+        it is contained in
+    Args:
+        tx_: bytes | dict, transaction
+        blockheight: int, block height of tx's block
+        blocktime: int, timestamp of tx's block
+    """
     # logic based on https://github.com/bitcoin/bitcoin/blob/v0.4.0/src/main.h#L435
     tx_dict = tx_deser(tx_) if type(tx_) is bytes else tx_
     txins = tx_dict["txins"]

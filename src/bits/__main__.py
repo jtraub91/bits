@@ -1317,11 +1317,15 @@ def main():
                 config.seeds, config.datadir, config.network, config.log_level
             )
             block_index_data = node.db.get_block(args.blockheight)
+            if not block_index_data:
+                log.error(f"no index data found for block {args.blockheight}")
+                return
             if args.index:
                 print(json.dumps(block_index_data))
                 return
             block = node.get_block_data(
-                block_index_data["datafile"], block_index_data["datafile_offset"]
+                os.path.join(node.datadir, block_index_data["datafile"]),
+                block_index_data["datafile_offset"],
             )
             header = block[:80]
         if args.decode:
