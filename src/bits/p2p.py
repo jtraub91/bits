@@ -503,8 +503,10 @@ class Peer:
         Read and deserialize message ( header + payload )
         """
         msg = b""
+        log.trace(f"peer {self._id} recv_msg: reading header...")
         while len(msg) != MSG_HEADER_LEN:
             msg += await self.reader.read(MSG_HEADER_LEN - len(msg))
+        log.trace(f"peer {self._id} recv_msg: header received")
 
         start_bytes = msg[:4]
         command = msg[4:16].rstrip(b"\x00")
@@ -513,8 +515,12 @@ class Peer:
 
         payload = b""
         if payload_size:
+            log.trace(f"peer {self._id} recv_msg: reading payload...")
             while len(payload) != payload_size:
                 payload += await self.reader.read(payload_size - len(payload))
+            log.trace(
+                f"peer {self._id} recv_msg: payload {len(payload)} bytes received"
+            )
 
         if checksum != bits.crypto.hash256(payload)[:4]:
             raise ValueError(
@@ -615,6 +621,22 @@ class Node:
             genesis_coinbase_tx = gb_deser["txns"][0]
             self.db.add_to_utxoset(
                 gb_deser["blockheaderhash"], genesis_coinbase_tx["txid"], 0
+            )
+            difficulty = bits.blockchain.difficulty(
+                bits.blockchain.target_threshold(
+                    bytes.fromhex(gb_deser["nBits"])[::-1]
+                ),
+                network=self.network,
+            )
+            blockheight = self.db.get_blockchain_height()
+            block_index = self.db.get_block(blockheight)
+            self.db.save_node_state(
+                network=self.network,
+                difficulty=difficulty,
+                height=blockheight,
+                bestblockheaderhash=block_index["blockheaderhash"],
+                time=block_index["nTime"],
+                mediantime=self.median_time(),
             )
 
         self.message_queue = deque([])
@@ -777,6 +799,7 @@ class Node:
         """
         PEER_INACTIVITY_TIMEOUT = 5400  # 90 minutes
         while not peer.exit_event.is_set():
+            log.trace(f"peer {peer._id} outgoing_peer_recv_loop")
             try:
                 start_bytes, command, payload = await asyncio.wait_for(
                     peer.recv_msg(), int(msg_timeout)
@@ -784,7 +807,14 @@ class Node:
             except asyncio.TimeoutError:
                 if time.time() - peer._last_recv_msg_time > PEER_INACTIVITY_TIMEOUT:
                     peer.exit_event.set()
+                    log.info(
+                        f"peer inactivity timeout reached. peer {peer._id} exit event set."
+                    )
+                log.trace("peer recv_msg timeout.")
             else:
+                log.trace(
+                    f"appending {command} and payload from peer {peer._id} to message queue..."
+                )
                 self.message_queue.append((peer, command, payload))
             await asyncio.sleep(0)
         log.info(f"exiting peer recv loop for peer @ {peer.host}:{peer.port}")
@@ -797,9 +827,12 @@ class Node:
     async def message_handler_loop(self):
         while not self.exit_event.is_set():
             if self.message_queue:
+                log.trace("processing message...")
                 peer, command, payload = self.message_queue.popleft()
+                log.debug(f"scheduling handle_{command.decode('utf8')}_command...")
                 asyncio.create_task(self.handle_command(peer, command, payload))
             await asyncio.sleep(0)
+        log.info("message handler loop exited.")
 
     async def main(self, reindex=False):
         if reindex or not os.path.exists(self.index_db_filepath):
@@ -808,37 +841,47 @@ class Node:
             # of the index+utxoset?
             # i suppose we can't detect tampering without a re-validation
             # so reindex, will ignore that
+            raise NotImplementedError("reindex not implemented yet")
             self.rebuild_index()
         else:
             # check datadir for internal consistency
             dat_filenames = sorted(
                 [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
             )
-            blocks = []
+            number_of_blocks_on_disk = 0
             for dat_filename in dat_filenames:
-                blocks += self.parse_dat_file(
-                    os.path.join(self.blocksdir, dat_filename)
-                )
-            number_of_blocks_on_disk = len(blocks)
+                blocks = self.parse_dat_file(os.path.join(self.blocksdir, dat_filename))
+                last_block = blocks[-1]
+                number_of_blocks_on_disk += len(blocks)
             number_of_blocks_in_index = self.db.count_blocks()
-            if number_of_blocks_on_disk > number_of_blocks_in_index:
+
+            if number_of_blocks_on_disk != number_of_blocks_in_index:
                 raise AssertionError(
-                    f"number of blocks on disk ({number_of_blocks_on_disk}) exceeds number of blocks in index ({number_of_blocks_in_index})."
-                )
-                # for blockheight in range(number_of_blocks_in_index, number_of_blocks_on_disk):
-                #     block = self.rollback_block()
-                #     log.info(f"block {number_of_blocks_on_disk - blockheight - 1} deleted from disk.")
-            elif number_of_blocks_on_disk < number_of_blocks_in_index:
-                raise AssertionError(
-                    f"number of blocks on disk ({number_of_blocks_on_disk}) is less than the number of blocks in index ({number_of_blocks_in_index})."
+                    f"number of blocks on disk ({number_of_blocks_on_disk}) does not equal the number of blocks in index ({number_of_blocks_in_index})."
                 )
             else:
                 # block on disk == blocks in index,
-                pass
+                # do further sanity checks
+                blockheight = self.db.get_blockchain_height()
+                last_block_index = self.db.get_block(blockheight=blockheight)
+                blockheaderhash_calc = bits.crypto.hash256(last_block[:80])[::-1].hex()
+                if blockheaderhash_calc != last_block_index["blockheaderhash"]:
+                    raise AssertionError(
+                        "last blockheaderhash in index does not match last block on disk"
+                    )
+                node_state = self.db.get_node_state()
+                if (
+                    node_state["bestblockheaderhash"]
+                    != last_block_index["blockheaderhash"]
+                ):
+                    raise AssertionError(
+                        f"bestblockheaderhash stored in node_state {node_state['bestblockheaderhash']} is not equal to the last block's header hash {last_block_index['blockheaderhash']}. This probably means that the utxoset update was interrupted during validation."
+                    )
 
         await self.connect_seeds()
-        asyncio.create_task(self.main_loop())
+        main_loop_task = asyncio.create_task(self.main_loop())
         await self.message_handler_loop()
+        await main_loop_task
 
     def run(self):
         asyncio.run(self.main())
@@ -857,6 +900,7 @@ class Node:
         log.info("node exit event set")
 
     async def main_loop(self):
+        self.db.save_node_state(running=True)
         for peer in self.peers:
             await peer.send_command(b"getaddr")
 
@@ -871,10 +915,12 @@ class Node:
                 f"local blockchain is behind sync node @ {sync_node.host}:{sync_node.port} by {sync_node_version_data['start_height'] - blockheight} blocks. Entering IBD..."
             )
             await self.ibd(sync_node)
-        log.info("exiting IBD...local blockchain is synced with sync node.")
+        log.info("exiting IBD...")
 
         while not self.exit_event.is_set():
             await asyncio.sleep(1)
+        log.info("exiting main loop...")
+        self.db.save_node_state(running=False)
 
     async def ibd(self, sync_node: Peer):
         """
@@ -884,10 +930,17 @@ class Node:
         https://developer.bitcoin.org/devguide/p2p_network.html#blocks-first
         """
         self._ibd = True
-        sync_node_version_data = self.db.get_peer_data(sync_node._id, "version")
-        sync_node_start_height = sync_node_version_data["start_height"]
-        while sync_node_start_height > self.db.get_blockchain_height():
 
+        sync_node_version_data = self.db.get_peer_data(sync_node._id, "version")
+        self.sync_node_start_height = sync_node_version_data["start_height"]
+        while (
+            self.sync_node_start_height > self.db.get_blockchain_height()
+            and not self.exit_event.is_set()
+        ):
+            self.db.save_node_state(
+                ibd=self._ibd,
+                progress=self.db.get_blockchain_height() / self.sync_node_start_height,
+            )
             # get latest blockhash from local blockchain
             blockheight = self.db.get_blockchain_height()
             block_index_data = self.db.get_block(blockheight)
@@ -908,8 +961,10 @@ class Node:
             msg_block_inventories = list(
                 filter(lambda inv: inv["type_id"] == "MSG_BLOCK", sync_node.inventories)
             )
-            while len(msg_block_inventories) < min(
-                500, sync_node_start_height - blockheight
+            while (
+                len(msg_block_inventories)
+                < min(500, self.sync_node_start_height - blockheight)
+                and not self.exit_event.is_set()
             ):
                 log.trace("waiting for inventories...")
                 await asyncio.sleep(0.1)
@@ -919,7 +974,7 @@ class Node:
                     )
                 )
 
-            while msg_block_inventories:
+            while msg_block_inventories and not self.exit_event.is_set():
                 # while we have msg block inventories
                 # form getdata message in max 128 inventory chunks
                 if len(msg_block_inventories) > 128:
@@ -938,7 +993,9 @@ class Node:
                     b"getdata", inv_payload(len(inventory_list), inventory_list)
                 )
 
-                while sync_node._pending_getdata_requests:
+                while (
+                    sync_node._pending_getdata_requests and not self.exit_event.is_set()
+                ):
                     log.trace(
                         f"sync node has {len(sync_node._pending_getdata_requests)} unfulfilled getdata requests..."
                     )
@@ -948,7 +1005,9 @@ class Node:
 
                 while sync_node.blocks and not self.exit_event.is_set():
                     # while we have blocks, process them
+                    log.trace("processing next block...")
                     block = sync_node.blocks.popleft()
+                    log.trace("block retrieved.")
                     try:
                         # accept_block(block) checks block independently via bits.blockchain.check_block
                         # continues with checks in context as new block, saves block to disk and writes
@@ -968,7 +1027,7 @@ class Node:
                         log.error(err)
                         self.db._curs.execute("ROLLBACK;")
                         log.info(
-                            f"changes to utxoset in {self.index_db_filename} rolled back"
+                            f"changes to utxoset / node_state in {self.index_db_filename} rolled back"
                         )
                         # rollback block & block index
                         _deleted_block = self.rollback_block()
@@ -984,6 +1043,7 @@ class Node:
                 )
 
         self._ibd = False
+        self.db.save_node_state(ibd=self._ibd)
 
     def rollback_block(self) -> bytes:
         """
@@ -1074,11 +1134,8 @@ class Node:
         )
         log.info(f"block {blockheight} saved to {self.index_db_filename}")
 
-    def get_blockchain_info(self) -> dict:
-        return {
-            "blockheight": self.db.get_blockchain_height(),
-            "network": self.network,
-        }
+    def get_blockchain_info(self) -> Union[dict, None]:
+        return self.db.get_node_state()
 
     def rebuild_index(self):
         # TODO: need to account for utxoset rebuild
@@ -1195,14 +1252,20 @@ class Node:
             ConnectBlockError: if error is thrown during full tx validation,
                 i.e. after block is saved to disk
         """
+        log.trace("check_block...")
         if not bits.blockchain.check_block(block, network=self.network):
             raise CheckBlockError("block failed context independent checks")
+        log.trace("check_block succeeded.")
 
         current_blockheight = self.db.get_blockchain_height()
         current_block = self.db.get_block(blockheight=current_blockheight)
 
         proposed_blockheight = current_blockheight + 1
+        log.trace(
+            f"parsing {len(block)} bytes for proposed block {proposed_blockheight}..."
+        )
         proposed_block = bits.blockchain.block_deser(block)
+        log.trace(f"proposed block {proposed_blockheight} parsed.")
 
         # check for duplicate hash in blockchain index
         if self.db.get_block(blockheaderhash=proposed_block["blockheaderhash"]):
@@ -1415,7 +1478,22 @@ class Node:
         log.debug(
             f"validated all of {len(current_block_data_dict['txns'])} txns in block {current_blockheight}."
         )
-        self.db._curs.execute("COMMIT;")  # commit changes to utxoset in index db
+        self.db.save_node_state(
+            progress=current_blockheight / self.sync_node_start_height,
+            difficulty=bits.blockchain.difficulty(
+                bits.blockchain.target_threshold(
+                    bytes.fromhex(current_block["nBits"])[::-1]
+                )
+            ),
+            height=current_blockheight,
+            bestblockheaderhash=current_block["blockheaderhash"],
+            time=current_block["nTime"],
+            mediantime=self.median_time(),
+            commit=False,
+        )
+        self.db._curs.execute(
+            "COMMIT;"
+        )  # commit changes to utxoset / node_state to index db
         return True
 
     def get_block_reward(self) -> int:

@@ -1,8 +1,11 @@
 import json
+import logging
 import sqlite3
 from typing import List
 from typing import Optional
 from typing import Union
+
+log = logging.getLogger(__name__)
 
 
 class Db:
@@ -72,13 +75,23 @@ class Db:
         """
         )
         self._conn.commit()
-        # self._curs.execute("""
-        #     CREATE TABLE node_state(
-        #         network TEXT,
-        #         ibd BOOLEAN,
-        #         progress
-        #     );
-        # """)
+        self._curs.execute(
+            """
+            CREATE TABLE node_state(
+                id INTEGER PRIMARY KEY,
+                network TEXT,
+                ibd BOOLEAN,
+                progress REAL,
+                running BOOLEAN,
+                difficulty REAL,
+                height INTEGER,
+                bestblockheaderhash TEXT,
+                time INTEGER,
+                mediantime INTEGER
+            );
+        """
+        )
+        self._conn.commit()
 
     def delete_block(self, blockheaderhash: str):
         self._curs.execute(
@@ -267,3 +280,67 @@ class Db:
         )
         result = res.fetchone()
         return result[0] if result else None
+
+    def save_node_state(
+        self,
+        network: Optional[str] = None,
+        ibd: Optional[bool] = None,
+        progress: Optional[float] = None,
+        running: Optional[bool] = None,
+        difficulty: Optional[float] = None,
+        height: Optional[int] = None,
+        bestblockheaderhash: Optional[str] = None,
+        time: Optional[int] = None,
+        mediantime: Optional[int] = None,
+        commit: bool = True,
+    ):
+        if not self.get_node_state():
+            self._curs.execute("INSERT INTO node_state (id) VALUES (1);")
+            self._conn.commit()
+        res = self._curs.execute(f"SELECT * from node_state;")
+        results = res.fetchall()
+        assert len(results) == 1, "multiple rows in node_state table"
+        result = results[0]
+        assert result[0] == 1, "node state row id != 1"
+        set_statement = ""
+        if network is not None:
+            set_statement += f"network='{network}', "
+        if ibd is not None:
+            set_statement += "ibd='TRUE', " if ibd else "ibd='FALSE', "
+        if progress is not None:
+            set_statement += f"progress='{progress}', "
+        if running is not None:
+            set_statement += "running='TRUE', " if running else "running='FALSE', "
+        if difficulty is not None:
+            set_statement += f"difficulty='{difficulty}', "
+        if height is not None:
+            set_statement += f"height={height}, "
+        if bestblockheaderhash is not None:
+            set_statement += f"bestblockheaderhash='{bestblockheaderhash}', "
+        if time is not None:
+            set_statement += f"time={time}, "
+        if mediantime is not None:
+            set_statement += f"mediantime={mediantime}, "
+        set_statement = set_statement[:-2]  # remove trailing ", "
+        self._curs.execute(f"UPDATE node_state SET {set_statement} WHERE id=1;")
+        if commit:
+            self._conn.commit()
+
+    def get_node_state(self) -> Union[dict, None]:
+        res = self._curs.execute(f"SELECT * from node_state;")
+        results = res.fetchall()
+        if not results:
+            return
+        assert len(results) == 1, "multiple rows in node_state table"
+        node_state = results[0]
+        return {
+            "network": node_state[1],
+            "ibd": True if node_state[2] == "TRUE" else False,
+            "progress": node_state[3],
+            "running": True if node_state[4] == "TRUE" else False,
+            "difficulty": node_state[5],
+            "height": node_state[6],
+            "bestblockheaderhash": node_state[7],
+            "time": node_state[8],
+            "mediantime": node_state[9],
+        }
