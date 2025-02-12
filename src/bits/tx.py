@@ -33,6 +33,13 @@ def txin(
     script_sig: bytes,
     sequence: bytes = b"\xff\xff\xff\xff",
 ) -> bytes:
+    """
+    Tx input serialization
+    Args:
+        prev_outpoint: bytes
+        script_sig: bytes
+        sequence: bytes, sequence (little endian internal byte order)
+    """
     return (
         prev_outpoint + bits.compact_size_uint(len(script_sig)) + script_sig + sequence
     )
@@ -49,7 +56,7 @@ def txin_deser(txin_: bytes) -> typing.Tuple[dict, bytes]:
         "txid": txid_[::-1].hex(),  # rpc byte order
         "vout": int.from_bytes(vout, "little"),
         "scriptsig": scriptsig.hex(),
-        "sequence": sequence.hex(),
+        "sequence": int.from_bytes(sequence, "little"),
     }, txin_
 
 
@@ -557,7 +564,7 @@ def is_final(tx_: typing.Union[bytes, dict], blockheight: int, blocktime: int) -
     if locktime == 0:
         return True
     locktime_comparison = (
-        blockheight if locktime < bits.constants.LOCKTIME_THRESHOLD else time.time()
+        blockheight if locktime < bits.constants.LOCKTIME_THRESHOLD else blocktime
     )
     if locktime < locktime_comparison:
         return True

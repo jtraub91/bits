@@ -12,7 +12,6 @@ import binascii
 import json
 import logging
 import os
-import shutil
 import socket
 import sqlite3
 import time
@@ -479,7 +478,7 @@ class Peer:
 
         self.inventories = deque([])
         self.blocks = deque([])
-        self.orphan_blocks = deque([])
+        self.orphan_blocks = {}
         self._pending_getdata_requests = deque([])
         self._pending_getblocks_requests = deque([])
 
@@ -551,7 +550,6 @@ class Node:
         services: int = NODE_NETWORK,
         relay: bool = True,
         user_agent: bytes = BITS_USER_AGENT,
-        reindex: bool = False,
     ):
         """
         bits P2P node
@@ -618,30 +616,6 @@ class Node:
             self.db.add_to_utxoset(
                 gb_deser["blockheaderhash"], genesis_coinbase_tx["txid"], 0
             )
-
-        else:
-            # some block dat files exist,
-
-            # check for indexes,
-            # build if non-existent (shouldn't really happen) or reindex=True
-            if reindex or not os.path.exists(self.index_db_filepath):
-                self.rebuild_index()
-            else:
-                # check for internally consistency
-                # TODO: make more robust
-                dat_filenames = sorted(
-                    [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
-                )
-                blocks = []
-                for dat_filename in dat_filenames:
-                    blocks += self.parse_dat_file(
-                        os.path.join(self.blocksdir, dat_filename)
-                    )
-                number_of_blocks_on_disk = len(blocks)
-                number_of_blocks_in_index = self.db.count_blocks()
-                assert (
-                    number_of_blocks_on_disk == number_of_blocks_in_index
-                ), f"number of blocks on disk ({number_of_blocks_on_disk}) does not match number in index ({number_of_blocks_in_index})"
 
         self.message_queue = deque([])
         self._unhandled_message_queue = deque([])
@@ -827,7 +801,41 @@ class Node:
                 asyncio.create_task(self.handle_command(peer, command, payload))
             await asyncio.sleep(0)
 
-    async def main(self):
+    async def main(self, reindex=False):
+        if reindex or not os.path.exists(self.index_db_filepath):
+            # to rebuild the index do we need to validate each block again?
+            # or do we assume if block is on disk then it's valid, and do a fast rebuild
+            # of the index+utxoset?
+            # i suppose we can't detect tampering without a re-validation
+            # so reindex, will ignore that
+            self.rebuild_index()
+        else:
+            # check datadir for internal consistency
+            dat_filenames = sorted(
+                [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
+            )
+            blocks = []
+            for dat_filename in dat_filenames:
+                blocks += self.parse_dat_file(
+                    os.path.join(self.blocksdir, dat_filename)
+                )
+            number_of_blocks_on_disk = len(blocks)
+            number_of_blocks_in_index = self.db.count_blocks()
+            if number_of_blocks_on_disk > number_of_blocks_in_index:
+                raise AssertionError(
+                    f"number of blocks on disk ({number_of_blocks_on_disk}) exceeds number of blocks in index ({number_of_blocks_in_index})."
+                )
+                # for blockheight in range(number_of_blocks_in_index, number_of_blocks_on_disk):
+                #     block = self.rollback_block()
+                #     log.info(f"block {number_of_blocks_on_disk - blockheight - 1} deleted from disk.")
+            elif number_of_blocks_on_disk < number_of_blocks_in_index:
+                raise AssertionError(
+                    f"number of blocks on disk ({number_of_blocks_on_disk}) is less than the number of blocks in index ({number_of_blocks_in_index})."
+                )
+            else:
+                # block on disk == blocks in index,
+                pass
+
         await self.connect_seeds()
         asyncio.create_task(self.main_loop())
         await self.message_handler_loop()
@@ -841,6 +849,7 @@ class Node:
         self._thread.start()
 
     def stop(self):
+        log.info("stopping node gracefully...")
         for peer in self.peers:
             peer.exit_event.set()
             log.info(f"peer {peer._id} exit event set")
@@ -902,6 +911,7 @@ class Node:
             while len(msg_block_inventories) < min(
                 500, sync_node_start_height - blockheight
             ):
+                log.trace("waiting for inventories...")
                 await asyncio.sleep(0.1)
                 msg_block_inventories = list(
                     filter(
@@ -918,17 +928,23 @@ class Node:
                     inventory(inv["type_id"], inv["hash"])
                     for inv in msg_block_inventories
                 ]
-                await sync_node.send_command(
-                    b"getdata", inv_payload(len(inventory_list), inventory_list)
+                log.trace(
+                    f"requesting {len(inventory_list)} inventory blocks via getdata..."
                 )
                 # add to pending getdata requests, remove from inventories
                 sync_node._pending_getdata_requests.extend(msg_block_inventories)
                 [sync_node.inventories.remove(inv) for inv in msg_block_inventories]
+                await sync_node.send_command(
+                    b"getdata", inv_payload(len(inventory_list), inventory_list)
+                )
 
                 while sync_node._pending_getdata_requests:
+                    log.trace(
+                        f"sync node has {len(sync_node._pending_getdata_requests)} unfulfilled getdata requests..."
+                    )
                     # wait until all pending getdata requests are fulfilled
                     # pending getdata requests get removed in handle_block_command()
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(1)
 
                 while sync_node.blocks and not self.exit_event.is_set():
                     # while we have blocks, process them
@@ -940,9 +956,10 @@ class Node:
                         # if an error is thrown handle as follows
                         self.accept_block(block)
                     except PossibleOrphanError as err:
-                        sync_node.orphan_blocks.append(block)
+                        blockhash = bits.crypto.hash256(block[:80])
+                        sync_node.orphan_blocks.update({blockhash: block})
                         log.warning(
-                            f"possible orphan block added to pool (size= {len(sync_node.orphan_blocks)} blocks, {sum([len(b) for b in sync_node.orphan_blocks])} bytes)"
+                            f"possible orphan block added to pool (size= {len(sync_node.orphan_blocks)} blocks, {sum([len(b) for b in sync_node.orphan_blocks.values()])} bytes)"
                         )
                     except (CheckBlockError, AcceptBlockError) as err:
                         log.error(err)
@@ -971,6 +988,7 @@ class Node:
     def rollback_block(self) -> bytes:
         """
         Delete block chain tip from disk and index db
+
         Returns:
             bytes, deleted block
         """
@@ -980,18 +998,20 @@ class Node:
         self.db.delete_block(block_index["blockheaderhash"])
         log.info(f"block {blockheight} deleted from {self.index_db_filename}")
         # delete block data on disk
-        with open(block_index["datafile"], "rb") as dat_file:
+        with open(
+            os.path.join(self.datadir, block_index["datafile"]), "rb"
+        ) as dat_file:
             truncated_bytes = dat_file.read(block_index["datafile_offset"])
             magic = dat_file.read(4)
             assert magic == self.magic_start_bytes, "magic mismatch"
             length = int.from_bytes(dat_file.read(4), "little")
             deleted_block_data = dat_file.read(length)
             assert len(deleted_block_data) == length, "length mismatch"
-        with open(block_index["datafile"], "wb") as dat_file:
+        with open(
+            os.path.join(self.datadir, block_index["datafile"]), "wb"
+        ) as dat_file:
             dat_file.write(truncated_bytes)
-        log.info(
-            f"block {blockheight} deleted from {os.path.split(block_index['datafile'])[-1]}"
-        )
+        log.info(f"block {blockheight} deleted from {block_index['datafile']}")
         return deleted_block_data
 
     def save_block(self, block: bytes):
@@ -1016,6 +1036,7 @@ class Node:
             blockheight = 0
         else:
             blockheight = self.db.get_blockchain_height() + 1
+        log.trace(f"saving block {blockheight}...")
         blockheader_data = bits.blockchain.block_header_deser(block[:80])
 
         block_data = self.magic_start_bytes + len(block).to_bytes(4, "little") + block
@@ -1061,6 +1082,7 @@ class Node:
 
     def rebuild_index(self):
         # TODO: need to account for utxoset rebuild
+        log.info("rebuilding index...")
         dat_filenames = sorted(
             [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
         )
@@ -1224,7 +1246,7 @@ class Node:
                 txn, blockheight=proposed_blockheight, blocktime=proposed_block["nTime"]
             ):
                 raise AcceptBlockError(
-                    f"block {proposed_block['blockheaderhash']} has non-final transaction"
+                    f"block {proposed_block['blockheaderhash']} has non-final transaction {txn['txid']}"
                 )
 
         # save block to disk and index db
@@ -1309,17 +1331,9 @@ class Node:
                     )
 
                 # get the utxo transaction in full
-                log.trace(
-                    f"retrieving utxo(txid={txin_txid}, vout={txin_vout}) block index data..."
-                )
+                log.trace(f"retrieving utxo(txid={txin_txid}, vout={txin_vout})...")
                 utxo_block = self.db.get_block(blockheaderhash=utxo_blockheaderhash)
                 utxo_blockheight = utxo_block["blockheight"]
-                log.trace(
-                    f"utxo(txid={txin_txid}, vout={txin_vout}) block index data retrieved."
-                )
-                log.trace(
-                    f"retrieving utxo(txid={txin_txid}, vout={txin_vout}) block data..."
-                )
                 cached_utxo_block_data = self._block_cache.get(utxo_blockheaderhash)
                 if cached_utxo_block_data:
                     utxo_block_data = cached_utxo_block_data["block"]
@@ -1329,14 +1343,7 @@ class Node:
                         utxo_block["datafile_offset"],
                         cache=True,
                     )
-                log.trace(
-                    f"utxo(txid={txin_txid}, vout={txin_vout}) block data retrieved."
-                )
                 utxo_block_data_dict = utxo_block_data.dict()
-                log.trace(
-                    f"utxo(txid={txin_txid}, vout={txin_vout}) block data deserialized."
-                )
-                log.trace(f"filtering for utxo(txid={txin_txid}, vout={txin_vout}...")
                 utxo_tx = next(
                     (t for t in utxo_block_data_dict["txns"] if t["txid"] == txin_txid)
                 )

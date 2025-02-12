@@ -72,6 +72,13 @@ class Db:
         """
         )
         self._conn.commit()
+        # self._curs.execute("""
+        #     CREATE TABLE node_state(
+        #         network TEXT,
+        #         ibd BOOLEAN,
+        #         progress
+        #     );
+        # """)
 
     def delete_block(self, blockheaderhash: str):
         self._curs.execute(

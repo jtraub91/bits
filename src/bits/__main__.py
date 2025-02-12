@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import secrets
+import signal
 import sys
 from getpass import getpass
 
@@ -884,13 +885,15 @@ Examples:
 
     bits block 100 --decode
 
-    echo <> | bits block --decode
+    echo <data> | bits block --decode
 
     bits block --chain-info
 
 """,
     )
-    block_parser.add_argument("blockheight", type=int, nargs="?", help="block height")
+    block_parser.add_argument(
+        "block", type=str, nargs="?", help="blockheight OR blockheaderhash"
+    )
     block_parser.add_argument(
         "--datadir",
         type=str,
@@ -1299,9 +1302,15 @@ def main():
             config.datadir,
             config.network,
             config.log_level,
-            reindex=args.reindex,
+            # reindex=args.reindex,
         )
         p2p_node.start()
+
+        def shutdown(*args):
+            p2p_node.stop()
+
+        signal.signal(signal.SIGINT, shutdown)
+        signal.signal(signal.SIGTERM, shutdown)
     elif args.subcommand == "block":
         if args.chain_info:
             node = bits.p2p.Node(
@@ -1309,14 +1318,19 @@ def main():
             )
             print(json.dumps(node.get_blockchain_info()))
             return
-        if args.blockheight is None:
+        if args.block is None:
             block = bits.read_bytes(args.in_file, input_format=config.input_format)
             header = block[:80]
         else:
             node = bits.p2p.Node(
                 config.seeds, config.datadir, config.network, config.log_level
             )
-            block_index_data = node.db.get_block(args.blockheight)
+            if len(args.block) == 64:
+                # if provided arg is 64 digits, it is interpreted as a hash
+                block_index_data = node.db.get_block(blockheaderhash=args.block)
+            else:
+                # else a blockheight
+                block_index_data = node.db.get_block(blockheight=int(args.block))
             if not block_index_data:
                 log.error(f"no index data found for block {args.blockheight}")
                 return
