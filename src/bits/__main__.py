@@ -730,7 +730,7 @@ Examples:
         help="create raw transactions",
         formatter_class=RawDescriptionDefaultsHelpFormatter,
         description="""
-Create (or decode) raw transactions.
+Create, retrieve, and / or decode transactions.
 
 Examples:
 
@@ -742,8 +742,19 @@ Examples:
 
         $ echo <rawtx> | bits tx --decode
 
+    3. Retrieve tx from local blockchain
+        
+        $ bits tx <txid>
+    
         """,
     )
+    tx_parser.add_argument(
+        "--datadir",
+        type=str,
+        action=ExplicitOption,
+        help="p2p node data directory",
+    )
+    tx_parser.add_argument("txid", type=str, nargs="?", help="txid")
     tx_parser.add_argument(
         "-txin",
         "--txin",
@@ -854,6 +865,9 @@ See "bits wif -h" for help on creating WIF-encoded keys.
     add_output_arguments(send_parser)
 
     p2p_parser = sub_parser.add_parser("p2p", help="start p2p node")
+    p2p_parser.add_argument(
+        "--info", action="store_true", default=False, help="get p2p node info"
+    )
     p2p_parser.add_argument(
         "--seeds",
         type=json.loads,
@@ -1187,35 +1201,51 @@ def main():
             addr += os.linesep.encode("utf8")
         bits.write_bytes(addr, args.out_file, output_format="raw")
     elif args.subcommand == "tx":
+        if args.txid:
+            node = bits.p2p.Node(
+                config.seeds, config.datadir, config.network, config.log_level
+            )
+            tx_index = node.db.get_tx(args.txid)
+            block_index = node.db.get_block(blockheaderhash=tx_index["blockheaderhash"])
+            block = node.get_block_data(
+                os.path.join(node.datadir, block_index["datafile"]),
+                block_index["datafile_offset"],
+            )
+            block_dict = bits.blockchain.block_deser(block)
+            tx_ = bytes.fromhex(block_dict["txns"][tx_index["n"]]["raw"])
+        elif args.txins or args.txouts:
+            txins = []
+            for txin_dict in args.txins:
+                # internal byte order
+                txid_ = bytes.fromhex(txin_dict["txid"])[::-1]
+                # use script pub key as script sig for signing
+                script_sig = bytes.fromhex(txin_dict["scriptsig"])
+                txin_ = bits.tx.txin(
+                    bits.tx.outpoint(txid_, txin_dict["vout"]), script_sig
+                )
+                txins.append(txin_)
+            txouts = [
+                bits.tx.txout(
+                    txout_dict["satoshis"], bytes.fromhex(txout_dict["scriptpubkey"])
+                )
+                for txout_dict in args.txouts
+            ]
+            tx_ = bits.tx.tx(
+                txins,
+                txouts,
+                version=args.version,
+                locktime=args.locktime,
+                script_witnesses=args.script_witnesses,
+            )
+        else:
+            tx_ = bits.read_bytes(args.in_file, input_format=config.input_format)
         if args.decode:
-            raw_tx = bits.read_bytes(args.in_file, input_format=config.input_format)
-            decoded_tx, tx_prime = bits.tx.tx_deser(raw_tx)
+            decoded_tx, tx_prime = bits.tx.tx_deser(tx_)
             if tx_prime:
                 log.warning(f"leftover tx data after deserialization: {tx_prime.hex()}")
             print(json.dumps(decoded_tx))
             return
-        txins = []
-        for txin_dict in args.txins:
-            # internal byte order
-            txid_ = bytes.fromhex(txin_dict["txid"])[::-1]
-            # use script pub key as script sig for signing
-            script_sig = bytes.fromhex(txin_dict["scriptsig"])
-            txin_ = bits.tx.txin(bits.tx.outpoint(txid_, txin_dict["vout"]), script_sig)
-            txins.append(txin_)
-        txouts = [
-            bits.tx.txout(
-                txout_dict["satoshis"], bytes.fromhex(txout_dict["scriptpubkey"])
-            )
-            for txout_dict in args.txouts
-        ]
-        tx_ = bits.tx.tx(
-            txins,
-            txouts,
-            version=args.version,
-            locktime=args.locktime,
-            script_witnesses=args.script_witnesses,
-        )
-        return tx_.hex()
+        bits.write_bytes(tx_, args.out_file, output_format=args.output_format)
     elif args.subcommand == "script":
         if args.decode:
             decoded = []
@@ -1304,6 +1334,9 @@ def main():
             config.log_level,
             # reindex=args.reindex,
         )
+        if args.info:
+            print(json.dumps(p2p_node.get_node_info()))
+            return
         p2p_node.start()
 
         def shutdown(*args):

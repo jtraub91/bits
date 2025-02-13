@@ -4,6 +4,10 @@ network="mainnet"
 datadir=""
 seeds=[]
 
+bind="0.0.0.0:10101"
+max_outgoing_peers=10
+max_incoming_peers=25
+
 input_format="hex"
 output_format="hex"
 

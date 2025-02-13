@@ -27,7 +27,7 @@ class Db:
             CREATE TABLE block(
                 id INTEGER PRIMARY KEY,
                 blockheight INTEGER UNIQUE, 
-                blockheaderhash TEXT,
+                blockheaderhash TEXT UNIQUE,
                 version INTEGER,
                 prev_blockheaderhash TEXT,
                 merkle_root_hash TEXT,
@@ -70,7 +70,8 @@ class Db:
                 id INTEGER PRIMARY KEY,
                 host TEXT,
                 port INTEGER,
-                data TEXT
+                data TEXT,
+                addrs TEXT
             );
         """
         )
@@ -92,6 +93,64 @@ class Db:
         """
         )
         self._conn.commit()
+        self._curs.execute(
+            """
+            CREATE TABLE tx(
+                id INTEGER PRIMARY KEY,
+                txid TEXT UNIQUE,
+                wtxid TEXT,
+                version INTEGER,
+
+                blockheaderhash TEXT,
+                n INTEGER,
+                FOREIGN KEY(blockheaderhash) REFERENCES block(blockheaderhash)
+            );
+        """
+        )
+        self._conn.commit()
+        self._curs.execute("CREATE INDEX tx_txid_index ON tx(txid);")
+        self._conn.commit()
+
+    def save_peer_addrs(self, peer_id: int, addrs: List[dict]):
+        existing_addrs = self.get_peer_addrs(peer_id)
+        updated_addrs = existing_addrs + addrs
+        self._curs.execute(
+            f"""
+            UPDATE peer SET addrs='{json.dumps(updated_addrs)}' WHERE id={peer_id};
+        """
+        )
+        self._conn.commit()
+
+    def get_peer_addrs(self, peer_id: int) -> List:
+        res = self._curs.execute(f"SELECT addrs FROM peer WHERE id={peer_id};")
+        result = res.fetchone()[0]
+        return json.loads(result) if result else []
+
+    def add_tx(self, txid: str, blockheaderhash: str, n: int):
+        """
+        Create a new tx row in index db
+        Args:
+            txid: str, transaction id
+            blockheaderhash: str, block header hash for the block this tx is in
+            n: int, tx index in block
+        """
+        self._curs.execute(
+            f"INSERT INTO tx (txid, blockheaderhash, n) VALUES ('{txid}', '{blockheaderhash}', {n});"
+        )
+        self._conn.commit()
+
+    def get_tx(self, txid: str) -> Union[dict, None]:
+        res = self._curs.execute(
+            f"SELECT txid, blockheaderhash, n FROM tx WHERE txid='{txid}';"
+        )
+        result = res.fetchone()
+        if not result:
+            return
+        return {
+            "txid": result[0],
+            "blockheaderhash": result[1],
+            "n": result[2],
+        }
 
     def delete_block(self, blockheaderhash: str):
         self._curs.execute(
@@ -174,13 +233,11 @@ class Db:
         elif blockheight is None and blockheaderhash is None:
             raise ValueError("blockheight or blockheaderhash must be provided")
         elif blockheight is not None:
-            arg = f"blockheight={blockheight}"
             res = self._curs.execute(
                 f"SELECT * FROM block WHERE blockheight='{blockheight}';"
             )
         else:
             # blockheaderhash is not None
-            arg = f"blockheaderhash={blockheaderhash}"
             res = self._curs.execute(
                 f"SELECT * FROM block WHERE blockheaderhash='{blockheaderhash}';"
             )
@@ -239,7 +296,8 @@ class Db:
         res = self._curs.execute(
             f"SELECT id FROM peer WHERE host='{host}' and port='{port}';"
         )
-        return res.fetchone()[0]
+        peer_id = res.fetchone()[0]
+        return peer_id
 
     def save_peer_data(self, peer_id: int, data: dict):
         res = self._curs.execute(f"SELECT data from peer WHERE id='{peer_id}';")
@@ -297,7 +355,7 @@ class Db:
         if not self.get_node_state():
             self._curs.execute("INSERT INTO node_state (id) VALUES (1);")
             self._conn.commit()
-        res = self._curs.execute(f"SELECT * from node_state;")
+        res = self._curs.execute("SELECT * from node_state;")
         results = res.fetchall()
         assert len(results) == 1, "multiple rows in node_state table"
         result = results[0]
@@ -327,7 +385,7 @@ class Db:
             self._conn.commit()
 
     def get_node_state(self) -> Union[dict, None]:
-        res = self._curs.execute(f"SELECT * from node_state;")
+        res = self._curs.execute("SELECT * from node_state;")
         results = res.fetchall()
         if not results:
             return

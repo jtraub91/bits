@@ -655,6 +655,11 @@ def check_tx(tx_: bytes) -> bool:
     return True
 
 
+class Tx(bytes):
+    def dict(self):
+        pass
+
+
 def create_psbt(tx_: bytes, version: bytes = b"", b64encode: bool = False) -> bytes:
     """
     Create PSBT

@@ -19,6 +19,7 @@ import traceback
 from asyncio import StreamReader
 from asyncio import StreamWriter
 from collections import deque
+from ipaddress import ip_address
 from threading import Event
 from threading import Thread
 from typing import List
@@ -398,33 +399,14 @@ def parse_network_ip_addr(payload: bytes) -> dict:
     return {
         "time": int.from_bytes(payload[:4], "little"),
         "services": int.from_bytes(payload[4:12], "little"),
-        "ip_addr": parse_ip_addr(payload[12:28]),
+        "host": parse_ip_addr(payload[12:28]),
         "port": int.from_bytes(payload[28:], "big"),
     }
 
 
 def parse_ip_addr(ip_addr: bytes) -> str:
-    assert len(ip_addr) == 16, "ip_addr must be exactly 16 bytes"
-
-    if ip_addr[:12] == b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff":
-        # https://en.wikipedia.org/wiki/IPv6#IPv4-mapped_IPv6_addresses
-        ip_addr_str = "::ffff:"
-        for i, byte in enumerate(ip_addr[12:]):
-            ip_addr_str += str(byte)
-            if i != 3:
-                # last byte don't append "."
-                ip_addr_str += "."
-        return ip_addr_str
-
-    ip_addr_str = ""
-    for n in range(8):
-        nibble = ip_addr[2 * n : 2 * n + 2]
-        if nibble != b"\x00\x00":
-            ip_addr_str += nibble.hex().upper()
-        else:
-            if ip_addr_str[-2:] != "::":
-                ip_addr_str += ":"
-    return ip_addr_str
+    ip = ip_address(ip_addr)
+    return str(ip.ipv4_mapped) if ip.ipv4_mapped else str(ip.exploded)
 
 
 def addr_payload(count: int, addrs: List[bytes]) -> bytes:
@@ -485,28 +467,28 @@ class Peer:
         self.exit_event = Event()
 
     def __repr__(self):
-        return f"peer(id={self._id},host='{self.host}',port={self.port})"
+        if self._id:
+            return f"peer(id={self._id})"
+        return f"peer(host='{self.host}', port={self.port})"
 
     async def connect(self):
         reader, writer = await asyncio.open_connection(self.host, self.port)
-        log.info(f"connection opened to peer @ {self.host}:{self.port}")
+        log.info(f"connected {self}")
         self.reader = reader
         self.writer = writer
 
     async def close(self):
         self.writer.close()
         await self.writer.wait_closed()
-        log.info(f"closed socket connection to peer @ {self.host}:{self.port} ")
+        log.info(f"closed socket connection to {self}")
 
     async def recv_msg(self) -> Tuple[bytes, bytes, bytes]:
         """
         Read and deserialize message ( header + payload )
         """
         msg = b""
-        log.trace(f"peer {self._id} recv_msg: reading header...")
         while len(msg) != MSG_HEADER_LEN:
             msg += await self.reader.read(MSG_HEADER_LEN - len(msg))
-        log.trace(f"peer {self._id} recv_msg: header received")
 
         start_bytes = msg[:4]
         command = msg[4:16].rstrip(b"\x00")
@@ -515,12 +497,8 @@ class Peer:
 
         payload = b""
         if payload_size:
-            log.trace(f"peer {self._id} recv_msg: reading payload...")
             while len(payload) != payload_size:
                 payload += await self.reader.read(payload_size - len(payload))
-            log.trace(
-                f"peer {self._id} recv_msg: payload {len(payload)} bytes received"
-            )
 
         if checksum != bits.crypto.hash256(payload)[:4]:
             raise ValueError(
@@ -531,16 +509,14 @@ class Peer:
                 f"magic network bytes mismatch - {start_bytes} not equal to magic start bytes {self.magic_start_bytes}"
             )
         log.info(
-            f"read {len(start_bytes + command + payload)} bytes from peer @ {self.host}:{self.port}. command: {command}"
+            f"read {len(start_bytes + command + payload)} bytes from {self}. command: {command}"
         )
         self._last_recv_msg_time = time.time()
 
         return start_bytes, command, payload
 
     async def send_command(self, command: bytes, payload: bytes = b""):
-        log.info(
-            f"sending {command} and {len(payload)} payload bytes to peer @ {self.host}:{self.port}..."
-        )
+        log.info(f"sending {command} and {len(payload)} payload bytes to {self}...")
         self.writer.write(msg_ser(self.magic_start_bytes, command, payload))
         await self.writer.drain()
 
@@ -622,6 +598,7 @@ class Node:
             self.db.add_to_utxoset(
                 gb_deser["blockheaderhash"], genesis_coinbase_tx["txid"], 0
             )
+            self.db.add_tx(genesis_coinbase_tx["txid"], gb_deser["blockheaderhash"], 0)
             difficulty = bits.blockchain.difficulty(
                 bits.blockchain.target_threshold(
                     bytes.fromhex(gb_deser["nBits"])[::-1]
@@ -683,7 +660,8 @@ class Node:
 
     async def handle_addr_command(self, peer: Peer, command: bytes, payload: bytes):
         payload = parse_addr_payload(payload)
-        self.db.save_peer_data(peer._id, {"addr": payload})
+        self.db.save_peer_addrs(peer._id, payload["addrs"])
+        log.info(f"{len(payload['addrs'])} network addrs saved to db for {peer}")
 
     async def handle_inv_command(self, peer: Peer, command: bytes, payload: bytes):
         parsed_payload = parse_inv_payload(payload)
@@ -694,6 +672,9 @@ class Node:
 
         new_inventories = [inv for inv in inventories if inv not in peer_inventories]
         peer.inventories.extend(new_inventories)
+        log.info(
+            f"{len(new_inventories)} new inventories added for {peer}, total: {len(peer.inventories)}"
+        )
 
     async def handle_block_command(self, peer: Peer, command: bytes, payload: bytes):
         blockhash = bits.crypto.hash256(payload[:80]).hex()
@@ -716,6 +697,7 @@ class Node:
         peer.blocks.append(payload)
         if pending_getdata_request:
             peer._pending_getdata_requests.remove(pending_getdata_request)
+            peer.inventories.remove(pending_getdata_request)
         if pending_getblocks_request:
             peer._pending_getblocks_requests.remove(pending_getblocks_request)
 
@@ -738,21 +720,27 @@ class Node:
         payload = parse_ping_payload(payload)
         await peer.send_command(b"pong", ping_payload(payload["nonce"]))
 
-    async def connect_seeds(self):
+    async def connect_peers(self, peers: List[Peer]):
         """
-        Connect seeds as peers, and schedule outgoing peer recv loop task
+        Connect peers, and schedule outgoing peer recv loop task
+        Args:
+            peers: list[Peer], list of outgoing peers to connect to
         """
-        for seed in self.seeds:
-            host, port = seed.split(":")
-            port = int(port)
-            peer = Peer(host, port, self.network, self.datadir)
-            await peer.connect()
-            peer_id = self.db.save_peer(host, port)
+        for peer in peers:
+            try:
+                await asyncio.wait_for(peer.connect(), 3)
+            except asyncio.TimeoutError:
+                log.error(f"timeout trying to connect to {peer}.")
+                continue
+            peer_id = self.db.save_peer(peer.host, peer.port)
             peer._id = peer_id
             log.info(f"{peer} saved to db.")
-            await self.connect_to_peer(peer)
+            try:
+                await asyncio.wait_for(self.connect_to_peer(peer), 3)
+            except asyncio.TimeoutError:
+                log.error(f"timeout trying to complete connection handshake to {peer}")
+                continue
             self.peers.append(peer)
-
             asyncio.create_task(self.outgoing_peer_recv_loop(peer))
 
     async def connect_to_peer(self, peer: Peer):
@@ -760,7 +748,7 @@ class Node:
         Connect to peer by performing version / verack handshake
         https://developer.bitcoin.org/devguide/p2p_network.html#connecting-to-peers
         """
-        log.info(f"sending version message to peer @ {peer.host}:{peer.port}...")
+        log.info(f"sending version message to {peer}...")
 
         trans_sock = peer.writer.transport.get_extra_info("socket")
         local_host, local_port = trans_sock.getsockname()
@@ -799,7 +787,7 @@ class Node:
         """
         PEER_INACTIVITY_TIMEOUT = 5400  # 90 minutes
         while not peer.exit_event.is_set():
-            log.trace(f"peer {peer._id} outgoing_peer_recv_loop")
+            log.trace(f"{peer} outgoing_peer_recv_loop")
             try:
                 start_bytes, command, payload = await asyncio.wait_for(
                     peer.recv_msg(), int(msg_timeout)
@@ -807,29 +795,27 @@ class Node:
             except asyncio.TimeoutError:
                 if time.time() - peer._last_recv_msg_time > PEER_INACTIVITY_TIMEOUT:
                     peer.exit_event.set()
-                    log.info(
-                        f"peer inactivity timeout reached. peer {peer._id} exit event set."
-                    )
-                log.trace("peer recv_msg timeout.")
+                    log.info(f"peer inactivity timeout reached. {peer} exit event set.")
+                log.trace(f"{peer} recv_msg timeout.")
             else:
-                log.trace(
-                    f"appending {command} and payload from peer {peer._id} to message queue..."
-                )
                 self.message_queue.append((peer, command, payload))
             await asyncio.sleep(0)
-        log.info(f"exiting peer recv loop for peer @ {peer.host}:{peer.port}")
+        log.info(f"exiting peer recv loop for {peer}")
         await peer.close()
-        log.info(f"peer @ {peer.host}:{peer.port} socket is closed.")
+        log.info(f"{peer} socket is closed.")
+
+    def handle_incoming_peer(self):
+        return
 
     async def incoming_peer_server(self):
-        raise NotImplementedError()  # yet
+        server = await asyncio.start_server(self.handle_incoming_peer, "0.0.0.0", 10101)
+        async with server:
+            await server.serve_forever()
 
     async def message_handler_loop(self):
         while not self.exit_event.is_set():
             if self.message_queue:
-                log.trace("processing message...")
                 peer, command, payload = self.message_queue.popleft()
-                log.debug(f"scheduling handle_{command.decode('utf8')}_command...")
                 asyncio.create_task(self.handle_command(peer, command, payload))
             await asyncio.sleep(0)
         log.info("message handler loop exited.")
@@ -878,10 +864,17 @@ class Node:
                         f"bestblockheaderhash stored in node_state {node_state['bestblockheaderhash']} is not equal to the last block's header hash {last_block_index['blockheaderhash']}. This probably means that the utxoset update was interrupted during validation."
                     )
 
-        await self.connect_seeds()
+        seeds = []
+        for seed in self.seeds:
+            host, port = seed.split(":")
+            port = int(port)
+            peer = Peer(host, port, self.network, self.datadir)
+            seeds.append(peer)
+
+        await self.connect_peers(seeds)
         main_loop_task = asyncio.create_task(self.main_loop())
-        await self.message_handler_loop()
-        await main_loop_task
+        message_handler_loop_task = asyncio.create_task(self.message_handler_loop())
+        await asyncio.gather(message_handler_loop_task, main_loop_task)
 
     def run(self):
         asyncio.run(self.main())
@@ -906,6 +899,27 @@ class Node:
 
         # choose a peer as sync node
         sync_node = self.peers[0]
+
+        peer_addrs = self.db.get_peer_addrs(sync_node._id)
+        while not peer_addrs and not self.exit_event.is_set():
+            log.info("waiting for addrs...")
+            await asyncio.sleep(0.1)
+            peer_addrs = self.db.get_peer_addrs(sync_node._id)
+        log.info(f"received {len(peer_addrs)} addrs.")
+
+        # # connect to more outgoing peers
+        # for peer_addr in peer_addrs:
+        #     if self.exit_event.is_set():
+        #         break
+        #     peer = Peer(peer_addr["host"], peer_addr["port"], network=self.network, datadir=self.datadir)
+        #     log.debug(f"attempting to connect to {peer}...")
+        #     try:
+        #         await asyncio.wait_for(self.connect_peers([peer]), 3)
+        #     except asyncio.TimeoutError:
+        #         log.error("timeout reached ")
+
+        #     if len(self.peers) >= 10:
+        #         break
 
         # if blockchain is 144 blocks behind peer (~24 hr) enter ibd
         blockheight = self.db.get_blockchain_height()
@@ -988,7 +1002,6 @@ class Node:
                 )
                 # add to pending getdata requests, remove from inventories
                 sync_node._pending_getdata_requests.extend(msg_block_inventories)
-                [sync_node.inventories.remove(inv) for inv in msg_block_inventories]
                 await sync_node.send_command(
                     b"getdata", inv_payload(len(inventory_list), inventory_list)
                 )
@@ -1005,9 +1018,7 @@ class Node:
 
                 while sync_node.blocks and not self.exit_event.is_set():
                     # while we have blocks, process them
-                    log.trace("processing next block...")
                     block = sync_node.blocks.popleft()
-                    log.trace("block retrieved.")
                     try:
                         # accept_block(block) checks block independently via bits.blockchain.check_block
                         # continues with checks in context as new block, saves block to disk and writes
@@ -1137,6 +1148,9 @@ class Node:
     def get_blockchain_info(self) -> Union[dict, None]:
         return self.db.get_node_state()
 
+    def get_node_info(self) -> Union[dict, None]:
+        return self.db.get_node_state()
+
     def rebuild_index(self):
         # TODO: need to account for utxoset rebuild
         log.info("rebuilding index...")
@@ -1252,20 +1266,14 @@ class Node:
             ConnectBlockError: if error is thrown during full tx validation,
                 i.e. after block is saved to disk
         """
-        log.trace("check_block...")
         if not bits.blockchain.check_block(block, network=self.network):
             raise CheckBlockError("block failed context independent checks")
-        log.trace("check_block succeeded.")
 
         current_blockheight = self.db.get_blockchain_height()
         current_block = self.db.get_block(blockheight=current_blockheight)
 
         proposed_blockheight = current_blockheight + 1
-        log.trace(
-            f"parsing {len(block)} bytes for proposed block {proposed_blockheight}..."
-        )
         proposed_block = bits.blockchain.block_deser(block)
-        log.trace(f"proposed block {proposed_blockheight} parsed.")
 
         # check for duplicate hash in blockchain index
         if self.db.get_block(blockheaderhash=proposed_block["blockheaderhash"]):
@@ -1347,6 +1355,10 @@ class Node:
 
         # get total value spent by coinbase transaction
         coinbase_tx = current_block_data_dict["txns"][0]
+        self.db.add_tx(
+            coinbase_tx["txid"], current_block_data_dict["blockheaderhash"], 0
+        )
+
         coinbase_tx_txouts = coinbase_tx["txouts"]
         coinbase_tx_txouts_total_value = 0
         for txo in coinbase_tx_txouts:
@@ -1367,6 +1379,10 @@ class Node:
         # ... "tips" seems like an apt name
         miner_tips = 0
         for txn_i, txn in enumerate(current_block_data_dict["txns"][1:], start=1):
+            self.db.add_tx(
+                txn["txid"], current_block_data_dict["blockheaderhash"], txn_i
+            )
+
             log.trace(
                 f"validating tx {txn_i} of {len(current_block_data_dict['txns'][1:])} non-coinbase txns in new block {current_blockheight}..."
             )
