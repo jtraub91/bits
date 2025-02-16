@@ -332,6 +332,43 @@ def block_deser(block: bytes) -> dict:
     return header_dict | {"txns": txns}
 
 
+def check_block_header(block_header: bytes, network: str = "mainnet") -> bool:
+
+    block_header_dict = block_header_deser(block_header)
+    if block_header_dict["nTime"] > time.time() + 7200:
+        log.error("block nTime is too far in the future")
+        return False
+
+    # validate nBits is below max
+    target = target_threshold(bytes.fromhex(block_header_dict["nBits"])[::-1])
+    if network.lower() == "mainnet" or network.lower() == "testnet":
+        if target > bits.constants.MAX_TARGET:
+            log.error(
+                f"target {hex(target)} greater than max {hex(bits.constants.MAX_TARGET)}"
+            )
+            return False
+
+    elif network.lower() == "regtest":
+        if target > bits.constants.MAX_TARGET_REGTEST:
+            log.error(
+                f"target {hex(target)} greater than max {hex(bits.constants.MAX_TARGET_REGTEST)}"
+            )
+            return False
+    else:
+        raise ValueError(f"unrecognized network: {network}")
+
+    # check POW - hash of block header is less than target threshold claimed by nBits
+    blockhash = bits.crypto.hash256(block_header)[::-1].hex()
+    target = target_threshold(bytes.fromhex(block_header_dict["nBits"])[::-1])
+    if int.from_bytes(bytes.fromhex(blockhash), "big") >= target:
+        log.error(
+            f"POW not satisfied, {blockhash} > {int.to_bytes(target, 32, 'big').hex()}"
+        )
+        return False
+
+    return True
+
+
 def check_block(block: bytes, network: str = "mainnet") -> bool:
     """
     Performs several block validation checks that are independent of context

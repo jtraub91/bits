@@ -1335,7 +1335,8 @@ def main():
             # reindex=args.reindex,
         )
         if args.info:
-            print(json.dumps(p2p_node.get_node_info()))
+            node_info = p2p_node.get_node_info()
+            print(json.dumps(node_info))
             return
         p2p_node.start()
 
