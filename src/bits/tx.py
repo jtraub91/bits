@@ -3,9 +3,7 @@ Utilities for transactions
 
 https://developer.bitcoin.org/reference/transactions.html
 """
-import base64
 import logging
-import time
 from typing import List, Optional, Tuple, Union
 
 import bits.constants
@@ -13,7 +11,6 @@ import bits.crypto
 import bits.keys
 import bits.script.constants
 from bits.bips import bip143
-from bits.bips import bip173
 
 log = logging.getLogger(__name__)
 
