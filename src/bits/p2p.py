@@ -19,12 +19,12 @@ import traceback
 from asyncio import StreamReader, StreamWriter
 from collections import deque
 from ipaddress import ip_address
+from itertools import islice
 from threading import Event, Thread
 from typing import List, Optional, Tuple, Union
 
 import bits.crypto
-from bits.blockchain import Block
-from bits.blockchain import genesis_block
+from bits.blockchain import Block, Blockheader, genesis_block
 
 
 BITS_USER_AGENT = f"/bits:{bits.__version__}/"
@@ -475,10 +475,11 @@ class Peer:
 
         self.inventories = deque([])
         self.blocks = deque([])
-        self.headers = deque([])
+        self._header_queue = deque([])
         self.orphan_blocks = {}
         self._pending_getdata_requests = deque([])
         self._pending_getblocks_requests = deque([])
+        self._pending_getheaders_request = None
 
         self.exit_event = Event()
 
@@ -616,11 +617,11 @@ class Node:
         self.db = Db(self.index_db_filepath)
         if not block_dat_files:
             # if there are no dat files yet,
-            # write genesis block
+
+            # write genesis block to disk
             gb = genesis_block(network=self.network)
             self.save_block(gb)
-            gb_header_dict = bits.blockchain.block_header_deser(gb[:80])
-            self.db.save_blockheader(0, gb_header_dict)
+
             # update utxoset
             gb_deser = bits.blockchain.block_deser(gb)
             genesis_coinbase_tx = gb_deser["txns"][0]
@@ -642,7 +643,7 @@ class Node:
                 height=blockheight,
                 bestblockheaderhash=block_index["blockheaderhash"],
                 time=block_index["nTime"],
-                mediantime=self.median_time(),
+                mediantime=block_index["nTime"],
             )
 
         self.message_queue = deque([])
@@ -725,8 +726,20 @@ class Node:
         )
 
     async def handle_headers_command(self, peer: Peer, command: bytes, payload: bytes):
-        blockheaderhashes = parse_headers_payload(payload)
-        peer.headers.extend(blockheaderhashes)
+        blockheaders = parse_headers_payload(payload)
+        blockheaders = [
+            Blockheader(blockheader) for blockheader in blockheaders
+        ]  # say that 10 times fast
+        if blockheaders:
+            first_blockheader = blockheaders[0]
+            if (
+                first_blockheader["prev_blockheaderhash"]
+                == peer._pending_getheaders_request
+            ):
+                peer._pending_getheaders_request = None
+
+        peer._header_queue.extend(blockheaders)
+        log.trace(f"{len(peer._header_queue)} blockheaders in queue for {peer}")
 
     async def handle_block_command(self, peer: Peer, command: bytes, payload: bytes):
         blockhash = bits.crypto.hash256(payload[:80]).hex()
@@ -784,6 +797,21 @@ class Node:
             peer_id = self.db.get_peer(peer.host, peer.port)
             if not peer_id:
                 peer_id = self.db.save_peer(peer.host, peer.port)
+                # save hardcoded genesis block to blockheader table for peer
+                genesis_blockheader = Blockheader(
+                    genesis_block(network=self.network)[:80]
+                )
+                self.db.save_blockheader(
+                    0,
+                    genesis_blockheader["blockheaderhash"],
+                    genesis_blockheader["version"],
+                    genesis_blockheader["prev_blockheaderhash"],
+                    genesis_blockheader["merkle_root_hash"],
+                    genesis_blockheader["nTime"],
+                    genesis_blockheader["nBits"],
+                    genesis_blockheader["nNonce"],
+                    peer_id,
+                )
                 log.info(f"{peer} saved to db.")
             peer._id = peer_id
             try:
@@ -945,22 +973,17 @@ class Node:
 
         blockheight = self.db.get_blockchain_height()
         sync_node_version_data = self.db.get_peer_data(sync_node._id, "version")
-
-        best_header_height = self.db.get_best_blockheader_height()
-        # while best_header_height < sync_node_version_data["start_height"]:
-        best_header = self.db.get_blockheader(best_header_height)
-        await sync_node.send_command(
-            b"getheaders",
-            getblocks_payload([bytes.fromhex(best_header["blockheaderhash"])[::-1]]),
-        )
+        self.sync_node_start_height = sync_node_version_data["start_height"]
 
         # if blockchain is 144 blocks behind peer (~24 hr) enter ibd
         if sync_node_version_data["start_height"] - blockheight > 144:
             log.info(
-                f"local blockchain is behind sync node @ {sync_node.host}:{sync_node.port} by {sync_node_version_data['start_height'] - blockheight} blocks. Entering IBD..."
+                f"local blockchain is behind sync node {sync_node} by {sync_node_version_data['start_height'] - blockheight} blocks. Entering IBD..."
             )
-            ibd_task = asyncio.create_task(self.ibd(sync_node))
-            tasks.append(ibd_task)
+            headers_sync_task = asyncio.create_task(self.headers_sync(sync_node))
+            tasks.append(headers_sync_task)
+            # ibd_task = asyncio.create_task(self.ibd(sync_node))
+            # tasks.append(ibd_task)
 
         message_handler_loop_task = asyncio.create_task(self.message_handler_loop())
         # main_loop_task = asyncio.create_task(self.main_loop())
@@ -1056,6 +1079,116 @@ class Node:
         self.exit_event.set()
         log.info("node exit event set")
 
+    async def headers_sync(self, peer: Peer):
+        """
+        Headers first sync
+        """
+        peer_version_data = self.db.get_peer_data(peer._id, "version")
+        peer_start_height = peer_version_data["start_height"]
+
+        current_blockheaders = self.db.get_blockheaders(peer._id)
+        current_blockheader_height = self.db._curs.execute(
+            f"SELECT blockheight FROM blockheader WHERE peer_id='{peer._id}' ORDER BY blockheight DESC LIMIT 1;"
+        ).fetchone()[0]
+        while (
+            current_blockheader_height < peer_start_height
+            and not self.exit_event.is_set()
+        ):
+
+            best_blockheaderhash = self.db._curs.execute(
+                f"SELECT blockheaderhash FROM blockheader WHERE peer_id='{peer._id}' ORDER BY blockheight DESC LIMIT 1"
+            ).fetchone()[0]
+            peer._pending_getheaders_request = best_blockheaderhash
+            await peer.send_command(
+                b"getheaders",
+                getblocks_payload([bytes.fromhex(best_blockheaderhash)[::-1]]),
+            )
+            while peer._pending_getheaders_request and not self.exit_event.is_set():
+                await asyncio.sleep(0)
+
+            self.db._curs.execute("BEGIN TRANSACTION;")
+            while peer._header_queue and not self.exit_event.is_set():
+                current_blockheader_height = self.db._curs.execute(
+                    f"SELECT blockheight FROM blockheader WHERE peer_id='{peer._id}' ORDER BY blockheight DESC LIMIT 1;"
+                ).fetchone()[0]
+                current_blockheader_dict = self.db.get_blockheader(
+                    peer._id, blockheight=current_blockheader_height
+                )
+
+                next_blockheader = peer._header_queue.popleft()
+                next_blockheader_height = current_blockheader_height + 1
+
+                if not bits.blockchain.check_blockheader(
+                    next_blockheader, network=self.network
+                ):
+                    raise CheckBlockError(
+                        f"blockheader {next_blockheader['blockheaderhash']} check failed"
+                    )
+
+                if next_blockheader["blockheaderhash"] in current_blockheaders:
+                    raise AcceptBlockError(
+                        f"next blockheader hash {next_blockheader['blockheaderhash']} already found in current blockheaders"
+                    )
+
+                if (
+                    next_blockheader["prev_blockheaderhash"]
+                    != current_blockheader_dict["blockheaderhash"]
+                ):
+                    raise AcceptBlockError(
+                        f"next blockheader {next_blockheader['blockheaderhash']} prev blockheader hash ({next_blockheader['prev_blockheaderhash']}) does not match current blockheader hash ({current_blockheader_dict['blockheaderhash']})"
+                    )
+
+                # TODO: check nbits is set correctly
+                # if next_blockheader["nBits"] not in next_nbits_set:
+                #     raise AcceptBlockError(
+                #         f"next blockheader {next_blockheader['blockheaderhash']} nBits {next_blockheader['nBits']} is not in {next_nbits_set}"
+                #     )
+
+                _query_results = self.db._curs.execute(
+                    f"SELECT nTime FROM blockheader WHERE peer_id='{peer._id}' ORDER BY blockheight DESC LIMIT 11;"
+                ).fetchall()
+                last_11_times = [result[0] for result in _query_results]
+                median_time_ = bits.blockchain.median_time(last_11_times)
+                if next_blockheader["nTime"] <= median_time_:
+                    raise AcceptBlockError(
+                        f"next blockheader {next_blockheader['blockheaderhash']} nTime {next_blockheader['nTime']} is not strictly greater than the median time {median_time_}"
+                    )
+
+                current_time = time.time()
+                if next_blockheader["nTime"] > current_time + 7200:
+                    raise AcceptBlockError(
+                        f"next blockheader {next_blockheader['blockheaderhash']} nTime {next_blockheader['nTime']} is more than two hours in the future {current_time + 7200}"
+                    )
+
+                new_blockheader_dict = self.db.save_blockheader(
+                    next_blockheader_height,
+                    next_blockheader["blockheaderhash"],
+                    next_blockheader["version"],
+                    next_blockheader["prev_blockheaderhash"],
+                    next_blockheader["merkle_root_hash"],
+                    next_blockheader["nTime"],
+                    next_blockheader["nBits"],
+                    next_blockheader["nNonce"],
+                    peer._id,
+                    commit=False,
+                )
+                # current_blockheader is updated so that we have it in memory, without having to retrieve them again from sqlite
+                current_blockheaders[
+                    next_blockheader["blockheaderhash"]
+                ] = new_blockheader_dict
+                log.info(
+                    f"added blockheader {next_blockheader_height} to in-memory blockheader chain for {peer}"
+                )
+                await asyncio.sleep(0)
+            self.db._curs.execute("COMMIT;")
+            current_blockheader_height = self.db._curs.execute(
+                f"SELECT blockheight FROM blockheader WHERE peer_id='{peer._id}' ORDER BY blockheight DESC LIMIT 1;"
+            ).fetchone()[0]
+            log.info(
+                f"in-memory blockheaders committed to db. current blockheader height: {current_blockheader_height}"
+            )
+        log.info(f"headers_sync loop exit.")
+
     async def ibd(self, sync_node: Peer):
         """
         Initial Block Download
@@ -1065,8 +1198,6 @@ class Node:
         """
         self._ibd = True
 
-        sync_node_version_data = self.db.get_peer_data(sync_node._id, "version")
-        self.sync_node_start_height = sync_node_version_data["start_height"]
         while (
             self.sync_node_start_height > self.db.get_blockchain_height()
             and not self.exit_event.is_set()
@@ -1286,7 +1417,13 @@ class Node:
         node_state = self.db.get_node_state()
         peers = self.db.get_peers()
         # pop off peer addrs info
-        [peer.pop("addrs") for peer in peers]
+        for peer in peers:
+            addrs = peer.pop("addrs")
+            peer["addrs"] = len(addrs)
+            num_blockheaders = self.db._curs.execute(
+                f"SELECT COUNT(*) FROM blockheader WHERE peer_id={peer['id']};"
+            ).fetchone()[0]
+            peer["blockheaders"] = num_blockheaders
         return {"running": node_state.pop("running"), "peers": peers}
 
     def rebuild_index(self):
@@ -1439,9 +1576,14 @@ class Node:
             )
 
         # ensure timestamp is strictly greater than the median_time of last 11 blocks
-        if proposed_block["nTime"] <= self.median_time():
+        last_11_blocks = [
+            self.db.get_block(current_blockheight - i)
+            for i in range(min(current_blockheight + 1, 11))
+        ]
+        median_time = bits.blockchain.median_time(last_11_blocks)
+        if proposed_block["nTime"] <= median_time:
             raise AcceptBlockError(
-                f"proposed block nTime {proposed_block['nTime']} is not strictly greater than the median time {self.median_time()}"
+                f"proposed block nTime {proposed_block['nTime']} is not strictly greater than the median time {median_time}"
             )
         # ensure timestamp is not more than two hours in future
         current_time = time.time()
@@ -1642,6 +1784,10 @@ class Node:
         log.debug(
             f"validated all of {len(current_block_data_dict['txns'])} txns in block {current_blockheight}."
         )
+        last_11_blocks = [
+            self.db.get_block(current_blockheight - i)
+            for i in range(min(current_blockheight + 1, 11))
+        ]
         self.db.save_node_state(
             progress=current_blockheight / self.sync_node_start_height,
             difficulty=bits.blockchain.difficulty(
@@ -1652,7 +1798,7 @@ class Node:
             height=current_blockheight,
             bestblockheaderhash=current_block["blockheaderhash"],
             time=current_block["nTime"],
-            mediantime=self.median_time(),
+            mediantime=bits.blockchain.median_time(last_11_blocks),
             commit=False,
         )
         self.db._curs.execute(
@@ -1735,27 +1881,6 @@ class Node:
             else:
                 return set([new_target_nbits])
 
-    def median_time(self):
-        """
-        Return the median time of the last 11 blocks
-        """
-        current_blockheight = self.db.get_blockchain_height()
-        if current_blockheight == 0:
-            block_index_data = self.db.get_block(current_blockheight)
-            return block_index_data["nTime"]
-        times = []
-        for i in range(min(current_blockheight, 11)):
-            block_index_data = self.db.get_block(current_blockheight - i)
-            t = block_index_data["nTime"]
-            times.append(t)
-        times = sorted(times)
-        if len(times) % 2:
-            # odd
-            median = times[len(times) // 2]
-        else:
-            median = (times[len(times) // 2 - 1] + times[len(times) // 2]) // 2
-        return median
-
 
 class Db:
     def __init__(self, db_filepath: str):
@@ -1800,24 +1925,28 @@ class Db:
             """
             CREATE TABLE blockheader (
                 id INTEGER PRIMARY KEY,
-                blockheight INTEGER UNIQUE,
-                blockheaderhash TEXT UNIQUE,
+                blockheight INTEGER,
+
+                blockheaderhash TEXT,
                 version INTEGER,
                 prev_blockheaderhash TEXT,
                 merkle_root_hash TEXT,
                 nTime INTEGER,
                 nBits TEXT,
-                nNonce INTEGER
-            );
-        """
+                nNonce INTEGER,
+
+                peer_id INTEGER,
+                FOREIGN KEY(peer_id) REFERENCES peer(id)
+            )
+            """
         )
         self._conn.commit()
         self._curs.execute(
-            "CREATE INDEX blockheader_blockheight_index ON blockheader(blockheight);"
+            "CREATE INDEX blockheader_blockheaderhash_index ON blockheader(blockheaderhash, peer_id);"
         )
         self._conn.commit()
         self._curs.execute(
-            "CREATE INDEX blockheader_blockhash_index ON blockheader(blockheaderhash);"
+            "CREATE INDEX blockheader_blockheight_index ON blockheader(blockheight, peer_id);"
         )
         self._conn.commit()
         self._curs.execute(
@@ -1901,18 +2030,23 @@ class Db:
         )
         self._conn.commit()
 
-    def save_blockheader(self, blockheight: int, header: dict):
-        blockheaderhash = header["blockheaderhash"]
-        version = header["version"]
-        prev_blockheaderhash = header["prev_blockheaderhash"]
-        merkle_root_hash = header["merkle_root_hash"]
-        nTime = header["nTime"]
-        nBits = header["nBits"]
-        nNonce = header["nNonce"]
+    def save_blockheader(
+        self,
+        blockheight: int,
+        blockheaderhash: str,
+        version: int,
+        prev_blockheaderhash: str,
+        merkle_root_hash: str,
+        nTime: int,
+        nBits: str,
+        nNonce: int,
+        peer_id: int,
+        commit: bool = True,
+    ) -> dict:
         self._curs.execute(
             f"""
             INSERT INTO blockheader (
-                blockheight, blockheaderhash, version, prev_blockheaderhash, merkle_root_hash, nTime, nBits, nNonce
+                blockheight, blockheaderhash, version, prev_blockheaderhash, merkle_root_hash, nTime, nBits, nNonce, peer_id
             ) VALUES (
                 {blockheight},
                 '{blockheaderhash}',
@@ -1921,28 +2055,60 @@ class Db:
                 '{merkle_root_hash}',
                 {nTime},
                 '{nBits}',
-                {nNonce}
+                {nNonce},
+                {peer_id}
             );
         """
         )
-        self._conn.commit()
+        if commit:
+            self._conn.commit()
+        new_blockheader_dict = self.get_blockheader(peer_id, blockheight=blockheight)
+        return new_blockheader_dict
 
-    def get_best_blockheader_height(self) -> int:
+    def get_blockheaders(self, peer_id: int) -> dict[str, dict]:
+        """
+        Get blockheaders for a peer from db
+        Returns:
+            dict, map of blockheaderhash key to blockheader data, ordered by blockheight, ascending
+                {
+                    <blockheaderhash: str>: <blockheader: dict>,
+                    ...
+                }
+        """
         res = self._curs.execute(
-            "SELECT blockheight FROM blockheader ORDER BY blockheight DESC LIMIT 1;"
+            f"SELECT * FROM blockheader WHERE peer_id='{peer_id}' ORDER BY blockheight ASC;"
         )
-        return res.fetchone()[0]
+        results = res.fetchall()
+        return {
+            result[2]: {
+                "id": int(result[0]),
+                "blockheight": int(result[1]),
+                "blockheaderhash": result[2],
+                "version": int(result[3]),
+                "prev_blockheaderhash": result[4],
+                "merkle_root_hash": result[5],
+                "nTime": int(result[6]),
+                "nBits": result[7],
+                "nNonce": int(result[8]),
+                "peer_id": int(result[9]),
+            }
+            for result in results
+        }
 
     def get_blockheader(
-        self, blockheight: Optional[int] = None, blockheaderhash: Optional[str] = None
-    ):
+        self,
+        peer_id: int,
+        blockheight: Optional[int] = None,
+        blockheaderhash: Optional[str] = None,
+    ) -> Union[dict, None]:
         """
-        Get the blockheader data from index db i.e. header-chain
+        Get the blockheader row data, as a dictionary, from the db
 
         NOTE: only 1 of blockheight or blockheaderhash can be provided as argument,
             but not both, or else ValueError will be thrown
 
         Args:
+            peer_id: int, peer id that this blockheader is associated with
             blockheight: int, blockheight
             blockheaderhash: str, blockheaderhash
         Returns:
@@ -1957,17 +2123,18 @@ class Db:
             raise ValueError("blockheight or blockheaderhash must be provided")
         elif blockheight is not None:
             res = self._curs.execute(
-                f"SELECT * FROM blockheader WHERE blockheight='{blockheight}';"
+                f"SELECT * FROM blockheader WHERE blockheight='{blockheight}' AND peer_id='{peer_id}';"
             )
         else:
             # blockheaderhash is not None
             res = self._curs.execute(
-                f"SELECT * FROM blockheader WHERE blockheaderhash='{blockheaderhash}';"
+                f"SELECT * FROM blockheader WHERE blockheaderhash='{blockheaderhash}' AND peer_id='{peer_id}';"
             )
 
         result = res.fetchone()
         return (
             {
+                "id": int(result[0]),
                 "blockheight": int(result[1]),
                 "blockheaderhash": result[2],
                 "version": int(result[3]),
@@ -1976,6 +2143,7 @@ class Db:
                 "nTime": int(result[6]),
                 "nBits": result[7],
                 "nNonce": int(result[8]),
+                "peer_id": int(result[9]),
             }
             if result
             else None

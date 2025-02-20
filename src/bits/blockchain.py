@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import time
-import typing
+from typing import List, Optional, Union
 
 import bits.constants
 import bits.crypto
@@ -14,6 +14,68 @@ import bits.script
 import bits.tx
 
 log = logging.getLogger(__name__)
+
+
+class Bytes(bytes):
+    def bin(self) -> str:
+        if bytes(self) == b"":
+            return ""
+        return format(int.from_bytes(self, "big"), f"0{len(self) * 8}b")
+
+
+class Block(Bytes):
+
+    _dict = None
+
+    def dict(self) -> dict:
+        if self._dict is None:
+            self._dict = block_deser(self)
+        return self._dict
+
+    def json(self, indent: int = None) -> str:
+        return json.dumps(self.dict(), indent=indent)
+
+
+class Blockheader(Bytes):
+    def __new__(cls, data, **kwargs):
+        if type(data) is bytes:
+            obj = super().__new__(cls, data, **kwargs)
+            obj._dict = None
+        elif type(data) is dict:
+            # keys that block_header() doesn't accept are ignored
+            bytes_data = block_header(
+                data["version"],
+                data["prev_blockheaderhash"],
+                data["merkle_root_hash"],
+                data["nTime"],
+                data["nBits"],
+                data["nNonce"],
+            )
+            obj = super().__new__(cls, bytes_data, **kwargs)
+            # set _dict to None to allow for re-deserialization
+            # so we have congruency between bytes/dict
+            # kinda hacky, but OK since header is only 80 bytes
+            obj._dict = None
+        return obj
+
+    def __getitem__(self, key: str):
+        if isinstance(key, (int, slice)):  # normal bytes behavior
+            return super().__getitem__(key)
+        return self.dict()[key]
+
+    def __getattr__(self, attr: str):
+        try:
+            self.dict()[attr]
+        except KeyError:
+            raise AttributeError(f"'Blockheader' object has no attribute '{attr}'")
+
+    def dict(self) -> dict:
+        if self._dict is None:
+            self._dict = block_header_deser(self)
+        return self._dict
+
+    def json(self, indent: int = None) -> str:
+        return json.dumps(self.dict(), indent=indent)
 
 
 def calculate_new_difficulty(elapsed_time: int, current_difficulty: float) -> float:
@@ -126,12 +188,18 @@ def target(diff: float, network: str = "mainnet") -> int:
         raise ValueError(f"unrecognized network: {network}")
 
 
+def work(target_: int) -> int:
+    # https://learnmeabitcoin.com/technical/blockchain/longest-chain/#chainwork
+    # https://bitcoin.stackexchange.com/a/26894/135678
+    return (2**256) // (target_ + 1)
+
+
 def block_header(
     version: int,
-    prev_blockheaderhash: bytes,
-    merkle_root_hash: bytes,
-    ntime: int,
-    nBits: bytes,
+    prev_blockheaderhash: str,
+    merkle_root_hash: str,
+    nTime: int,
+    nBits: str,
     nNonce: int,
 ) -> bytes:
     """
@@ -141,30 +209,30 @@ def block_header(
 
     Args:
         version: int, block version
-        prev_blockheaderhash: bytes, hash of previous block header
-        merkle_root_hash: bytes, merkle root hash
+        prev_blockheaderhash: str, hash of previous block header (rpc byte order)
+        merkle_root_hash: str, merkle root hash (rpc byte order)
         ntime: int, Unix epoch time
-        nBits: int, nBits encoding of target threshold
+        nBits: str, nBits encoding of target threshold (rpc byte order)
         nNonce: int, arbitrary number
     Returns:
         block header
 
-    >>> merkle_root_hash = bytes.fromhex("3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a")
-    >>> nBits = (0x1D00FFFF).to_bytes(4, "little")
-    >>> bits.crypto.hash256(block_header(1, bits.constants.NULL_32, merkle_root_hash, 1231006505, nBits, 2083236893)).hex()
-    '6fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000'
+    >>> merkle_root_hash = "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
+    >>> nBits = "1d00ffff"
+    >>> bits.crypto.hash256(block_header(1, bits.constants.NULL_32.hex(), merkle_root_hash, 1231006505, nBits, 2083236893))[::-1].hex()
+    '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f'
     """
     return (
         version.to_bytes(4, "little")
-        + prev_blockheaderhash
-        + merkle_root_hash
-        + ntime.to_bytes(4, "little")
-        + nBits
+        + bytes.fromhex(prev_blockheaderhash)[::-1]
+        + bytes.fromhex(merkle_root_hash)[::-1]
+        + nTime.to_bytes(4, "little")
+        + bytes.fromhex(nBits)[::-1]
         + nNonce.to_bytes(4, "little")
     )
 
 
-def merkle_root(txns: typing.List[bytes]) -> bytes:
+def merkle_root(txns: List[bytes]) -> bytes:
     """
     merkle root from a list of transaction ids
     https://developer.bitcoin.org/reference/block_chain.html#merkle-trees
@@ -272,17 +340,17 @@ def genesis_block(network: str = "mainnet") -> bytes:
     return block_ser(
         block_header(
             1,
-            bits.constants.NULL_32,
-            merkle_,
+            bits.constants.NULL_32[::-1].hex(),
+            merkle_[::-1].hex(),
             nTime,
-            nBits.to_bytes(4, "little"),
+            nBits.to_bytes(4, "big").hex(),
             nNonce,
         ),
         [coinbase_tx],
     )
 
 
-def block_ser(blk_hdr: bytes, txns: typing.List[bytes]) -> bytes:
+def block_ser(blk_hdr: bytes, txns: List[bytes]) -> bytes:
     return blk_hdr + bits.compact_size_uint(len(txns)) + b"".join(txns)
 
 
@@ -332,15 +400,20 @@ def block_deser(block: bytes) -> dict:
     return header_dict | {"txns": txns}
 
 
-def check_block_header(block_header: bytes, network: str = "mainnet") -> bool:
+def check_blockheader(blockheader: Blockheader, network: str = "mainnet") -> bool:
+    """
+    Checks blockheader for internal consisency (does not include context dependent checks)
+    Args:
+        blockheader: Blockheader
+        network: str
+    """
 
-    block_header_dict = block_header_deser(block_header)
-    if block_header_dict["nTime"] > time.time() + 7200:
+    if blockheader["nTime"] > time.time() + 7200:
         log.error("block nTime is too far in the future")
         return False
 
     # validate nBits is below max
-    target = target_threshold(bytes.fromhex(block_header_dict["nBits"])[::-1])
+    target = target_threshold(bytes.fromhex(blockheader["nBits"])[::-1])
     if network.lower() == "mainnet" or network.lower() == "testnet":
         if target > bits.constants.MAX_TARGET:
             log.error(
@@ -358,11 +431,11 @@ def check_block_header(block_header: bytes, network: str = "mainnet") -> bool:
         raise ValueError(f"unrecognized network: {network}")
 
     # check POW - hash of block header is less than target threshold claimed by nBits
-    blockhash = bits.crypto.hash256(block_header)[::-1].hex()
-    target = target_threshold(bytes.fromhex(block_header_dict["nBits"])[::-1])
-    if int.from_bytes(bytes.fromhex(blockhash), "big") >= target:
+    blockheaderhash = bits.crypto.hash256(blockheader)
+    target = target_threshold(bytes.fromhex(blockheader["nBits"])[::-1])
+    if int.from_bytes(blockheaderhash, "little") >= target:
         log.error(
-            f"POW not satisfied, {blockhash} > {int.to_bytes(target, 32, 'big').hex()}"
+            f"POW not satisfied, {blockheaderhash[::-1].hex()} > {int.to_bytes(target, 32, 'big').hex()}"
         )
         return False
 
@@ -450,17 +523,21 @@ def check_block(block: bytes, network: str = "mainnet") -> bool:
     return True
 
 
-class Block(bytes):
+def median_time(times: List[int]) -> int:
+    """
+    Return the median time
 
-    _dict = None
+    Consensus rules use the last 11 blocks to compute the median
 
-    def bin(self):
-        return format(int.from_bytes(self, "big"), f"0{len(self) * 8}b")
-
-    def dict(self) -> dict:
-        if not self._dict:
-            self._dict = block_deser(self)
-        return self._dict
-
-    def json(self, indent=None) -> str:
-        return json.dumps(self.dict(), indent=indent)
+    Args:
+        times: List[int], list of integer times
+    """
+    if len(times) == 1:
+        return times[0]
+    times = sorted(times)
+    if len(times) % 2:
+        # odd
+        median = times[len(times) // 2]
+    else:
+        median = (times[len(times) // 2 - 1] + times[len(times) // 2]) // 2
+    return median

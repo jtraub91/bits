@@ -6,7 +6,7 @@ https://developer.bitcoin.org/reference/transactions.html
 import base64
 import logging
 import time
-import typing
+from typing import List, Optional, Tuple, Union
 
 import bits.constants
 import bits.crypto
@@ -45,7 +45,7 @@ def txin(
     )
 
 
-def txin_deser(txin_: bytes) -> typing.Tuple[dict, bytes]:
+def txin_deser(txin_: bytes) -> Tuple[dict, bytes]:
     txid_ = txin_[:32]
     vout = txin_[32:36]
     scriptsig_len, txin_prime = bits.parse_compact_size_uint(txin_[36:])
@@ -68,7 +68,7 @@ def txout(value: int, script_pubkey: bytes) -> bytes:
     )
 
 
-def txout_deser(txout_: bytes) -> typing.Tuple[dict, bytes]:
+def txout_deser(txout_: bytes) -> Tuple[dict, bytes]:
     value = txout_[:8]
     scriptpubkey_len, txout_prime = bits.parse_compact_size_uint(txout_[8:])
     scriptpubkey = txout_prime[:scriptpubkey_len]
@@ -80,11 +80,11 @@ def txout_deser(txout_: bytes) -> typing.Tuple[dict, bytes]:
 
 
 def tx(
-    txins: typing.List[bytes],
-    txouts: typing.List[bytes],
+    txins: List[bytes],
+    txouts: List[bytes],
     version: int = 1,
     locktime: int = 0,
-    script_witnesses: typing.List[bytes] = [],
+    script_witnesses: List[bytes] = [],
 ) -> bytes:
     """
     Transaction serialization, optional SegWit per BIP 141
@@ -120,7 +120,29 @@ def txid(tx_: bytes) -> str:
     return bits.crypto.hash256(tx_)[::-1].hex()
 
 
-def tx_deser(tx_: bytes, include_raw: bool = False) -> typing.Tuple[dict, bytes]:
+def tx_ser(tx_: dict) -> bytes:
+    """
+    Serialize tx bytes from tx dict
+    """
+    return tx(
+        [
+            txin(
+                outpoint(bytes.fromhex(txin_["txid"]), txin_["vout"]),
+                bytes.fromhex(txin_["scriptsig"]),
+                sequence=txin_["sequence"].to_bytes(4, "little"),
+            )
+            for txin_ in tx_["txins"]
+        ],
+        [
+            txout(txout_["value"], bytes.fromhex(txout_["scriptpubkey"]))
+            for txout_ in tx_["txouts"]
+        ],
+        version=tx_["version"],
+        locktime=tx_["locktime"],
+    )
+
+
+def tx_deser(tx_: bytes, include_raw: bool = False) -> Tuple[dict, bytes]:
     """
     Deserialize tx data
     Args:
@@ -199,7 +221,7 @@ def tx_deser(tx_: bytes, include_raw: bool = False) -> typing.Tuple[dict, bytes]
 def coinbase_txin(
     coinbase_script: bytes,
     sequence: bytes = b"\xff\xff\xff\xff",
-    block_height: typing.Optional[int] = None,
+    block_height: Optional[int] = None,
 ) -> bytes:
     """
     Create coinbase txin
@@ -233,10 +255,10 @@ def coinbase_txin(
 def coinbase_tx(
     coinbase_script: bytes,
     script_pubkey: bytes,
-    block_reward: typing.Optional[int] = None,
-    block_height: typing.Optional[int] = None,
+    block_reward: Optional[int] = None,
+    block_height: Optional[int] = None,
     regtest: bool = False,
-    witness_merkle_root_hash: typing.Optional[bytes] = None,
+    witness_merkle_root_hash: Optional[bytes] = None,
 ) -> bytes:
     """
     Create coinbase transaction by supplying arbitrary transaction input coinbase
@@ -296,9 +318,9 @@ def coinbase_tx(
 def send_tx(
     sender_addr: bytes,
     recipient_addr: bytes,
-    change_addr: typing.Optional[bytes] = None,
-    sender_keys: typing.List[bytes] = [],
-    sighash_flag: typing.Optional[int] = None,
+    change_addr: Optional[bytes] = None,
+    sender_keys: List[bytes] = [],
+    sighash_flag: Optional[int] = None,
     send_fraction: float = 1.0,
     miner_fee: int = 1000,
     version: int = 1,
@@ -548,7 +570,7 @@ def send_tx(
     return tx_
 
 
-def is_final(tx_: typing.Union[bytes, dict], blockheight: int, blocktime: int) -> bool:
+def is_final(tx_: Union[bytes, dict], blockheight: int, blocktime: int) -> bool:
     """
     Check if tx is final based on locktime and the blockheight / blocktime of the block
         it is contained in
@@ -574,7 +596,7 @@ def is_final(tx_: typing.Union[bytes, dict], blockheight: int, blocktime: int) -
     return True
 
 
-def assert_coinbase(tx_: typing.Union[bytes, dict]) -> bool:
+def assert_coinbase(tx_: Union[bytes, dict]) -> bool:
     """
     Assert tx is a coinbase transaction
     Args:
@@ -601,7 +623,7 @@ def assert_coinbase(tx_: typing.Union[bytes, dict]) -> bool:
     return True
 
 
-def is_coinbase(tx_: typing.Union[bytes, dict], log_error: bool = False) -> bool:
+def is_coinbase(tx_: Union[bytes, dict], log_error: bool = False) -> bool:
     """
     Test whether transaction is a coinbase tx
     Args:
@@ -653,11 +675,6 @@ def check_tx(tx_: bytes) -> bool:
                 log.error("prev outpoint is null")
                 return False
     return True
-
-
-class Tx(bytes):
-    def dict(self):
-        pass
 
 
 def create_psbt(tx_: bytes, version: bytes = b"", b64encode: bool = False) -> bytes:

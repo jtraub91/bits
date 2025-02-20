@@ -1366,7 +1366,7 @@ def main():
                 # else a blockheight
                 block_index_data = node.db.get_block(blockheight=int(args.block))
             if not block_index_data:
-                log.error(f"no index data found for block {args.blockheight}")
+                log.error(f"no index data found for block {args.block}")
                 return
             if args.index:
                 print(json.dumps(block_index_data))
