@@ -14,7 +14,6 @@ import bits.keys
 import bits.script.constants
 from bits.bips import bip143
 from bits.bips import bip173
-from bits.bips import bip174
 
 log = logging.getLogger(__name__)
 
@@ -675,49 +674,3 @@ def check_tx(tx_: bytes) -> bool:
                 log.error("prev outpoint is null")
                 return False
     return True
-
-
-def create_psbt(tx_: bytes, version: bytes = b"", b64encode: bool = False) -> bytes:
-    """
-    Create PSBT
-    Args:
-        tx_: bytes, transaction in network serialization
-        version: bytes, PSBT version
-        b64encode: bool, encode the PSBT in base64 if True
-    Returns:
-        PSBT
-    """
-    global_map = bip174.keypair(bip174.PSBT_GLOBAL_UNSIGNED_TX, valuedata=tx_) + b"\x00"
-
-    input_map = b"\x00"
-    output_map = b"\x00"
-
-    psbt = bip174.PSBT_MAGIC_BYTES + global_map + input_map + output_map
-    return base64.b64encode(psbt) if b64encode else psbt
-
-
-def decode_psbt(psbt_: bytes):
-    magic = psbt_[:5]
-    assert magic == bip174.PSBT_MAGIC_BYTES, "magic mismatch, not a PSBT"
-
-    return
-
-
-def update_psbt():
-    return
-
-
-def sign_psbt():
-    return
-
-
-def combine_psbt():
-    return
-
-
-def input_finalize_psbt():
-    return
-
-
-def extract_transaction_psbt():
-    return
