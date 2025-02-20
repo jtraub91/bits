@@ -3,6 +3,7 @@ Utilities for transactions
 
 https://developer.bitcoin.org/reference/transactions.html
 """
+import base64
 import logging
 import typing
 
@@ -12,6 +13,7 @@ import bits.keys
 import bits.script.constants
 from bits.bips import bip143
 from bits.bips import bip173
+from bits.bips import bip174
 
 UINT32_MAX = 2**32 - 1
 
@@ -471,6 +473,7 @@ def send_tx(
             signatures = [bits.sig(key, msg, sighash_flag=sighash_flag) for key in keys]
 
         # form final scriptsig / witnesses
+        sender_witnesses = []
         if addr_types[0] == "p2pk":
             sender_scriptsig = bits.script.script([signatures[0].hex()])
             sender_witnesses = []
@@ -536,3 +539,49 @@ def send_tx(
             locktime=locktime,
         )
     return tx_
+
+
+def create_psbt(tx_: bytes, version: bytes = b"", b64encode: bool = False) -> bytes:
+    """
+    Create PSBT
+    Args:
+        tx_: bytes, transaction in network serialization
+        version: bytes, PSBT version
+        b64encode: bool, encode the PSBT in base64 if True
+    Returns:
+        PSBT
+    """
+    global_map = bip174.keypair(bip174.PSBT_GLOBAL_UNSIGNED_TX, valuedata=tx_) + b"\x00"
+
+    input_map = b"\x00"
+    output_map = b"\x00"
+
+    psbt = bip174.PSBT_MAGIC_BYTES + global_map + input_map + output_map
+    return base64.b64encode(psbt) if b64encode else psbt
+
+
+def decode_psbt(psbt_: bytes):
+    magic = psbt_[:5]
+    assert magic == bip174.PSBT_MAGIC_BYTES, "magic mismatch, not a PSBT"
+
+    return
+
+
+def update_psbt():
+    return
+
+
+def sign_psbt():
+    return
+
+
+def combine_psbt():
+    return
+
+
+def input_finalize_psbt():
+    return
+
+
+def extract_transaction_psbt():
+    return
