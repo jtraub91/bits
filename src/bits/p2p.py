@@ -7,19 +7,15 @@ https://en.bitcoin.it/wiki/Network
 https://en.bitcoin.it/wiki/Protocol_documentation
 """
 import asyncio
-import base64
-import binascii
 import json
 import logging
 import os
-import socket
 import sqlite3
 import time
 import traceback
 from asyncio import StreamReader, StreamWriter
 from collections import deque
 from ipaddress import ip_address
-from itertools import islice
 from threading import Event, Thread
 from typing import List, Optional, Tuple, Union
 
@@ -484,8 +480,6 @@ class Peer:
         self.exit_event = Event()
 
     def __repr__(self):
-        if self._id is not None:
-            return f"peer(id={self._id})"
         return f"peer(id={self._id}, host='{self.host}', port={self.port})"
 
     def get_data(self, refresh=False):
@@ -561,6 +555,8 @@ class Node:
         services: int = NODE_NETWORK,
         relay: bool = True,
         user_agent: bytes = BITS_USER_AGENT,
+        max_outgoing_peers: int = 10,
+        connection_timeout: int = 5,
     ):
         """
         bits P2P node
@@ -574,6 +570,8 @@ class Node:
             relay: bool
             user_agent: bytes
         """
+        self.max_outgoing_peers = max_outgoing_peers
+        self.connection_timeout = connection_timeout
         self.seeds = seeds
         datadir = os.path.expanduser(datadir)
         if not os.path.exists(datadir):
@@ -785,15 +783,24 @@ class Node:
         payload = parse_ping_payload(payload)
         await peer.send_command(b"pong", ping_payload(payload["nonce"]))
 
-    async def connect_peers(self, peers: List[Peer], timeout: int = 5):
+    async def connect_peers(self, peers: List[Peer], timeout: int = None):
         """
-        Connect peers, and schedule outgoing peer recv loop task
+        Connect peers and schedule tasks
         Args:
             peers: list[Peer], list of outgoing peers to connect to
+            timeout: Optional[int], connection timeout, defaults to self.connection_timeout
         """
+        if timeout is None:
+            timeout = self.connection_timeout
         for peer in peers:
+            if len(self.peers) >= self.max_outgoing_peers:
+                log.warning(
+                    f"connect_peers loop exit. max_outgoing_peers already reached"
+                )
+                break
             log.trace(f"connecting {peer}...")
             await asyncio.wait_for(peer.connect(), timeout)
+            log.info(f"connected to {peer}")
             peer_id = self.db.get_peer(peer.host, peer.port)
             if not peer_id:
                 peer_id = self.db.save_peer(peer.host, peer.port)
@@ -825,12 +832,17 @@ class Node:
                 log.info(f"{peer} removed from db")
             else:
                 version_data = connect_to_peer_task.result()
+                peer_timestamp = version_data.pop("timestamp")
+                log.debug(
+                    f"{peer} version payload timestamp: {peer_timestamp}. our current time: {int(time.time())}"
+                )
                 self.db.save_peer_data(peer._id, {"version": version_data})
                 log.info(f"version data for {peer} saved to db")
                 self.peers.append(peer)
-                log.info(f"{peer} added to connected peers")
                 asyncio.create_task(self.outgoing_peer_recv_loop(peer))
+                asyncio.create_task(self.headers_sync(peer))
                 asyncio.create_task(peer.send_command(b"getaddr"))
+                asyncio.create_task(self.process_addrs(peer))
 
     async def connect_to_peer(self, peer: Peer) -> dict:
         """
@@ -957,16 +969,28 @@ class Node:
         else:
             self.startup_checks()
 
-        seeds = []
-        for seed in self.seeds:
-            host, port = seed.split(":")
-            port = int(port)
-            peer = Peer(host, port, self.network, self.datadir)
-            seeds.append(peer)
+        # parse seeds into list of (host, port)
+        seed_addrs = [
+            (seed.split(":")[0], int(seed.split(":")[1])) for seed in self.seeds
+        ]
 
-        await self.connect_peers(seeds)
+        # gather peer addrs we've connected to before
+        formerly_connected_peer_addrs = [
+            (addr["host"], addr["port"]) for addr in self.db.get_peer_addrs(None)
+        ]
+        # peer_id None is implied to mean peer_addrs that our Node has actually connected to
 
-        tasks = []
+        former_peer_addr_candidates = list(
+            set(formerly_connected_peer_addrs) - set(seed_addrs)
+        )
+        peer_candidates = [
+            Peer(addr[0], addr[1], self.network, self.datadir)
+            for addr in seed_addrs + former_peer_addr_candidates
+        ]
+
+        await self.connect_peers(peer_candidates)
+        # connected peers have been appended to self.peers,
+        # headers_sync, outgoing_peer_recv_loop tasks created, etc.
 
         # choose a peer as sync node
         sync_node = self.peers[0]
@@ -980,88 +1004,50 @@ class Node:
             log.info(
                 f"local blockchain is behind sync node {sync_node} by {sync_node_version_data['start_height'] - blockheight} blocks. Entering IBD..."
             )
-            headers_sync_task = asyncio.create_task(self.headers_sync(sync_node))
-            tasks.append(headers_sync_task)
-            # ibd_task = asyncio.create_task(self.ibd(sync_node))
-            # tasks.append(ibd_task)
+            # asyncio.create_task(self.ibd(sync_node))
 
-        message_handler_loop_task = asyncio.create_task(self.message_handler_loop())
-        # main_loop_task = asyncio.create_task(self.main_loop())
+        asyncio.create_task(self.message_handler_loop())
 
-        tasks.extend(
-            [
-                message_handler_loop_task,
-                # main_loop_task,
-            ]
-        )
-
+        tasks = asyncio.all_tasks()
+        tasks.remove(asyncio.current_task())
         await asyncio.gather(*tasks)
         self.db.save_node_state(running=False)
 
-    async def main_loop(self):
-
-        MAX_OUTGOING_PEERS = 10
-        CONNECTION_TIMEOUT = 5
-
-        # first try to connect to peers we know
-
-        connected_peer_addrs = [(peer.host, peer.port) for peer in self.peers]
-        stored_peer_addrs = [
-            (addr["host"], addr["port"]) for addr in self.db.get_peer_addrs(None)
-        ]
-
-        former_peer_addr_candidates = list(
-            set(stored_peer_addrs) - set(connected_peer_addrs)
-        )
-        former_peer_candidates = [
-            Peer(addr[0], addr[1], self.network, self.datadir)
-            for addr in former_peer_addr_candidates
-        ]
-
-        for peer in former_peer_candidates:
-            if len(self.peers) >= 10:
-                break
-            log.debug(f"attempting connection to former {peer}...")
-            try:
-                await asyncio.wait_for(self.connect_peers([peer]), CONNECTION_TIMEOUT)
-            except Exception as err:
-                log.debug(f"connection attempt failed for former {peer} - {err}")
-            else:
-                log.info(
-                    f"{peer} connected. total outgoing peers connected: {len(self.peers)}"
-                )
-            await asyncio.sleep(0)
-
+    async def process_addrs(self, peer: Peer):
+        """
+        Process the addrs peer has received, by attempting to connect
+        """
         while not self.exit_event.is_set():
-            for peer in self.peers:
-                if peer._addrs:
-                    addr = peer._addrs.popleft()
-                    if len(self.peers) < 10:
-                        potential_peer = Peer(
-                            addr["host"], addr["port"], self.network, self.datadir
-                        )
-                        log.debug(f"attempting connection to {potential_peer}...")
-                        try:
-                            await asyncio.wait_for(
-                                self.connect_peers([potential_peer]), 5
-                            )
-                        except Exception as err:
-                            log.debug(
-                                f"connection attempt failed for {potential_peer} - {err}"
-                            )
-                            self.db.save_addr(addr, peer_id=peer._id)
-                        else:
-                            log.info(
-                                f"{potential_peer} connected. total outgoing peers connected: {len(self.peers)}"
-                            )
-                            self.db.save_addr(addr, peer_id=peer._id)
-                            addr["time"] = int(time.time())
-                            self.db.save_addr(addr)
-                    else:
-                        # if we're already at max outgoing peers, just save to db
+            if peer._addrs:
+                addr = peer._addrs.popleft()
+                if len(self.peers) < self.max_outgoing_peers:
+                    if (addr["host"], addr["port"]) in [
+                        (peer_.host, peer_.port) for peer_ in self.peers
+                    ]:
+                        # don't connect to peers we've already connected to
+                        # just save to db
                         self.db.save_addr(addr, peer_id=peer._id)
-                await asyncio.sleep(0)
+                        continue
+                    potential_peer = Peer(
+                        addr["host"], addr["port"], self.network, self.datadir
+                    )
+                    try:
+                        await self.connect_peers([potential_peer])
+                    except asyncio.TimeoutError as err:
+                        log.debug(f"failed to connect to {potential_peer} - {err}")
+                        self.db.save_addr(addr, peer_id=peer._id)
+                    else:
+                        log.info(
+                            f"connected to {potential_peer}. total outgoing connected peers: {len(self.peers)}"
+                        )
+                        self.db.save_addr(addr, peer_id=peer._id)
+                        addr["time"] = int(time.time())
+                        self.db.save_addr(addr)
+                else:
+                    # if we're already at max outgoing peers, just save to db
+                    self.db.save_addr(addr, peer_id=peer._id)
             await asyncio.sleep(0)
+        log.trace(f"process_addrs loop exit for {peer}")
 
     def run(self):
         asyncio.run(self.main())
@@ -1106,7 +1092,7 @@ class Node:
             while peer._pending_getheaders_request and not self.exit_event.is_set():
                 await asyncio.sleep(0)
 
-            self.db._curs.execute("BEGIN TRANSACTION;")
+            # self.db._curs.execute("BEGIN TRANSACTION;")
             while peer._header_queue and not self.exit_event.is_set():
                 current_blockheader_height = self.db._curs.execute(
                     f"SELECT blockheight FROM blockheader WHERE peer_id='{peer._id}' ORDER BY blockheight DESC LIMIT 1;"
@@ -1170,7 +1156,7 @@ class Node:
                     next_blockheader["nBits"],
                     next_blockheader["nNonce"],
                     peer._id,
-                    commit=False,
+                    # commit=False,
                 )
                 # current_blockheader is updated so that we have it in memory, without having to retrieve them again from sqlite
                 current_blockheaders[
@@ -1180,12 +1166,12 @@ class Node:
                     f"added blockheader {next_blockheader_height} to in-memory blockheader chain for {peer}"
                 )
                 await asyncio.sleep(0)
-            self.db._curs.execute("COMMIT;")
+            # self.db._curs.execute("COMMIT;")
             current_blockheader_height = self.db._curs.execute(
                 f"SELECT blockheight FROM blockheader WHERE peer_id='{peer._id}' ORDER BY blockheight DESC LIMIT 1;"
             ).fetchone()[0]
             log.info(
-                f"in-memory blockheaders committed to db. current blockheader height: {current_blockheader_height}"
+                f"in-memory blockheaders committed to db for {peer}. current blockheader height: {current_blockheader_height}"
             )
         log.info(f"headers_sync loop exit.")
 
@@ -1974,7 +1960,14 @@ class Db:
                 port INTEGER,
                 data TEXT,
                 addrs TEXT,
-                invs TEXT
+                invs TEXT,
+
+                protocol_version INTEGER,
+                services INTEGER,
+                user_agent TEXT,
+                start_height INTEGER,
+                feefilter_feerate INTEGER
+
             );
         """
         )

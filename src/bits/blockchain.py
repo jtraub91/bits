@@ -4,9 +4,8 @@ blockchain lulz :P
 import copy
 import json
 import logging
-import os
 import time
-from typing import List, Optional, Union
+from typing import List, Union
 
 import bits.constants
 import bits.crypto
@@ -17,45 +16,18 @@ log = logging.getLogger(__name__)
 
 
 class Bytes(bytes):
-    def bin(self) -> str:
-        if bytes(self) == b"":
-            return ""
-        return format(int.from_bytes(self, "big"), f"0{len(self) * 8}b")
-
-
-class Block(Bytes):
-
-    _dict = None
-
-    def dict(self) -> dict:
-        if self._dict is None:
-            self._dict = block_deser(self)
-        return self._dict
-
-    def json(self, indent: int = None) -> str:
-        return json.dumps(self.dict(), indent=indent)
-
-
-class Blockheader(Bytes):
     def __new__(cls, data, **kwargs):
-        if type(data) is bytes:
-            obj = super().__new__(cls, data, **kwargs)
-            obj._dict = None
-        elif type(data) is dict:
-            # keys that block_header() doesn't accept are ignored
-            bytes_data = block_header(
-                data["version"],
-                data["prev_blockheaderhash"],
-                data["merkle_root_hash"],
-                data["nTime"],
-                data["nBits"],
-                data["nNonce"],
-            )
+        _deserializer_fun = getattr(cls, "_deserializer_fun", None)
+        _serializer_fun = getattr(cls, "_serializer_fun", None)
+        if isinstance(data, dict):
+            bytes_data = _serializer_fun(**data)
             obj = super().__new__(cls, bytes_data, **kwargs)
-            # set _dict to None to allow for re-deserialization
-            # so we have congruency between bytes/dict
-            # kinda hacky, but OK since header is only 80 bytes
-            obj._dict = None
+            obj._dict = data
+        else:
+            obj = super().__new__(cls, data, **kwargs)
+            obj._dict = getattr(cls, "_dict", None)
+        obj._deserializer_fun = _deserializer_fun
+        obj._serializer_fun = _serializer_fun
         return obj
 
     def __getitem__(self, key: str):
@@ -67,15 +39,40 @@ class Blockheader(Bytes):
         try:
             self.dict()[attr]
         except KeyError:
-            raise AttributeError(f"'Blockheader' object has no attribute '{attr}'")
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{attr}'"
+            )
 
-    def dict(self) -> dict:
-        if self._dict is None:
-            self._dict = block_header_deser(self)
+    def bin(self) -> str:
+        if bytes(self) == b"":
+            return ""
+        return format(int.from_bytes(self, "big"), f"0{len(self) * 8}b")
+
+    def dict(self, refresh: bool = False) -> dict:
+        if self._dict is None or refresh:
+            if self._deserializer_fun is None:
+                raise RuntimeError(
+                    "Cannot deserialize. _deserializer_fun is not defined"
+                )
+            self._dict = self._deserializer_fun(self)
         return self._dict
 
     def json(self, indent: int = None) -> str:
         return json.dumps(self.dict(), indent=indent)
+
+
+class Block(Bytes):
+    def __new__(cls, data, **kwargs):
+        cls._deserializer_fun = block_deser
+        cls._serializer_fun = block_ser
+        return super().__new__(cls, data, **kwargs)
+
+
+class Blockheader(Bytes):
+    def __new__(cls, data, **kwargs):
+        cls._deserializer_fun = block_header_deser
+        cls._serializer_fun = block_header
+        return super().__new__(cls, data, **kwargs)
 
 
 def calculate_new_difficulty(elapsed_time: int, current_difficulty: float) -> float:
@@ -201,6 +198,7 @@ def block_header(
     nTime: int,
     nBits: str,
     nNonce: int,
+    **kwargs,
 ) -> bytes:
     """
     Create serialized block header from args
@@ -442,7 +440,7 @@ def check_blockheader(blockheader: Blockheader, network: str = "mainnet") -> boo
     return True
 
 
-def check_block(block: bytes, network: str = "mainnet") -> bool:
+def check_block(block: Union[Block, Bytes, bytes], network: str = "mainnet") -> bool:
     """
     Performs several block validation checks that are independent of context
 
@@ -452,11 +450,12 @@ def check_block(block: bytes, network: str = "mainnet") -> bool:
     inspiration https://github.com/bitcoin/bitcoin/blob/v0.2.13/main.cpp#L1280
 
     Args:
-        block: bytes, block data
+        block: Block, block data
         network: str, mainnet, testnet, or regtest
     Returns:
         bool, True if block is valid, else False
     """
+    block = Block(block)
     # check block size is less than MAX_BLOCK_SIZE
     if len(block) == 0:
         log.error("block is empty")
@@ -465,13 +464,12 @@ def check_block(block: bytes, network: str = "mainnet") -> bool:
         log.error("block is larger than MAX_SIZE")
         return False
 
-    block_dict = block_deser(block)
-    if block_dict["nTime"] > time.time() + 7200:
+    if block["nTime"] > time.time() + 7200:
         log.error("block nTime is too far in the future")
         return False
 
     # check that first transaction is coinbase tx
-    txns = block_dict["txns"]
+    txns = block["txns"]
     if len(txns) == 0:
         log.error("block has no transactions")
         return False
@@ -485,7 +483,7 @@ def check_block(block: bytes, network: str = "mainnet") -> bool:
             return False
 
     # validate nBits is below max
-    target = target_threshold(bytes.fromhex(block_dict["nBits"])[::-1])
+    target = target_threshold(bytes.fromhex(block["nBits"])[::-1])
     if network.lower() == "mainnet" or network.lower() == "testnet":
         if target > bits.constants.MAX_TARGET:
             log.error(
@@ -503,7 +501,7 @@ def check_block(block: bytes, network: str = "mainnet") -> bool:
 
     # check POW - hash of block header is less than target threshold claimed by nBits
     blockhash = bits.crypto.hash256(block[:80])[::-1].hex()
-    target = target_threshold(bytes.fromhex(block_dict["nBits"])[::-1])
+    target = target_threshold(bytes.fromhex(block["nBits"])[::-1])
     if int.from_bytes(bytes.fromhex(blockhash), "big") >= target:
         log.error(
             f"POW not satisfied, {blockhash} > {int.to_bytes(target, 32, 'big').hex()}"
@@ -512,11 +510,11 @@ def check_block(block: bytes, network: str = "mainnet") -> bool:
 
     # check merkle root matches transactions
     merkle_root_hash = merkle_root(
-        [bytes.fromhex(txn["txid"])[::-1] for txn in block_dict["txns"]]
+        [bytes.fromhex(txn["txid"])[::-1] for txn in block["txns"]]
     )[::-1].hex()
-    if block_dict["merkle_root_hash"] != merkle_root_hash:
+    if block["merkle_root_hash"] != merkle_root_hash:
         log.error(
-            f"merkle root hash {block_dict['merkle_root_hash']} does not match internal computation from block transactions  {merkle_root_hash}"
+            f"merkle root hash {block['merkle_root_hash']} does not match internal computation from block transactions  {merkle_root_hash}"
         )
         return False
 
