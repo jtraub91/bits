@@ -1,5 +1,5 @@
 [MESSAGES CONTROL]
-disable=C,R,W
+disable=C,R,W,E0606
 enable=W0611
 
 [REPORTS]

@@ -2,9 +2,7 @@
 bits cli
 """
 import argparse
-import functools
 import json
-import logging
 import os
 import secrets
 import signal
@@ -866,7 +864,7 @@ See "bits wif -h" for help on creating WIF-encoded keys.
 
     p2p_parser = sub_parser.add_parser("p2p", help="start p2p node")
     p2p_parser.add_argument(
-        "--info", action="store_true", default=False, help="get p2p node info"
+        "--info", "-I", action="store_true", default=False, help="get p2p node info"
     )
     p2p_parser.add_argument(
         "--seeds",
@@ -915,7 +913,11 @@ Examples:
         help="p2p node data directory",
     )
     block_parser.add_argument(
-        "--chain-info", action="store_true", default=False, help="get blockchain info"
+        "--chain-info",
+        "-I",
+        action="store_true",
+        default=False,
+        help="get blockchain info",
     )
     block_parser.add_argument(
         "--index", action="store_true", default=False, help="print index data for block"

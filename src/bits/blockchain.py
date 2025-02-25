@@ -64,7 +64,7 @@ class Bytes(bytes):
 class Block(Bytes):
     def __new__(cls, data, **kwargs):
         cls._deserializer_fun = block_deser
-        cls._serializer_fun = block_ser
+        cls._serializer_fun = block
         return super().__new__(cls, data, **kwargs)
 
 
@@ -75,27 +75,31 @@ class Blockheader(Bytes):
         return super().__new__(cls, data, **kwargs)
 
 
-def calculate_new_difficulty(elapsed_time: int, current_difficulty: float) -> float:
+def calculate_new_target(elapsed_time: int, current_target: int) -> int:
     """
-    Calculate the new difficulty for the next block
+    Calculate the new target for the next block
+
+    Uses integer math for precision
     Args:
         elapsed_time: int, time elapsed between first and last blocks of difficulty period
-        current_difficulty: float, current difficulty
+        current_target: int, current target threshold
     Returns:
-        new_difficulty: float, new difficulty
+        new_target: int, new target threshold
     """
-    target_time = 2016 * 10 * 60.0
+    target_time = 2016 * 10 * 60
     ratio = elapsed_time / target_time
 
     if ratio > 4:
-        ratio = 4
+        elapsed_time = 4
+        target_time = 1
     elif ratio < 0.25:
-        ratio = 0.25
+        elapsed_time = 1
+        target_time = 4
 
-    new_difficulty = current_difficulty / ratio
-    if new_difficulty < 1.0:
-        new_difficulty = 1.0
-    return new_difficulty
+    new_target = current_target * elapsed_time // target_time
+    if new_target > bits.constants.MAX_TARGET:
+        new_target = bits.constants.MAX_TARGET
+    return new_target
 
 
 def target_threshold(nBits: bytes) -> int:
@@ -141,6 +145,9 @@ def compact_nbits(target: int) -> bytes:
         target_bytes = target.to_bytes(32, "big")
         bytes_shifted += 1
     target >>= 29 * 8  # finally shift back 29 bytes to truncate
+    if target > 0x7FFFFF:
+        target >>= 8
+        bytes_shifted -= 1
     mantissa = target.to_bytes(
         3, "little"
     )  # take 3 bytes, little endian (internal byte order)
@@ -189,6 +196,25 @@ def work(target_: int) -> int:
     # https://learnmeabitcoin.com/technical/blockchain/longest-chain/#chainwork
     # https://bitcoin.stackexchange.com/a/26894/135678
     return (2**256) // (target_ + 1)
+
+
+def chainwork(work_: int) -> str:
+    """
+    Convert work to chainwork str representation
+    """
+    return work_.to_bytes(32, "big").hex()
+
+
+def new_chainwork(prev_chainwork: str, nbits_: str) -> str:
+    """
+    Calculate new chainwork from previous chainwork and new nbits
+    Args:
+        prev_chainwork: str, previous chainwork (big endian)
+        nbits_: str, nBits encoding of target threshold (big endian)
+    """
+    return chainwork(
+        int(prev_chainwork, 16) + work(target_threshold(bytes.fromhex(nbits_)[::-1]))
+    )
 
 
 def block_header(
@@ -348,7 +374,45 @@ def genesis_block(network: str = "mainnet") -> bytes:
     )
 
 
-def block_ser(blk_hdr: bytes, txns: List[bytes]) -> bytes:
+def block(
+    version: int,
+    prev_blockheaderhash: str,
+    merkle_root_hash: str,
+    nTime: int,
+    nBits: str,
+    nNonce: int,
+    txns: List[dict],
+    **kwargs,
+) -> bytes:
+    """
+    Create serialized block from args
+
+    Args:
+        version: int, block version
+        prev_blockheaderhash: str, hash of previous block header (big endian)
+        merkle_root_hash: str, merkle root hash (big endian)
+        ntime: int, Unix epoch time
+        nBits: str, nBits encoding of target threshold (big endian byte order)
+        nNonce: int, arbitrary number
+        txns: list[bytes], list of transaction dictionaries
+    Returns:
+        block
+
+    """
+    return block_ser(
+        block_header(
+            version,
+            prev_blockheaderhash,
+            merkle_root_hash,
+            nTime,
+            nBits,
+            nNonce,
+        ),
+        [bits.tx.tx(**txn) for txn in txns],
+    )
+
+
+def block_ser(blk_hdr: bytes, txns: List[bytes], **kwargs) -> bytes:
     return blk_hdr + bits.compact_size_uint(len(txns)) + b"".join(txns)
 
 
@@ -539,3 +603,12 @@ def median_time(times: List[int]) -> int:
     else:
         median = (times[len(times) // 2 - 1] + times[len(times) // 2]) // 2
     return median
+
+
+def block_reward(blockheight: int) -> int:
+    """
+    get the block reward for a given blockheight
+    """
+    reward = 50 * bits.constants.COIN
+    reward >>= int(blockheight / 210000)
+    return reward
