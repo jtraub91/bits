@@ -67,6 +67,12 @@ class Block(Bytes):
         cls._serializer_fun = block
         return super().__new__(cls, data, **kwargs)
 
+    def __getitem__(self, key: str):
+        if key == "blockheaderhash":
+            # just hash the first 80 bytes, instead of deserializing entire block
+            return bits.crypto.hash256(self[:80])[::-1].hex()
+        return super().__getitem__(key)
+
 
 class Blockheader(Bytes):
     def __new__(cls, data, **kwargs):

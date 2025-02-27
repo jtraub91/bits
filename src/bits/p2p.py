@@ -680,7 +680,7 @@ class Node:
 
         self.exit_event = Event()
 
-        self._thread_pool_executor = ThreadPoolExecutor(max_workers=1)
+        self._thread_pool_executor = ThreadPoolExecutor(max_workers=5)
 
     ### handlers ###
     def handle_feefilter_command(self, peer: Peer, command: bytes, payload: bytes):
@@ -702,7 +702,7 @@ class Node:
         parsed_payload = parse_inv_payload(payload)
         count = parsed_payload["count"]
         inventories = parsed_payload["inventory"]
-        log.trace(f"handling {count} inventories received from {peer}...")
+        log.debug(f"handling {count} inventories received from {peer}...")
         if self._ibd:
 
             non_msg_block_inventories = list(
@@ -746,6 +746,9 @@ class Node:
         block = Block(payload)
 
         self._block_processing_queue.append(block)
+        log.debug(
+            f"block {block['blockheaderhash']} from {peer} added to processing queue. total blocks in queue: {len(self._block_processing_queue)}"
+        )
 
         pending_getdata_request_match = next(
             filter(
@@ -922,9 +925,10 @@ class Node:
         log.info(f"exiting peer recv loop for {peer}")
         await peer.close()
         log.info(f"{peer} socket is closed.")
-        self.db._curs.execute("BEGIN TRANSACTION")
-        self.db._curs.execute(f"UPDATE peer SET is_connected=0 WHERE id={peer._id};")
-        self.db._curs.execute("COMMIT;")
+
+        self.db._conn.cursor().execute(
+            f"UPDATE peer SET is_connected=0 WHERE id={peer._id};"
+        )
         self.peers.remove(peer)
         log.info(f"{peer} removed from self.peers.")
 
@@ -965,6 +969,8 @@ class Node:
         number_of_blocks_on_disk = 0
         for dat_filename in dat_filenames:
             blocks = self.parse_dat_file(os.path.join(self.blocksdir, dat_filename))
+            if not blocks:
+                raise AssertionError(f"{dat_filename} is empty")
             last_block = blocks[-1]
             number_of_blocks_on_disk += len(blocks)
         number_of_blocks_in_index = self.db.count_blocks()
@@ -1379,8 +1385,9 @@ class Node:
             dat_file.close()
             # increment blkxxxxx.dat number by 1
             new_blk_no = int(filename.split(".dat")[0].split("blk")[-1]) + 1
-            filename = f"blk{new_blk_no.zfill(5)}.dat"
+            filename = f"blk{str(new_blk_no).zfill(5)}.dat"
             filepath = os.path.join(self.blocksdir, filename)
+            rel_path = os.path.relpath(filepath, start=self.datadir)
             dat_file = open(filepath, "wb")
             start_offset = 0
             dat_file.write(block_data)
@@ -2095,7 +2102,7 @@ class Db:
                 mediantime INTEGER,
 
                 best_blockheader_chain INTEGER,
-                FOREIGN KEY(best_blockheader_chain) REFERENCES blockheader(peer_id)
+                FOREIGN KEY(best_blockheader_chain) REFERENCES peer(id)
             );
         """
         )
