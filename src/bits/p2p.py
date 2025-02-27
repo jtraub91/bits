@@ -12,9 +12,9 @@ import logging
 import os
 import sqlite3
 import time
-import traceback
 from asyncio import StreamReader, StreamWriter
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from ipaddress import ip_address
 from threading import Event, Thread
 from typing import List, Optional, Tuple, Union
@@ -22,6 +22,7 @@ from typing import List, Optional, Tuple, Union
 import bits.blockchain
 import bits.crypto
 from bits.blockchain import Block, Blockheader, Bytes, genesis_block
+import bits.script
 
 
 BITS_USER_AGENT = f"/bits:{bits.__version__}/"
@@ -345,25 +346,14 @@ def parse_sendcmpct_payload(payload: bytes) -> dict:
 
 def parse_inv_payload(payload: bytes) -> dict:
     # count encoded as compact_size_uint
-    count = payload[0]
-    start_index = 1
-    if count == 253:
-        count = int.from_bytes(payload[1:3], "little")
-        start_index = 3
-    elif count == 254:
-        count = int.from_bytes(payload[1:5], "little")
-        start_index = 5
-    elif count == 255:
-        count = int.from_bytes(payload[1:9], "little")
-        start_index = 9
+    count, payload = bits.parse_compact_size_uint(payload)
     ret = {"count": count, "inventory": []}
-    inventory_len = 36
-    for _ in range(count):
+    INVENTORY_LEN = 36
+    for i in range(count):
         parsed_inventory = parse_inventory(
-            payload[start_index : start_index + inventory_len]
+            payload[i * INVENTORY_LEN : (i + 1) * INVENTORY_LEN]
         )
         ret["inventory"].append(parsed_inventory)
-        start_index += inventory_len
     return ret
 
 
@@ -374,10 +364,14 @@ def inventory(type_id: str, hash: str) -> bytes:
     """
     inventory data structure
     https://developer.bitcoin.org/glossary.html#term-Inventory
+    Args:
+        type_id: str, type of inventory item
+        hash: str, hash of inventory item (big endian)
     """
-    return int.to_bytes(
-        INVENTORY_TYPE_ID[type_id.upper()], 4, "little"
-    ) + bytes.fromhex(hash)
+    return (
+        int.to_bytes(INVENTORY_TYPE_ID[type_id.upper()], 4, "little")
+        + bytes.fromhex(hash)[::-1]
+    )
 
 
 def inv_payload(count: int, inventories: List[inventory]) -> bytes:
@@ -390,13 +384,21 @@ def inv_payload(count: int, inventories: List[inventory]) -> bytes:
     return bits.compact_size_uint(count) + b"".join(inventories)
 
 
-def parse_inventory(inventory_: bytes) -> dict:
+def parse_inventory(inventory_: bytes) -> dict[str, str]:
+    """
+    Parse inventory data structure
+    Returns:
+        {
+            "type_id": str, type of inventory item,
+            "hash": str, hash of inventory item (big endian)
+        }
+    """
     assert len(inventory_) == 36
     type_id_integer = int.from_bytes(inventory_[:4], "little")
     type_id = list(
         filter(lambda item: item[1] == type_id_integer, INVENTORY_TYPE_ID.items())
     )[0][0]
-    return {"type_id": type_id, "hash": inventory_[4:].hex()}
+    return {"type_id": type_id, "hash": inventory_[4:][::-1].hex()}
 
 
 def network_ip_addr(time: int, services: bytes, ip_addr: bytes, port: int) -> bytes:
@@ -478,12 +480,12 @@ class Peer:
         self._data = None
         self._addrs = deque([])
 
-        self.inventories = deque([])
-        self.blocks = deque([])
+        self.inventories = []
         self._header_queue = deque([])
         self.orphan_blocks = {}
         self._pending_getdata_requests = deque([])
         self._pending_getblocks_requests = deque([])
+        self._pending_getblocks_request = None
         self._pending_getheaders_request = None
 
         self.exit_event = Event()
@@ -667,6 +669,7 @@ class Node:
         self._unhandled_message_queue = deque([])
         self._ibd: bool = False
 
+        self._block_processing_queue = deque([])
         self._block_cache: dict[str, dict] = {}
         # block cache e.g.
         # {"<blockheaderhash": {"time": <time:int>, "data": <block:Block>}, ...}
@@ -677,31 +680,10 @@ class Node:
 
         self.exit_event = Event()
 
-    ### handlers ###
-    async def handle_command(self, peer: Peer, command: bytes, payload: dict):
-        handle_fn_name = f"handle_{command.decode('utf8')}_command"
-        handle_fn = getattr(self, handle_fn_name, None)
-        if handle_fn:
-            try:
-                await handle_fn(peer, command, payload)  # pylint: disable=not-callable
-            except Exception as err:
-                log.error(f"Error while handling {command}: {err.args}")
-                log.debug(traceback.format_exc())
-                log.debug(f"adding (peer, command, payload) to unhandled_message_queue")
-                self._unhandled_message_queue.append((peer, command, payload))
-                log.debug(
-                    f"there are {len(self._unhandled_message_queue)} messages in unhandled_message_queue"
-                )
-        else:
-            log.warning(
-                f"no handler {handle_fn_name} for {command}, saving to unhandled_message_queue"
-            )
-            self._unhandled_message_queue.append((peer, command, payload))
-            await asyncio.sleep(0)
+        self._thread_pool_executor = ThreadPoolExecutor(max_workers=1)
 
-    async def handle_feefilter_command(
-        self, peer: Peer, command: bytes, payload: bytes
-    ):
+    ### handlers ###
+    def handle_feefilter_command(self, peer: Peer, command: bytes, payload: bytes):
         payload = parse_feefilter_payload(payload)
         self.db.save_peer_data(peer._id, {"feefilter": payload})
         self.db._curs.execute(
@@ -709,14 +691,14 @@ class Node:
         )
         self.db._conn.commit()
 
-    async def handle_addr_command(self, peer: Peer, command: bytes, payload: bytes):
+    def handle_addr_command(self, peer: Peer, command: bytes, payload: bytes):
         payload = parse_addr_payload(payload)
         addrs = payload["addrs"]
         peer._addrs.extend(addrs)
         self.db.save_peer_addrs(peer._id, addrs)
         log.debug(f"{len(addrs)} network addrs to queue for {peer}")
 
-    async def handle_inv_command(self, peer: Peer, command: bytes, payload: bytes):
+    def handle_inv_command(self, peer: Peer, command: bytes, payload: bytes):
         parsed_payload = parse_inv_payload(payload)
         count = parsed_payload["count"]
         inventories = parsed_payload["inventory"]
@@ -730,7 +712,7 @@ class Node:
                 [inv["type_id"] for inv in non_msg_block_inventories]
             )
             log.trace(
-                f"ibd: {len(non_msg_block_inventories)} inventories of type(s) {non_msg_block_typeset} ignored for {peer}"
+                f"{len(non_msg_block_inventories)} inventories of type(s) {non_msg_block_typeset} ignored for {peer} during ibd"
             )
             inventories = list(
                 filter(lambda inv: inv["type_id"] == "MSG_BLOCK", inventories)
@@ -744,7 +726,7 @@ class Node:
             f"{len(new_inventories)} new inventories added for {peer}, total: {len(peer.inventories)}"
         )
 
-    async def handle_headers_command(self, peer: Peer, command: bytes, payload: bytes):
+    def handle_headers_command(self, peer: Peer, command: bytes, payload: bytes):
         blockheaders = parse_headers_payload(payload)
         blockheaders = [
             Blockheader(blockheader) for blockheader in blockheaders
@@ -760,34 +742,32 @@ class Node:
         peer._header_queue.extend(blockheaders)
         log.trace(f"{len(peer._header_queue)} blockheaders in queue for {peer}")
 
-    async def handle_block_command(self, peer: Peer, command: bytes, payload: bytes):
-        blockhash = bits.crypto.hash256(payload[:80]).hex()
-        block = bits.blockchain.block_deser(payload)
-        pending_getdata_request = next(
+    def handle_block_command(self, peer: Peer, command: bytes, payload: bytes):
+        block = Block(payload)
+
+        self._block_processing_queue.append(block)
+
+        pending_getdata_request_match = next(
             filter(
-                lambda inv: inv["type_id"] == "MSG_BLOCK" and inv["hash"] == blockhash,
+                lambda inv: inv["type_id"] == "MSG_BLOCK"
+                and inv["hash"] == block["blockheaderhash"],
                 peer._pending_getdata_requests,
             ),
             None,
         )
-        pending_getblocks_request = next(
-            # criteria for matching pending getblocks request
-            filter(
-                lambda bh: bh == block["prev_blockheaderhash"],
-                peer._pending_getblocks_requests,
-            ),
-            None,
-        )
-        peer.blocks.append(payload)
-        if pending_getdata_request:
-            peer._pending_getdata_requests.remove(pending_getdata_request)
-            peer.inventories.remove(pending_getdata_request)
-        if pending_getblocks_request:
-            peer._pending_getblocks_requests.remove(pending_getblocks_request)
 
-    async def handle_sendcmpct_command(
-        self, peer: Peer, command: bytes, payload: bytes
-    ):
+        if pending_getdata_request_match:
+            peer._pending_getdata_requests.remove(pending_getdata_request_match)
+            pending_getdata_request_match.pop("time")
+            peer.inventories.remove(pending_getdata_request_match)
+        if (
+            peer._pending_getblocks_request
+            and peer._pending_getblocks_request["blockheaderhash"]
+            == block["prev_blockheaderhash"]
+        ):
+            peer._pending_getblocks_request = None
+
+    def handle_sendcmpct_command(self, peer: Peer, command: bytes, payload: bytes):
         payload = parse_sendcmpct_payload(payload)
         self.db.save_peer_data(peer._id, {"sendcmpct": payload})
         self.db._curs.execute(
@@ -845,6 +825,7 @@ class Node:
                     bits.blockchain.new_chainwork("0", genesis_blockheader["nBits"]),
                     peer_id,
                 )
+                peer._id = peer_id
                 log.info(f"{peer} saved to db.")
             peer._id = peer_id
             try:
@@ -873,9 +854,9 @@ class Node:
                 self.db._conn.commit()
                 self.peers.append(peer)
                 asyncio.create_task(self.outgoing_peer_recv_loop(peer))
-                asyncio.create_task(self.headers_sync(peer))
+                # asyncio.create_task(self.headers_sync(peer))
                 asyncio.create_task(peer.send_command(b"getaddr"))
-                asyncio.create_task(self.process_addrs(peer))
+                # asyncio.create_task(self.process_addrs(peer))
 
     async def connect_to_peer(self, peer: Peer) -> dict:
         """
@@ -956,10 +937,23 @@ class Node:
             await server.serve_forever()
 
     async def message_handler_loop(self):
+        loop = asyncio.get_running_loop()
         while not self.exit_event.is_set():
             if self.message_queue:
                 peer, command, payload = self.message_queue.popleft()
-                asyncio.create_task(self.handle_command(peer, command, payload))
+                if command == b"ping":
+                    asyncio.create_task(
+                        self.handle_ping_command(peer, command, payload)
+                    )
+                elif command == b"getheaders":
+                    asyncio.create_task(
+                        self.handle_getheaders_command(peer, command, payload)
+                    )
+                else:
+                    handler = getattr(self, f"handle_{command.decode('utf8')}_command")
+                    await loop.run_in_executor(
+                        self._thread_pool_executor, handler, peer, command, payload
+                    )
             await asyncio.sleep(0)
         log.info("message handler loop exited.")
 
@@ -991,9 +985,11 @@ class Node:
                 )
             node_state = self.db.get_node_state()
             if node_state["bestblockheaderhash"] != last_block_index["blockheaderhash"]:
-                raise AssertionError(
+                log.warning(
                     f"bestblockheaderhash stored in node_state {node_state['bestblockheaderhash']} is not equal to the last block's header hash {last_block_index['blockheaderhash']}. This probably means that the utxoset update was interrupted during validation."
                 )
+                deleted_block = self.rollback_block()
+                log.info(f"deleted block {deleted_block['blockheaderhash']}")
 
     def run(self):
         asyncio.run(self.main(), debug=True)
@@ -1057,7 +1053,10 @@ class Node:
             log.info(
                 f"local blockchain is behind sync node {sync_node} by {sync_node_version_data['start_height'] - blockheight} blocks. Entering IBD..."
             )
-            asyncio.create_task(self.ibd(sync_node))
+            self._ibd = True
+            asyncio.create_task(self.request_block_inventories(sync_node))
+            asyncio.create_task(self.request_blocks(sync_node))
+            asyncio.create_task(self.process_blocks())
 
         asyncio.create_task(self.message_handler_loop())
 
@@ -1065,6 +1064,7 @@ class Node:
         tasks.remove(asyncio.current_task())
         await asyncio.gather(*tasks)
         self.db.save_node_state(running=False)
+        log.trace("main exit")
 
     async def process_addrs(self, peer: Peer):
         """
@@ -1134,7 +1134,6 @@ class Node:
             while peer._pending_getheaders_request and not self.exit_event.is_set():
                 await asyncio.sleep(0)
 
-            self.db._curs.execute("BEGIN TRANSACTION;")
             while peer._header_queue and not self.exit_event.is_set():
                 current_blockheader_height = self.db._curs.execute(
                     f"SELECT blockheight FROM blockheader WHERE peer_id='{peer._id}' ORDER BY blockheight DESC LIMIT 1;"
@@ -1202,7 +1201,6 @@ class Node:
                         current_blockheader_dict["chainwork"], next_blockheader["nBits"]
                     ),
                     peer._id,
-                    commit=False,
                 )
                 # current_blockheader is updated so that we have it in memory, without having to retrieve them again from sqlite
                 current_blockheaders[
@@ -1212,149 +1210,112 @@ class Node:
                     f"added blockheader {next_blockheader_height} to header chain for {peer}"
                 )
                 await asyncio.sleep(0)
-            self.db._curs.execute("COMMIT;")
             current_blockheader_height = self.db._curs.execute(
                 f"SELECT blockheight FROM blockheader WHERE peer_id='{peer._id}' ORDER BY blockheight DESC LIMIT 1;"
             ).fetchone()[0]
             log.debug(f"current blockheader height: {current_blockheader_height}")
         log.info(f"headers_sync loop exit.")
 
-    async def ibd(self, sync_node: Peer):
+    async def request_block_inventories(self, peer: Peer):
         """
-        Initial Block Download
-
-        blocks first method, for simplicity
-        https://developer.bitcoin.org/devguide/p2p_network.html#blocks-first
+        Request block inventories via 'getblocks' from peer, during IBD
         """
-        self._ibd = True
-        while (
-            self.sync_node_start_height > self.db.get_blockchain_height()
-            and not self.exit_event.is_set()
-        ):
-            self.db.save_node_state(
-                progress=self.db.get_blockchain_height() / self.sync_node_start_height,
-            )
-            # get latest blockhash from local blockchain
-            blockheight = self.db.get_blockchain_height()
-            block_index_data = self.db.get_block(blockheight)
-
-            await sync_node.send_command(
-                b"getblocks",
-                getblocks_payload(
-                    [bytes.fromhex(block_index_data["blockheaderhash"])[::-1]]
-                ),
-            )
-            sync_node._pending_getblocks_requests.append(
-                block_index_data["blockheaderhash"]
-            )
-
-            # expected inv response is min of 500
-            # or difference between sync_node start_height and local blockchain height
-            # wait until we have at least that many inventories
-            msg_block_inventories = list(
-                filter(lambda inv: inv["type_id"] == "MSG_BLOCK", sync_node.inventories)
-            )
-            while (
-                len(msg_block_inventories)
-                < min(500, self.sync_node_start_height - blockheight)
-                and not self.exit_event.is_set()
+        while self._ibd and not self.exit_event.is_set():
+            if (
+                not peer.inventories
+                and not self._block_processing_queue
+                and not peer._pending_getblocks_request
             ):
-                log.trace("waiting for inventories...")
-                await asyncio.sleep(0.1)
-                msg_block_inventories = list(
-                    filter(
-                        lambda inv: inv["type_id"] == "MSG_BLOCK", sync_node.inventories
-                    )
+                current_block_height = self.db.get_blockchain_height()
+                current_block_index_data = self.db.get_block(current_block_height)
+                peer._pending_getblocks_request = {
+                    "time": int(time.time()),
+                    "blockheaderhash": current_block_index_data["blockheaderhash"],
+                }
+                await peer.send_command(
+                    b"getblocks",
+                    getblocks_payload(
+                        [
+                            bytes.fromhex(current_block_index_data["blockheaderhash"])[
+                                ::-1
+                            ]
+                        ]
+                    ),
                 )
+            await asyncio.sleep(0)
+        log.trace("request_block_inventories loop exit")
 
-            while msg_block_inventories and not self.exit_event.is_set():
-                # while we have msg block inventories
-                # form getdata message in max 128 inventory chunks
-                if len(msg_block_inventories) > 128:
-                    msg_block_inventories = msg_block_inventories[:128]
+    async def request_blocks(self, peer: Peer):
+        """
+        Request blocks via 'getdata' from peer, during IBD
+        """
+        MAX_BLOCKS_IN_QUEUE = 128
+        while self._ibd and not self.exit_event.is_set():
+            if (
+                len(self._block_processing_queue) < MAX_BLOCKS_IN_QUEUE
+                and peer.inventories
+                and not peer._pending_getdata_requests
+            ):
                 inventory_list = [
                     inventory(inv["type_id"], inv["hash"])
-                    for inv in msg_block_inventories
+                    for inv in peer.inventories[
+                        : MAX_BLOCKS_IN_QUEUE - len(self._block_processing_queue)
+                    ]
                 ]
-                log.trace(
-                    f"requesting {len(inventory_list)} inventory blocks via getdata..."
-                )
-                # add to pending getdata requests, remove from inventories
-                sync_node._pending_getdata_requests.extend(msg_block_inventories)
-                await sync_node.send_command(
+                current_time = int(time.time())
+                requests = [
+                    {"time": current_time} | inv
+                    for inv in peer.inventories[
+                        : MAX_BLOCKS_IN_QUEUE - len(self._block_processing_queue)
+                    ]
+                ]
+                peer._pending_getdata_requests.extend(requests)
+                await peer.send_command(
                     b"getdata", inv_payload(len(inventory_list), inventory_list)
                 )
-
-                getdata_request_start = time.time()
-                while (
-                    sync_node._pending_getdata_requests and not self.exit_event.is_set()
-                ):
-                    log.trace(
-                        f"sync node has {len(sync_node._pending_getdata_requests)} unfulfilled getdata requests..."
-                    )
-                    getdata_request_end = time.time()
-                    if getdata_request_end - getdata_request_start > 60:
-                        log.warning(
-                            f"getdata request timeout exceeded. unfulfilled requests: {sync_node._pending_getdata_requests}"
-                        )
-                        sync_node._pending_getdata_requests = deque([])
-                    # wait until all pending getdata requests are fulfilled
-                    # pending getdata requests get removed in handle_block_command()
-                    await asyncio.sleep(1)
-
-                while sync_node.blocks and not self.exit_event.is_set():
-                    # while we have blocks, process them
-                    block = sync_node.blocks.popleft()
-                    blockhash = bits.crypto.hash256(block[:80])
-                    try:
-                        self.accept_block(block)
-                    except PossibleOrphanError as err:
-                        # sync_node.orphan_blocks.update({blockhash: block})
-                        # log.warning(
-                        #     f"possible orphan block added to pool (size= {len(sync_node.orphan_blocks)} blocks, {sum([len(b) for b in sync_node.orphan_blocks.values()])} bytes)"
-                        # )
-                        blockhash = blockhash[::-1].hex()
-                        log.debug(
-                            f"possible orphan block received during IBD. discarding {blockhash} ..."
-                        )
-                    except PossibleForkError as err:
-                        log.error(err)
-                        log.warning(f"block {blockhash} is part of a potential fork")
-                        best_peer = self.get_best_peer()
-                        log.info(
-                            f"switching from {sync_node} to {best_peer} as sync_node..."
-                        )
-                        # TODO: rollback to common ancestor, if necessary
-                        sync_node = best_peer
-                    except (CheckBlockError, AcceptBlockError) as err:
-                        log.error(err)
-                        raise err
-                    except ConnectBlockError as err:
-                        log.error(err)
-                        self.db._curs.execute("ROLLBACK;")
-                        log.info(
-                            f"changes to utxoset / node_state in {self.index_db_filename} rolled back"
-                        )
-                        # rollback block & block index
-                        _deleted_block = self.rollback_block()
-                        log.trace(_deleted_block)
-                        raise err
-
-                    await asyncio.sleep(0)
-
-                msg_block_inventories = list(
-                    filter(
-                        lambda inv: inv["type_id"] == "MSG_BLOCK", sync_node.inventories
-                    )
-                )
-                await asyncio.sleep(0)
             await asyncio.sleep(0)
-        self._ibd = False
-        self.db.save_node_state(ibd=self._ibd)
+        log.trace("request_blocks loop exit")
 
-    def rollback_block(self) -> bytes:
+    async def process_blocks(self):
+        loop = asyncio.get_running_loop()
+        while not self.exit_event.is_set():
+            if self._block_processing_queue:
+                block = self._block_processing_queue.popleft()
+                await loop.run_in_executor(
+                    self._thread_pool_executor, self.process_block, block
+                )
+            await asyncio.sleep(0)
+        log.trace("exit process_blocks")
+
+    def process_block(self, block: Block):
+        try:
+            self.accept_block(block)
+        except PossibleOrphanError as err:
+            log.debug(
+                f"possible orphan block {block['blockheaderhash']}. discarding ..."
+            )
+        except PossibleForkError as err:
+            raise err
+            # best_peer = self.get_best_peer()
+            # TODO: switch sync node to best peer, and rollback to common ancestor, if necessary
+        except (CheckBlockError, AcceptBlockError) as err:
+            log.error(err)
+        except ConnectBlockError as err:
+            log.error(err)
+            self.db._curs.execute("ROLLBACK;")
+            log.info(
+                f"changes to utxoset / node_state in {self.index_db_filename} rolled back"
+            )
+            # rollback block & block index
+            _deleted_block = self.rollback_block()
+            log.trace(_deleted_block)
+            raise err
+
+    def rollback_block(self) -> Block:
         """
-        Delete block chain tip from disk and index db
+        Delete block chain tip from disk and index db, save node state
+
+        NOTE: This function does NOT rollback the utxoset
 
         Returns:
             bytes, deleted block
@@ -1379,7 +1340,7 @@ class Node:
         ) as dat_file:
             dat_file.write(truncated_bytes)
         log.info(f"block {blockheight} deleted from {block_index['datafile']}")
-        return deleted_block_data
+        return Block(deleted_block_data)
 
     def save_block(self, block: bytes):
         """
@@ -1656,14 +1617,14 @@ class Node:
                 )
 
         # check if proposed block is in the most work chain,
-        best_peer = self.get_best_peer()
-        res = self.db._curs.execute(
-            f"SELECT blockheaderhash FROM blockheader WHERE peer_id={best_peer._id} AND blockheight={proposed_blockheight} AND blockheaderhash='{proposed_block['blockheaderhash']}';"
-        ).fetchone()
-        if not res:
-            raise PossibleForkError(
-                f"proposed block {proposed_block['blockheaderhash']} is not in the most work chain"
-            )
+        # best_peer = self.get_best_peer()
+        # res = self.db._curs.execute(
+        #     f"SELECT blockheaderhash FROM blockheader WHERE peer_id={best_peer._id} AND blockheight={proposed_blockheight} AND blockheaderhash='{proposed_block['blockheaderhash']}';"
+        # ).fetchone()
+        # if not res:
+        #     raise PossibleForkError(
+        #         f"proposed block {proposed_block['blockheaderhash']} is not in the most work chain"
+        #     )
 
         ### save block to disk and index db ###
         self.save_block(block)
@@ -1675,12 +1636,15 @@ class Node:
         # full transaction validation of now latest block
 
         # begin transaction
-        self.db._curs.execute("BEGIN TRANSACTION;")
+        cursor = self.db._conn.cursor()
+        cursor.execute("BEGIN TRANSACTION;")
         # now we update utxoset step-by-step during tx validation,
         # and ROLLBACK upon error, if necessary
 
-        current_blockheight = self.db.get_blockchain_height()
-        current_block_index_data = self.db.get_block(blockheight=current_blockheight)
+        current_blockheight = self.db.get_blockchain_height(cursor=cursor)
+        current_block_index_data = self.db.get_block(
+            blockheight=current_blockheight, cursor=cursor
+        )
 
         cached_current_block_data = self._block_cache.get(
             current_block_index_data["blockheaderhash"]
@@ -1698,7 +1662,13 @@ class Node:
 
         # get total value spent by coinbase transaction
         coinbase_tx = current_block["txns"][0]
-        self.db.add_tx(coinbase_tx["txid"], current_block["blockheaderhash"], 0)
+        self.db.add_tx(
+            coinbase_tx["txid"],
+            current_block["blockheaderhash"],
+            0,
+            cursor=cursor,
+            commit=False,
+        )
 
         coinbase_tx_txouts = coinbase_tx["txouts"]
         coinbase_tx_txouts_total_value = 0
@@ -1711,6 +1681,7 @@ class Node:
                 current_block["blockheaderhash"],
                 coinbase_tx["txid"],
                 vout,
+                cursor=cursor,
                 commit=False,
             )
 
@@ -1720,9 +1691,15 @@ class Node:
         # ... "tips" seems like an apt name
         miner_tips = 0
         for txn_i, txn in enumerate(current_block["txns"][1:], start=1):
-            self.db.add_tx(txn["txid"], current_block["blockheaderhash"], txn_i)
+            self.db.add_tx(
+                txn["txid"],
+                current_block["blockheaderhash"],
+                txn_i,
+                cursor=cursor,
+                commit=False,
+            )
 
-            log.trace(
+            log.debug(
                 f"validating tx {txn_i} of {len(current_block['txns'][1:])} non-coinbase txns in new block {current_blockheight}..."
             )
             txn_txid = txn["txid"]
@@ -1736,22 +1713,24 @@ class Node:
                 # check for double spending by checking that the transaction exists
                 # in the current utxo set
                 utxo_blockheaderhash = self.db.find_blockheaderhash_for_utxo(
-                    txin_txid, txin_vout
+                    txin_txid, txin_vout, cursor=cursor
                 )
                 if not utxo_blockheaderhash:
                     raise ConnectBlockError(
                         f"a matching blockheaderhash for txo {txin_vout} in txid {txin_txid} was not found in the utxoset"
                     )
-                block_utxos = self.db.get_block_utxos(utxo_blockheaderhash)
+                block_utxos = self.db.get_block_utxos(
+                    utxo_blockheaderhash, cursor=cursor
+                )
                 if {"txid": txin_txid, "vout": txin_vout} not in block_utxos:
                     raise ConnectBlockError(
                         f"utxo not found in utxoset for blockheaderhash {utxo_blockheaderhash}"
                     )
 
                 # get the utxo transaction in full
-                log.trace(f"retrieving utxo(txid={txin_txid}, vout={txin_vout})...")
                 utxo_block_index_data = self.db.get_block(
-                    blockheaderhash=utxo_blockheaderhash
+                    blockheaderhash=utxo_blockheaderhash,
+                    cursor=cursor,
                 )
                 utxo_blockheight = utxo_block_index_data["blockheight"]
                 cached_utxo_block_data = self._block_cache.get(utxo_blockheaderhash)
@@ -1793,7 +1772,7 @@ class Node:
                     [tx_in_scriptsig, "OP_CODESEPARATOR", utxo_scriptpubkey]
                 )
                 log.trace(
-                    f"evaluating script for tx input {txin_i} in txn {txn_i} of new block {current_blockheight}..."
+                    f"evaluating script for tx input {txin_i}/{len(txn['txins'])} in txn {txn_i}/{len(current_block['txns'][1:])} of new block {current_blockheight}..."
                 )
                 if not bits.script.eval_script(
                     script_, bytes.fromhex(utxo_tx["raw"]), txin_vout
@@ -1801,16 +1780,14 @@ class Node:
                     raise ConnectBlockError(
                         f"script evaluation failed for txin {txin_i} in txn {txn_i} in block(blockheaderhash={current_block['blockheaderhash']})"
                     )
-                log.trace(
-                    f"script for tx input {txin_i} in txn {txn_i} of new block {current_blockheight} succeeded."
-                )
 
                 # this tx_in succeeds, update utxoset
-                log.trace(
-                    f"removing tx input {txin_i} in txn {txn_i} of new block {current_blockheight} from utxoset... "
-                )
                 self.db.remove_from_utxoset(
-                    utxo_block["blockheaderhash"], txin_txid, txin_vout, commit=False
+                    utxo_block["blockheaderhash"],
+                    txin_txid,
+                    txin_vout,
+                    cursor=cursor,
+                    commit=False,
                 )
                 log.trace(
                     f"tx input {txin_i} in txn {txn_i} of new block {current_blockheight} removed from utxoset."
@@ -1833,7 +1810,11 @@ class Node:
             # add newly created utxos to utxoset too
             for vout in range(len(txn["txouts"])):
                 self.db.add_to_utxoset(
-                    current_block["blockheaderhash"], txn["txid"], vout, commit=False
+                    current_block["blockheaderhash"],
+                    txn["txid"],
+                    vout,
+                    cursor=cursor,
+                    commit=False,
                 )
 
         max_block_reward = (
@@ -1847,7 +1828,7 @@ class Node:
             f"validated all of {len(current_block['txns'])} txns in block {current_blockheight}."
         )
         last_11_block_index_ = [
-            self.db.get_block(current_blockheight - i)
+            self.db.get_block(current_blockheight - i, cursor=cursor)
             for i in range(min(current_blockheight + 1, 11))
         ]
         last_11_times = [block["nTime"] for block in last_11_block_index_]
@@ -1862,11 +1843,10 @@ class Node:
             bestblockheaderhash=current_block["blockheaderhash"],
             time=current_block["nTime"],
             mediantime=bits.blockchain.median_time(last_11_times),
+            cursor=cursor,
             commit=False,
         )
-        self.db._curs.execute(
-            "COMMIT;"
-        )  # commit changes to utxoset / node_state to index db
+        cursor.execute("COMMIT;")  # commit changes to utxoset / node_state to index db
         return True
 
     def get_best_peer(self) -> Union[Peer, None]:
@@ -1991,6 +1971,8 @@ class Node:
 class Db:
     def __init__(self, db_filepath: str):
         self._conn = sqlite3.connect(db_filepath, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL;")
+        self._conn.execute("PRAGMA foreign_keys=ON;")
         self._curs = self._conn.cursor()
         # if tables don't exist, create them
         for table in ["block", "utxoset", "peer"]:
@@ -2328,7 +2310,14 @@ class Db:
         )
         self._conn.commit()
 
-    def add_tx(self, txid: str, blockheaderhash: str, n: int):
+    def add_tx(
+        self,
+        txid: str,
+        blockheaderhash: str,
+        n: int,
+        cursor: Optional[sqlite3.Cursor] = None,
+        commit: bool = True,
+    ):
         """
         Create a new tx row in index db
         Args:
@@ -2336,10 +2325,13 @@ class Db:
             blockheaderhash: str, block header hash for the block this tx is in
             n: int, tx index in block
         """
-        self._curs.execute(
+        if cursor is None:
+            cursor = self._conn
+        cursor.execute(
             f"INSERT INTO tx (txid, blockheaderhash, n) VALUES ('{txid}', '{blockheaderhash}', {n});"
         )
-        self._conn.commit()
+        if commit:
+            self._conn.commit()
 
     def get_tx(self, txid: str) -> Union[dict, None]:
         res = self._curs.execute(
@@ -2398,11 +2390,17 @@ class Db:
                 {datafile_offset}
             );
         """
-        self._curs.execute(cmd)
-        self._conn.commit()
+        with self._conn as conn:
+            conn.cursor().execute(cmd)
+            conn.commit()
 
-    def get_blockchain_height(self) -> Union[int | None]:
-        res = self._curs.execute(
+    def get_blockchain_height(
+        self, cursor: Optional[sqlite3.Cursor] = None
+    ) -> Union[int | None]:
+        if cursor is None:
+            cursor = self._conn.cursor()
+
+        res = cursor.execute(
             "SELECT blockheight FROM block ORDER BY blockheight DESC LIMIT 1;"
         )
         result = res.fetchone()
@@ -2413,7 +2411,10 @@ class Db:
         return int(res.fetchone()[0])
 
     def get_block(
-        self, blockheight: int = None, blockheaderhash: str = None
+        self,
+        blockheight: int = None,
+        blockheaderhash: str = None,
+        cursor: Optional[sqlite3.Cursor] = None,
     ) -> Union[dict, None]:
         """
         Get the block data from index db, i.e. header data, meta data
@@ -2428,6 +2429,8 @@ class Db:
             dict, block index db data, or
             None, if not found
         """
+        if cursor is None:
+            cursor = self._conn.cursor()
         if blockheight is not None and blockheaderhash is not None:
             raise ValueError(
                 "both blockheight and blockheaderhash should not be specified"
@@ -2435,12 +2438,12 @@ class Db:
         elif blockheight is None and blockheaderhash is None:
             raise ValueError("blockheight or blockheaderhash must be provided")
         elif blockheight is not None:
-            res = self._curs.execute(
+            res = cursor.execute(
                 f"SELECT * FROM block WHERE blockheight='{blockheight}';"
             )
         else:
             # blockheaderhash is not None
-            res = self._curs.execute(
+            res = cursor.execute(
                 f"SELECT * FROM block WHERE blockheaderhash='{blockheaderhash}';"
             )
 
@@ -2463,30 +2466,54 @@ class Db:
         )
 
     def remove_from_utxoset(
-        self, blockheaderhash: str, txid: str, vout: int, commit=True
+        self,
+        blockheaderhash: str,
+        txid: str,
+        vout: int,
+        cursor: Optional[sqlite3.Cursor] = None,
+        commit=True,
     ):
-        self._curs.execute(
+        if cursor is None:
+            cursor = self._conn.cursor()
+        cursor.execute(
             f"DELETE FROM utxoset WHERE blockheaderhash='{blockheaderhash}' AND txid='{txid}' AND vout='{vout}';"
         )
         if commit:
             self._conn.commit()
 
-    def add_to_utxoset(self, blockheaderhash: str, txid: str, vout: int, commit=True):
-        self._curs.execute(
+    def add_to_utxoset(
+        self,
+        blockheaderhash: str,
+        txid: str,
+        vout: int,
+        cursor: Optional[sqlite3.Cursor] = None,
+        commit=True,
+    ):
+        if cursor is None:
+            cursor = self._conn.cursor()
+        cursor.execute(
             f"INSERT INTO utxoset (blockheaderhash, txid, vout) VALUES ('{blockheaderhash}', '{txid}', {vout});"
         )
         if commit:
             self._conn.commit()
 
-    def get_block_utxos(self, blockheaderhash: str) -> List[dict]:
-        res = self._curs.execute(
+    def get_block_utxos(
+        self, blockheaderhash: str, cursor: Optional[sqlite3.Cursor] = None
+    ) -> List[dict]:
+        if cursor is None:
+            cursor = self._conn.cursor()
+        res = cursor.execute(
             f"SELECT txid, vout FROM utxoset WHERE blockheaderhash='{blockheaderhash}';"
         )
         results = res.fetchall()
         return [{"txid": result[0], "vout": result[1]} for result in results]
 
-    def find_blockheaderhash_for_utxo(self, txid: str, vout: int) -> Union[str, None]:
-        res = self._curs.execute(
+    def find_blockheaderhash_for_utxo(
+        self, txid: str, vout: int, cursor: Optional[sqlite3.Cursor] = None
+    ) -> Union[str, None]:
+        if cursor is None:
+            cursor = self._conn.cursor()
+        res = cursor.execute(
             f"SELECT blockheaderhash FROM utxoset WHERE txid='{txid}' AND vout={vout};"
         )
         result = res.fetchone()
@@ -2572,12 +2599,15 @@ class Db:
         bestblockheaderhash: Optional[str] = None,
         time: Optional[int] = None,
         mediantime: Optional[int] = None,
+        cursor: Optional[sqlite3.Cursor] = None,
         commit: bool = True,
     ):
+        if cursor is None:
+            cursor = self._conn.cursor()
         if not self.get_node_state():
-            self._curs.execute("INSERT INTO node_state (id) VALUES (1);")
+            cursor.execute("INSERT INTO node_state (id) VALUES (1);")
             self._conn.commit()
-        res = self._curs.execute("SELECT * from node_state;")
+        res = cursor.execute("SELECT * from node_state;")
         results = res.fetchall()
         assert len(results) == 1, "multiple rows in node_state table"
         result = results[0]
@@ -2602,12 +2632,16 @@ class Db:
         if mediantime is not None:
             set_statement += f"mediantime={mediantime}, "
         set_statement = set_statement[:-2]  # remove trailing ", "
-        self._curs.execute(f"UPDATE node_state SET {set_statement} WHERE id=1;")
+        cursor.execute(f"UPDATE node_state SET {set_statement} WHERE id=1;")
         if commit:
             self._conn.commit()
 
-    def get_node_state(self) -> Union[dict, None]:
-        res = self._curs.execute("SELECT * from node_state;")
+    def get_node_state(
+        self, cursor: Optional[sqlite3.Cursor] = None
+    ) -> Union[dict, None]:
+        if cursor is None:
+            cursor = self._conn.cursor()
+        res = cursor.execute("SELECT * from node_state;")
         results = res.fetchall()
         if not results:
             return

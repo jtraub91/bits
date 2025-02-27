@@ -1347,6 +1347,7 @@ def main():
 
         signal.signal(signal.SIGINT, shutdown)
         signal.signal(signal.SIGTERM, shutdown)
+        p2p_node._thread.join()
     elif args.subcommand == "block":
         if args.chain_info:
             node = bits.p2p.Node(

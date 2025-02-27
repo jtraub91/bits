@@ -6,6 +6,8 @@ import bits.crypto
 import bits.ecmath
 import bits.pem
 from bits.script import constants
+import bits.script
+import bits.script.constants
 
 
 def scriptpubkey(data: bytes) -> bytes:
@@ -243,6 +245,8 @@ def script(args: typing.List[str], witness: bool = False) -> bytes:
         else:
             data = bytes.fromhex(arg)
             data_len = len(data)
+            if data_len == 0:
+                continue
             if not witness and data_len > 0x4B:
                 data_len_min_bytes = (data_len.bit_length() + 7) // 8
                 if data_len_min_bytes == 1:
@@ -424,7 +428,9 @@ def eval_script(script_: bytes, tx_: bytes, txin_n: int) -> bool:
         op = scriptbytes[0]
         scriptbytes = scriptbytes[1:]
         scriptbytes_index += 1
-        if op in range(1, 0x4C):
+        if op == bits.script.constants.OP_0:
+            stack.append(b"")
+        elif op in range(1, 0x4C):
             # op interpreted as OP_PUSHBYTES_x
             data = scriptbytes[:op]
             scriptbytes = scriptbytes[op:]
