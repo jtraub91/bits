@@ -696,7 +696,9 @@ class Node:
         addrs = payload["addrs"]
         peer._addrs.extend(addrs)
         self.db.save_peer_addrs(peer._id, addrs)
-        log.debug(f"{len(addrs)} network addrs to queue for {peer}")
+        log.debug(
+            f"{len(addrs)} network addrs to queue for {peer}. total in queue: {len(peer._addrs)}"
+        )
 
     def handle_inv_command(self, peer: Peer, command: bytes, payload: bytes):
         parsed_payload = parse_inv_payload(payload)
