@@ -3,6 +3,8 @@ https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki#example
 """
 import bits.bips.bip143 as bip143
 import bits.keys
+import bits.ecmath
+import bits.script
 import bits.script.constants as constants
 import bits.tx
 
@@ -26,7 +28,7 @@ def test_p2wpkh():
         bits.tx.txin(
             bits.tx.outpoint(bytes.fromhex(ti["txid"]), ti["vout"]),
             b"",
-            sequence=bytes.fromhex(ti["sequence"]),
+            sequence=ti["sequence"].to_bytes(4, "little"),
         )
         for ti in deserialized_tx["txins"]
     ]
@@ -79,7 +81,8 @@ def test_p2wpkh():
     input_2_private_key = bytes.fromhex(
         "619c335025c7f4012e556c2a58b2506e30b8511b53ade95ea316fd8c3286feb9"
     )
-    witness_signature = bits.sig(input_2_private_key, msg, msg_preimage=True)
+
+    witness_signature = bits.script.sig(input_2_private_key, msg, msg_preimage=True)
 
     input_1_scriptpubkey = bytes.fromhex(
         "2103c9f4836b9a4f77fc0d81f7bcb01b7f1b35916864b9476c241ce9fc198bd25432ac"
@@ -91,7 +94,7 @@ def test_p2wpkh():
                 deserialized_tx["txins"][0]["vout"],
             ),
             input_1_scriptpubkey,
-            sequence=bytes.fromhex(deserialized_tx["txins"][0]["sequence"]),
+            sequence=deserialized_tx["txins"][0]["sequence"].to_bytes(4, "little"),
         ),
         bits.tx.txin(
             bits.tx.outpoint(
@@ -99,7 +102,7 @@ def test_p2wpkh():
                 deserialized_tx["txins"][1]["vout"],
             ),
             b"",
-            sequence=bytes.fromhex(deserialized_tx["txins"][1]["sequence"]),
+            sequence=deserialized_tx["txins"][1]["sequence"].to_bytes(4, "little"),
         ),
     ]
     tx_ = bits.tx.tx(
@@ -111,7 +114,7 @@ def test_p2wpkh():
     input_1_private_key = bytes.fromhex(
         "bbc27228ddcb9209d7fd6f36b02f7dfa6252af40bb2f1cbc7a557da8027ff866"
     )
-    input_1_signature = bits.sig(
+    input_1_signature = bits.script.sig(
         input_1_private_key,
         tx_,
         sighash_flag=constants.SIGHASH_ALL,
@@ -124,7 +127,7 @@ def test_p2wpkh():
                 deserialized_tx["txins"][0]["vout"],
             ),
             input_1_scriptsig,
-            sequence=bytes.fromhex(deserialized_tx["txins"][0]["sequence"]),
+            sequence=deserialized_tx["txins"][0]["sequence"].to_bytes(4, "little"),
         ),
         bits.tx.txin(
             bits.tx.outpoint(
@@ -132,7 +135,7 @@ def test_p2wpkh():
                 deserialized_tx["txins"][1]["vout"],
             ),
             b"",
-            sequence=bytes.fromhex(deserialized_tx["txins"][1]["sequence"]),
+            sequence=deserialized_tx["txins"][1]["sequence"].to_bytes(4, "little"),
         ),
     ]
     input_2_pubkey = bytes.fromhex(
@@ -232,7 +235,7 @@ def test_p2sh_p2wpkh():
             bits.script.script(
                 [outpoint_redeem_script.hex()]
             ),  # ignored in bits.bips.bip143.witness_message
-            sequence=bytes.fromhex(ti["sequence"]),
+            sequence=ti["sequence"].to_bytes(4, "little"),
         )
         for ti in deserialized_tx["txins"]
     ]
@@ -266,7 +269,7 @@ def test_p2sh_p2wpkh():
     private_key = bytes.fromhex(
         "eb696a065ef48a2192da5b28b694f87544b30fae8327c4510137a922f32c6dcf"
     )
-    signature = bits.sig(private_key, msg, msg_preimage=True)
+    signature = bits.script.sig(private_key, msg, msg_preimage=True)
     signed_tx = bits.tx.tx(
         txins,
         txouts,
@@ -357,7 +360,7 @@ def test_p2wsh_1():
                 deserialized_tx["txins"][0]["vout"],
             ),
             bits.script.script([input_0_sig.hex()]),
-            sequence=bytes.fromhex(deserialized_tx["txins"][0]["sequence"]),
+            sequence=deserialized_tx["txins"][0]["sequence"].to_bytes(4, "little"),
         ),
         bits.tx.txin(
             bits.tx.outpoint(
@@ -365,7 +368,7 @@ def test_p2wsh_1():
                 deserialized_tx["txins"][1]["vout"],
             ),
             b"",
-            sequence=bytes.fromhex(deserialized_tx["txins"][1]["sequence"]),
+            sequence=deserialized_tx["txins"][1]["sequence"].to_bytes(4, "little"),
         ),
     ]
     txouts = [
@@ -400,7 +403,7 @@ def test_p2wsh_1():
     private_key_1 = bytes.fromhex(
         "8e02b539b1500aa7c81cf3fed177448a546f19d2be416c0c61ff28e577d8d0cd"
     )
-    signature_1 = bits.sig(private_key_1, msg, msg_preimage=True)
+    signature_1 = bits.script.sig(private_key_1, msg, msg_preimage=True)
 
     decoded_witness_script = decoded_witness_script[
         decoded_witness_script.index("OP_CODESEPARATOR") + 1 :
@@ -434,7 +437,7 @@ def test_p2wsh_1():
     private_key_2 = bytes.fromhex(
         "86bf2ed75935a0cbef03b89d72034bb4c189d381037a5ac121a70016db8896ec"
     )
-    signature_2 = bits.sig(
+    signature_2 = bits.script.sig(
         private_key_2, msg, sighash_flag=constants.SIGHASH_SINGLE, msg_preimage=True
     )
     tx_ = bits.tx.tx(
@@ -503,7 +506,7 @@ def test_p2wsh_2():
         bits.tx.txin(
             bits.tx.outpoint(bytes.fromhex(ti["txid"]), ti["vout"]),
             b"",
-            sequence=bytes.fromhex(ti["sequence"]),
+            sequence=ti["sequence"].to_bytes(4, "little"),
         )
         for ti in deserialized_tx["txins"]
     ]
@@ -545,7 +548,7 @@ def test_p2wsh_2():
     txin_0_private_key = bytes.fromhex(
         "f52b3484edd96598e02a9c89c4492e9c1e2031f471c49fd721fe68b3ce37780d"
     )
-    signature_0 = bits.sig(txin_0_private_key, msg, msg_preimage=True)
+    signature_0 = bits.script.sig(txin_0_private_key, msg, msg_preimage=True)
 
     decoded_txin_0_witness_script = decoded_txin_0_witness_script[
         decoded_txin_0_witness_script.index("OP_CODESEPARATOR") + 1 :
@@ -578,7 +581,7 @@ def test_p2wsh_2():
     assert (
         bip143.witness_digest(msg).hex() == expected_sighash.hex()
     ), "mismatch for expected sighash - 2nd txin"
-    signature_1 = bits.sig(txin_0_private_key, msg, msg_preimage=True)
+    signature_1 = bits.script.sig(txin_0_private_key, msg, msg_preimage=True)
     signed_tx = bits.tx.tx(
         txins,
         txouts,
@@ -765,7 +768,9 @@ def test_p2sh_p2wsh():
         assert (
             bip143.witness_digest(msg).hex() == expected_sighash.hex()
         ), f"mismatch for sighash - sighash flag {format(sh_flag, '02x')}"
-        signature = bits.sig(private_key, msg, sighash_flag=sh_flag, msg_preimage=True)
+        signature = bits.script.sig(
+            private_key, msg, sighash_flag=sh_flag, msg_preimage=True
+        )
         signatures.append(signature)
 
     signed_tx = bits.tx.tx(
@@ -862,12 +867,12 @@ def test_no_find_and_delete():
 
     # # pubkey recovery
     # pubkey_ = bits.keys.pub(bits.keys.key(), compressed=True)
-    # while not bits.sig_verify(signature, pubkey_, expected_sighash, msg_preimage=True):
+    # while not bits.script.sig_verify(signature, pubkey_, expected_sighash, msg_preimage=True):
     #     pubkey_ = bits.keys.pub(bits.keys.key(), compressed=True)
     pubkey_ = bytes.fromhex(
         "02a9781d66b61fb5a7ef00ac5ad5bc6ffc78be7b44a566e3c87870e1079368df4c"
     )
-    assert bits.sig_verify(
+    assert bits.script.sig_verify(
         signature, pubkey_, bip143.witness_digest(msg), msg_preimage=True
     ), "signature verification for recovered pubkey failed"
 

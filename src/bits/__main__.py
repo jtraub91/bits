@@ -14,6 +14,7 @@ import bits.blockchain
 import bits.crypto
 import bits.p2p
 import bits.pem
+import bits.ordinals
 import bits.rpc
 import bits.script
 import bits.tx
@@ -930,6 +931,15 @@ Examples:
     add_input_arguments(block_parser)
     add_output_arguments(block_parser)
 
+    satoshi_parser = sub_parser.add_parser(
+        "satoshi",
+        help="get info on satoshis",
+        formatter_class=RawDescriptionDefaultsHelpFormatter,
+        description="Get info on satoshi (see ordinal theory)",
+    )
+    satoshi_parser.add_argument("satoshi", type=int, help="satoshi in integer notation")
+    add_common_arguments(satoshi_parser)
+
     mine_parser = sub_parser.add_parser(
         "mine",
         help="Mine blocks",
@@ -1388,6 +1398,18 @@ def main():
             header if args.header_only else block,
             args.out_file,
             output_format=config.output_format,
+        )
+    elif args.subcommand == "satoshi":
+        print(
+            json.dumps(
+                {
+                    "satoshi": args.satoshi,
+                    "decimal": bits.ordinals.decimal(args.satoshi),
+                    "percentile": bits.ordinals.percentile(args.satoshi),
+                    "degree": bits.ordinals.degree(args.satoshi),
+                    "name": bits.ordinals.name(args.satoshi),
+                }
+            )
         )
     elif args.subcommand == "rpc":
         result = bits.rpc.rpc_method(

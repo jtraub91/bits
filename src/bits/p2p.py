@@ -473,10 +473,6 @@ class Peer:
         self.reader: StreamReader = None
         self.writer: StreamWriter = None
 
-        self.index_db_filename = "index.db"
-        self.index_db_filepath = os.path.join(self.datadir, self.index_db_filename)
-        self.db = Db(self.index_db_filepath)
-
         self._data = None
         self._addrs = deque([])
 
@@ -492,11 +488,6 @@ class Peer:
 
     def __repr__(self):
         return f"peer(id={self._id}, host='{self.host}', port={self.port})"
-
-    def get_data(self, refresh=False):
-        if refresh or not self._data:
-            self._data = self.db.get_peer_data(self._id)
-        return self._data
 
     async def connect(self):
         reader, writer = await asyncio.open_connection(self.host, self.port)
@@ -634,6 +625,7 @@ class Node:
         self.index_db_filename = "index.db"
         self.index_db_filepath = os.path.join(self.datadir, self.index_db_filename)
         self.db = Db(self.index_db_filepath)
+        self.db.create_tables()
         if not block_dat_files:
             # if there are no dat files yet,
 
@@ -704,7 +696,6 @@ class Node:
         parsed_payload = parse_inv_payload(payload)
         count = parsed_payload["count"]
         inventories = parsed_payload["inventory"]
-        log.debug(f"handling {count} inventories received from {peer}...")
         if self._ibd:
 
             non_msg_block_inventories = list(
@@ -712,9 +703,6 @@ class Node:
             )
             non_msg_block_typeset = set(
                 [inv["type_id"] for inv in non_msg_block_inventories]
-            )
-            log.trace(
-                f"{len(non_msg_block_inventories)} inventories of type(s) {non_msg_block_typeset} ignored for {peer} during ibd"
             )
             inventories = list(
                 filter(lambda inv: inv["type_id"] == "MSG_BLOCK", inventories)
@@ -981,6 +969,7 @@ class Node:
             raise AssertionError(
                 f"number of blocks on disk ({number_of_blocks_on_disk}) does not equal the number of blocks in index ({number_of_blocks_in_index})."
             )
+
         else:
             # block on disk == blocks in index,
             # do further sanity checks
@@ -1078,6 +1067,7 @@ class Node:
         """
         Process the addrs peer has received, by attempting to connect
         """
+        loop = asyncio.get_running_loop()
         while not self.exit_event.is_set():
             if peer._addrs:
                 addr = peer._addrs.popleft()
@@ -1111,9 +1101,36 @@ class Node:
                         self.db.save_addr(addr)
                 else:
                     # if we're already at max outgoing peers, just save to db
-                    self.db.save_addr(addr, peer_id=peer._id)
-            await asyncio.sleep(0.1)
+                    await loop.run_in_executor(
+                        self._thread_pool_executor, self.save_addr, addr, peer._id
+                    )
+                    log.debug(
+                        f"network addr info {addr['host']}:{addr['port']} saved to db for {peer}."
+                    )
+            await asyncio.sleep(0)
         log.trace(f"process_addrs loop exit for {peer}")
+
+    def save_addr(self, addr: dict, peer_id: int):
+        time_ = addr["time"]
+        host = addr["host"]
+        port = addr["port"]
+        services = addr["services"]
+
+        cols = (
+            "(host, port, time, services, peer_id)"
+            if peer_id is not None
+            else "(host, port, time, services)"
+        )
+        vals = (
+            f"('{host}', {port}, {time_}, {services}, {peer_id})"
+            if peer_id is not None
+            else f"('{host}', {port}, {time_}, {services})"
+        )
+        sql_ = f"INSERT INTO addr {cols} VALUES {vals};"
+        with Db(self.index_db_filepath) as db:
+            cursor = db._conn.cursor()
+            cursor.execute(sql_)
+            db._conn.commit()
 
     async def headers_sync(self, peer: Peer):
         """
@@ -1982,166 +1999,185 @@ class Db:
         self._conn = sqlite3.connect(db_filepath, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute("PRAGMA foreign_keys=ON;")
+        self._conn.execute("PRAGMA busy_timeout=1000;")
         self._curs = self._conn.cursor()
-        # if tables don't exist, create them
-        for table in ["block", "utxoset", "peer"]:
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._conn.close()
+
+    def create_tables(self):
+        # if any table doesn't exist, create all tables
+        _create_tables = False
+        for table in [
+            "block",
+            "blockheader",
+            "utxoset",
+            "peer",
+            "node_state",
+            "tx",
+            "addr",
+        ]:
             res = self._curs.execute(
                 f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}';"
             )
             if not res.fetchone():
-                self.create_tables()
+                _create_tables = True
                 break
+        if _create_tables:
+            self._curs.execute(
+                """
+                CREATE TABLE block(
+                    id INTEGER PRIMARY KEY,
+                    blockheight INTEGER UNIQUE, 
+                    blockheaderhash TEXT UNIQUE,
+                    version INTEGER,
+                    prev_blockheaderhash TEXT,
+                    merkle_root_hash TEXT,
+                    nTime INTEGER,
+                    nBits TEXT,
+                    nNonce INTEGER,
 
-    def create_tables(self):
-        self._curs.execute(
+                    datafile TEXT,
+                    datafile_offset INTEGER
+                );
             """
-            CREATE TABLE block(
-                id INTEGER PRIMARY KEY,
-                blockheight INTEGER UNIQUE, 
-                blockheaderhash TEXT UNIQUE,
-                version INTEGER,
-                prev_blockheaderhash TEXT,
-                merkle_root_hash TEXT,
-                nTime INTEGER,
-                nBits TEXT,
-                nNonce INTEGER,
-
-                datafile TEXT,
-                datafile_offset INTEGER
-            );
-        """
-        )
-        self._conn.commit()
-        self._curs.execute("CREATE INDEX blockheight_index ON block(blockheight);")
-        self._conn.commit()
-        self._curs.execute(
-            "CREATE INDEX blockheaderhash_index ON block(blockheaderhash);"
-        )
-        self._conn.commit()
-        self._curs.execute(
-            """
-            CREATE TABLE blockheader (
-                id INTEGER PRIMARY KEY,
-                blockheight INTEGER,
-
-                blockheaderhash TEXT,
-                version INTEGER,
-                prev_blockheaderhash TEXT,
-                merkle_root_hash TEXT,
-                nTime INTEGER,
-                nBits TEXT,
-                nNonce INTEGER,
-
-                chainwork TEXT,
-
-                peer_id INTEGER,
-                FOREIGN KEY(peer_id) REFERENCES peer(id)
             )
-            """
-        )
-        self._conn.commit()
-        self._curs.execute(
-            "CREATE INDEX blockheader_blockheaderhash_index ON blockheader(blockheaderhash, peer_id);"
-        )
-        self._conn.commit()
-        self._curs.execute(
-            "CREATE INDEX blockheader_blockheight_index ON blockheader(blockheight, peer_id);"
-        )
-        self._conn.commit()
-        self._curs.execute(
-            """
-            CREATE TABLE utxoset(
-                id INTEGER PRIMARY KEY,
-                blockheaderhash TEXT,
-                txid TEXT,
-                vout INTEGER
-            );
-        """
-        )
-        self._conn.commit()
-        self._curs.execute("CREATE INDEX utxo_txid_vout_index ON utxoset(txid, vout);")
-        self._conn.commit()
-        self._curs.execute(
-            "CREATE INDEX utxo_blockheaderhash_index ON utxoset(blockheaderhash);"
-        )
-        self._conn.commit()
-        self._curs.execute(
-            """
-            CREATE TABLE peer(
-                id INTEGER PRIMARY KEY,
-                host TEXT,
-                port INTEGER,
-                data TEXT,
-                addrs TEXT,
-                invs TEXT,
+            self._conn.commit()
+            self._curs.execute("CREATE INDEX blockheight_index ON block(blockheight);")
+            self._conn.commit()
+            self._curs.execute(
+                "CREATE INDEX blockheaderhash_index ON block(blockheaderhash);"
+            )
+            self._conn.commit()
+            self._curs.execute(
+                """
+                CREATE TABLE blockheader (
+                    id INTEGER PRIMARY KEY,
+                    blockheight INTEGER,
 
-                protocol_version INTEGER,
-                services INTEGER,
-                user_agent TEXT,
-                start_height INTEGER,
+                    blockheaderhash TEXT,
+                    version INTEGER,
+                    prev_blockheaderhash TEXT,
+                    merkle_root_hash TEXT,
+                    nTime INTEGER,
+                    nBits TEXT,
+                    nNonce INTEGER,
 
-                feefilter_feerate INTEGER,
-                sendcmpct_announce BOOLEAN,
-                sendcmpct_version INTEGER,
+                    chainwork TEXT,
 
-                is_connected BOOLEAN
-            );
-        """
-        )
-        self._conn.commit()
-        self._curs.execute(
+                    peer_id INTEGER,
+                    FOREIGN KEY(peer_id) REFERENCES peer(id)
+                )
+                """
+            )
+            self._conn.commit()
+            self._curs.execute(
+                "CREATE INDEX blockheader_blockheaderhash_index ON blockheader(blockheaderhash, peer_id);"
+            )
+            self._conn.commit()
+            self._curs.execute(
+                "CREATE INDEX blockheader_blockheight_index ON blockheader(blockheight, peer_id);"
+            )
+            self._conn.commit()
+            self._curs.execute(
+                """
+                CREATE TABLE utxoset(
+                    id INTEGER PRIMARY KEY,
+                    blockheaderhash TEXT,
+                    txid TEXT,
+                    vout INTEGER
+                );
             """
-            CREATE TABLE node_state(
-                id INTEGER PRIMARY KEY,
-                network TEXT,
-                ibd BOOLEAN,
-                progress REAL,
-                running BOOLEAN,
-                difficulty REAL,
-                height INTEGER,
-                bestblockheaderhash TEXT,
-                time INTEGER,
-                mediantime INTEGER,
+            )
+            self._conn.commit()
+            self._curs.execute(
+                "CREATE INDEX utxo_txid_vout_index ON utxoset(txid, vout);"
+            )
+            self._conn.commit()
+            self._curs.execute(
+                "CREATE INDEX utxo_blockheaderhash_index ON utxoset(blockheaderhash);"
+            )
+            self._conn.commit()
+            self._curs.execute(
+                """
+                CREATE TABLE peer(
+                    id INTEGER PRIMARY KEY,
+                    host TEXT,
+                    port INTEGER,
+                    data TEXT,
+                    addrs TEXT,
+                    invs TEXT,
 
-                best_blockheader_chain INTEGER,
-                FOREIGN KEY(best_blockheader_chain) REFERENCES peer(id)
-            );
-        """
-        )
-        self._conn.commit()
-        self._curs.execute(
+                    protocol_version INTEGER,
+                    services INTEGER,
+                    user_agent TEXT,
+                    start_height INTEGER,
+
+                    feefilter_feerate INTEGER,
+                    sendcmpct_announce BOOLEAN,
+                    sendcmpct_version INTEGER,
+
+                    is_connected BOOLEAN
+                );
             """
-            CREATE TABLE tx(
-                id INTEGER PRIMARY KEY,
-                txid TEXT UNIQUE,
-                wtxid TEXT,
-                version INTEGER,
+            )
+            self._conn.commit()
+            self._curs.execute(
+                """
+                CREATE TABLE node_state(
+                    id INTEGER PRIMARY KEY,
+                    network TEXT,
+                    ibd BOOLEAN,
+                    progress REAL,
+                    running BOOLEAN,
+                    difficulty REAL,
+                    height INTEGER,
+                    bestblockheaderhash TEXT,
+                    time INTEGER,
+                    mediantime INTEGER,
 
-                blockheaderhash TEXT,
-                n INTEGER,
-                FOREIGN KEY(blockheaderhash) REFERENCES block(blockheaderhash)
-            );
-        """
-        )
-        self._conn.commit()
-        self._curs.execute("CREATE INDEX tx_txid_index ON tx(txid);")
-        self._conn.commit()
-        self._curs.execute(
+                    best_blockheader_chain INTEGER,
+                    FOREIGN KEY(best_blockheader_chain) REFERENCES peer(id)
+                );
             """
-            CREATE TABLE addr(
-                id INTEGER PRIMARY KEY,
-                
-                host TEXT,
-                port INTEGER,
-                time INTEGER,
-                services INTEGER,
+            )
+            self._conn.commit()
+            self._curs.execute(
+                """
+                CREATE TABLE tx(
+                    id INTEGER PRIMARY KEY,
+                    txid TEXT UNIQUE,
+                    wtxid TEXT,
+                    version INTEGER,
 
-                peer_id INTEGER,
-                FOREIGN KEY(peer_id) REFERENCES peer(id)
-            );
-        """
-        )
-        self._conn.commit()
+                    blockheaderhash TEXT,
+                    n INTEGER,
+                    FOREIGN KEY(blockheaderhash) REFERENCES block(blockheaderhash)
+                );
+            """
+            )
+            self._conn.commit()
+            self._curs.execute("CREATE INDEX tx_txid_index ON tx(txid);")
+            self._conn.commit()
+            self._curs.execute(
+                """
+                CREATE TABLE addr(
+                    id INTEGER PRIMARY KEY,
+                    
+                    host TEXT,
+                    port INTEGER,
+                    time INTEGER,
+                    services INTEGER,
+
+                    peer_id INTEGER,
+                    FOREIGN KEY(peer_id) REFERENCES peer(id)
+                );
+            """
+            )
+            self._conn.commit()
 
     def save_blockheader(
         self,
@@ -2266,7 +2302,12 @@ class Db:
             else None
         )
 
-    def save_addr(self, addr: dict, peer_id: Optional[int] = None):
+    def save_addr(
+        self,
+        addr: dict,
+        peer_id: Optional[int] = None,
+        cursor: Optional[sqlite3.Cursor] = None,
+    ):
         time_ = addr["time"]
         host = addr["host"]
         port = addr["port"]
@@ -2283,7 +2324,9 @@ class Db:
             else f"('{host}', {port}, {time_}, {services})"
         )
         sql_ = f"INSERT INTO addr {cols} VALUES {vals};"
-        self._curs.execute(sql_)
+        if cursor is None:
+            cursor = self._conn.cursor()
+        cursor.execute(sql_)
         self._conn.commit()
         return
 
