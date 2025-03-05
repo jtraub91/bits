@@ -1,4 +1,7 @@
-from typing import Tuple
+"""
+per ordinal theory, see https://github.com/ordinals/ord/blob/master/bip.mediawiki
+"""
+from typing import Tuple, Union
 
 from bits.blockchain import block_reward
 
@@ -6,6 +9,11 @@ chars = "abcdefghijklmnopqrstuvwxyz"
 
 LAST = 2099999997689999
 SUPPLY = 2099999997690000
+
+CYCLE_EPOCHS = 6
+SUBSIDY_HALVING_INTERVAL = 210000
+DIFFCHANGE_INTERVAL = 2016
+HALVING_INCREMENT = SUBSIDY_HALVING_INTERVAL % DIFFCHANGE_INTERVAL
 
 
 def height(sat_: int) -> Tuple[int, int]:
@@ -29,11 +37,18 @@ def decimal(sat_: int) -> str:
     return f"{blockheight_}.{satheight_}"
 
 
-def degree(sat_: int) -> str:
+def degree(sat_: int, as_dict: bool = False) -> Union[str, dict]:
     blockheight_, satheight_ = height(sat_)
     cycle = blockheight_ // (210000 * 6)
     halving = blockheight_ % 210000
     diff_period = blockheight_ % 2016
+    if as_dict:
+        return {
+            "hour": cycle,
+            "minute": halving,
+            "second": diff_period,
+            "third": satheight_,
+        }
     return f"{cycle}°{halving}′{diff_period}″{satheight_}‴"
 
 
@@ -62,12 +77,27 @@ def from_percentile(percentile_: str) -> int:
 
 
 def from_degree(degree_: str) -> int:
+    """
+    Calculate satoshi integer from degree notation
+    """
     cycle = int(degree_.split("°")[0])
-    halving = int(degree_.split("'")[0].split("°")[1])
+    halving = int(degree_.split("′")[0].split("°")[1])
     diff_period = int(degree_.split("″")[0].split("′")[1])
-    satheight = int(degree_.split("‴")[1])
-    blockheight = (int(cycle) * 210000 * 6) + (int(halving) * 210000) + int(diff_period)
-    return blockheight * block_reward(blockheight) + int(satheight)
+    satheight = int(degree_.split("‴")[0].split("″")[1])
+
+    relationship = diff_period + SUBSIDY_HALVING_INTERVAL * CYCLE_EPOCHS - halving
+    assert relationship % HALVING_INCREMENT == 0, "epoch period mismatch"
+    cycle_start_epoch = cycle * CYCLE_EPOCHS
+    epochs_since_cycle_start = relationship % DIFFCHANGE_INTERVAL // HALVING_INCREMENT
+    epoch = cycle_start_epoch + epochs_since_cycle_start
+    blockheight = epoch * SUBSIDY_HALVING_INTERVAL + halving
+    supply = 0
+    for i in range(epoch):
+        supply += block_reward(i * SUBSIDY_HALVING_INTERVAL) * SUBSIDY_HALVING_INTERVAL
+    supply += block_reward(epoch * SUBSIDY_HALVING_INTERVAL) * (
+        blockheight % SUBSIDY_HALVING_INTERVAL
+    )
+    return supply + int(satheight)
 
 
 def from_decimal(decimal_: str) -> int:
@@ -78,3 +108,24 @@ def from_decimal(decimal_: str) -> int:
     for i in range((blockheight // 210000) + 1):
         supply += min(210000, blockheight % 210000) * block_reward(i * 210000)
     return supply + satheight
+
+
+def rarity(sat_: int) -> str:
+    degree_ = degree(sat_, as_dict=True)
+    if (
+        degree_["hour"] == 0
+        and degree_["minute"] == 0
+        and degree_["second"] == 0
+        and degree_["third"] == 0
+    ):
+        return "mythic"
+    elif degree_["minute"] == 0 and degree_["second"] == 0 and degree_["third"] == 0:
+        return "legendary"
+    elif degree_["minute"] == 0 and degree_["third"] == 0:
+        return "epic"
+    elif degree_["second"] == 0 and degree_["third"] == 0:
+        return "rare"
+    elif int(decimal(sat_).split(".")[1]) == 0:
+        return "uncommon"
+    else:
+        return "common"

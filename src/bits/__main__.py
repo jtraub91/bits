@@ -7,6 +7,8 @@ import os
 import secrets
 import signal
 import sys
+import time
+from datetime import datetime, timezone
 from getpass import getpass
 
 import bits.base58
@@ -935,9 +937,51 @@ Examples:
         "satoshi",
         help="get info on satoshis",
         formatter_class=RawDescriptionDefaultsHelpFormatter,
-        description="Get info on satoshi (see ordinal theory)",
+        description="""
+        Get info on satoshi (see ordinal theory)
+
+        You may provide:
+
+        a) the satoshi, in integer, decimal, or name notation
+        
+        OR 
+        
+        b) degree notation per the --hour, --minute, --second, and --third flags
+
+        For degree notation, all 4 flags must be provided 
+        """,
     )
-    satoshi_parser.add_argument("satoshi", type=int, help="satoshi in integer notation")
+    satoshi_parser.add_argument(
+        "satoshi",
+        type=str,
+        nargs="?",
+        help="satoshi in integer, decimal, or name notation",
+    )
+    satoshi_parser.add_argument(
+        "--hour",
+        type=int,
+        help="hour, the 1st integer per degree notation, i.e. cycle, numbered from 0",
+    )
+    satoshi_parser.add_argument(
+        "--minute",
+        type=int,
+        help="minute, the 2nd integer per degree notation, i.e. index of block in halving epoch",
+    )
+    satoshi_parser.add_argument(
+        "--second",
+        type=int,
+        help="second, the 3rd integer per degree notation, i.e. index of block in difficulty adjustment period",
+    )
+    satoshi_parser.add_argument(
+        "--third",
+        type=int,
+        help="third, the 4th integer per degree notation, i.e. index of sat in block",
+    )
+    satoshi_parser.add_argument(
+        "--utc",
+        action="store_true",
+        help="output satoshi timestamp in UTC (instead of local time)",
+    )
     add_common_arguments(satoshi_parser)
 
     mine_parser = sub_parser.add_parser(
@@ -1344,6 +1388,7 @@ def main():
             config.datadir,
             config.network,
             config.log_level,
+            # dnsseeds=["https://testnet.achownodes.xyz/seeds.txt.gz"]
             # reindex=args.reindex,
         )
         if args.info:
@@ -1400,14 +1445,71 @@ def main():
             output_format=config.output_format,
         )
     elif args.subcommand == "satoshi":
+        if args.satoshi is not None:
+            try:
+                sat = int(args.satoshi)
+            except ValueError:
+                if "." in args.satoshi:
+                    sat = bits.ordinals.from_decimal(args.satoshi)
+                else:
+                    # name
+                    # TODO: more rigorous check if it's a name
+                    sat = bits.ordinals.from_name(args.satoshi)
+        else:
+            if all(
+                [
+                    args.hour is not None,
+                    args.minute is not None,
+                    args.second is not None,
+                    args.third is not None,
+                ]
+            ):
+                sat = bits.ordinals.from_degree(
+                    f"{args.hour}°{args.minute}′{args.second}″{args.third}‴"
+                )
+            else:
+                log.error(
+                    "either satoshi or all of hour, minute, second, and third must be provided"
+                )
+                return
+
+        node = bits.p2p.Node(
+            config.seeds, config.datadir, config.network, config.log_level
+        )
+        chain_info = node.get_blockchain_info()
+        sat_block = int(bits.ordinals.decimal(sat).split(".")[0])
+        if sat_block <= chain_info["height"]:
+            block_index_data = node.db.get_block(blockheight=sat_block)
+            n_time = block_index_data["nTime"]
+            strf_format = (
+                "%Y-%m-%d %H:%M:%S %Z"
+                if args.utc
+                else f"%Y-%m-%d %H:%M:%S {time.tzname[time.daylight]}"
+            )
+            timestamp = datetime.fromtimestamp(
+                n_time, tz=timezone.utc if args.utc else None
+            ).strftime(strf_format)
+        else:
+            best_time = chain_info["time"]
+            n_time_expected = best_time + (sat_block - chain_info["height"]) * 60 * 10
+            strf_format = (
+                "%Y-%m-%d %H:%M:%S %Z (expected)"
+                if args.utc
+                else f"%Y-%m-%d %H:%M:%S {time.tzname[time.daylight]} (expected)"
+            )
+            timestamp = datetime.fromtimestamp(
+                n_time_expected, tz=timezone.utc if args.utc else None
+            ).strftime(strf_format)
         print(
             json.dumps(
                 {
-                    "satoshi": args.satoshi,
-                    "decimal": bits.ordinals.decimal(args.satoshi),
-                    "percentile": bits.ordinals.percentile(args.satoshi),
-                    "degree": bits.ordinals.degree(args.satoshi),
-                    "name": bits.ordinals.name(args.satoshi),
+                    "satoshi": sat,
+                    "decimal": bits.ordinals.decimal(sat),
+                    "percentile": bits.ordinals.percentile(sat),
+                    "degree": bits.ordinals.degree(sat),
+                    "name": bits.ordinals.name(sat),
+                    "rarity": bits.ordinals.rarity(sat),
+                    "timestamp": timestamp,
                 }
             )
         )
