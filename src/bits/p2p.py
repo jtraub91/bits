@@ -1016,10 +1016,8 @@ class Node:
                     )
                 else:
                     handler = getattr(self, f"handle_{command.decode('utf8')}_command")
-                    asyncio.create_task(
-                        loop.run_in_executor(
-                            self._thread_pool_executor, handler, peer, command, payload
-                        )
+                    await loop.run_in_executor(
+                        self._thread_pool_executor, handler, peer, command, payload
                     )
             await asyncio.sleep(0)
         log.info("message handler loop exited.")
