@@ -884,6 +884,20 @@ See "bits wif -h" for help on creating WIF-encoded keys.
     p2p_parser.add_argument(
         "--reindex", action="store_true", default=False, help="reindex block indexes"
     )
+    p2p_parser.add_argument(
+        "--headers-only",
+        "-H",
+        action="store_true",
+        default=False,
+        help="only download headers for IBD",
+    )
+    p2p_parser.add_argument(
+        "--blocks-only",
+        "-B",
+        action="store_true",
+        default=False,
+        help="only download blocks for IBD",
+    )
     add_common_arguments(p2p_parser)
 
     block_parser = sub_parser.add_parser(
@@ -924,6 +938,12 @@ Examples:
     )
     block_parser.add_argument(
         "--index", action="store_true", default=False, help="print index data for block"
+    )
+    block_parser.add_argument(
+        "--header-index",
+        action="store_true",
+        default=False,
+        help="print blockheader index data from best peer chain",
     )
     block_parser.add_argument(
         "--header-only", "-H", action="store_true", help="output block header only"
@@ -1259,7 +1279,11 @@ def main():
     elif args.subcommand == "tx":
         if args.txid:
             node = bits.p2p.Node(
-                config.seeds, config.datadir, config.network, config.log_level
+                config.seeds,
+                config.datadir,
+                config.network,
+                config.log_level,
+                max_outgoing_peers=config.max_outgoing_peers,
             )
             tx_index = node.db.get_tx(args.txid)
             block_index = node.db.get_block(blockheaderhash=tx_index["blockheaderhash"])
@@ -1383,13 +1407,23 @@ def main():
                 )
                 break
     elif args.subcommand == "p2p":
+        if args.headers_only and args.blocks_only:
+            log.error("only one of --headers-only or --blocks-only may be supplied")
+            return
+        elif args.headers_only or args.blocks_only:
+            download_headers = True if args.headers_only else False
+            download_blocks = True if args.blocks_only else False
+        else:
+            download_blocks = True
+            download_headers = True
         p2p_node = bits.p2p.Node(
             config.seeds,
             config.datadir,
             config.network,
             config.log_level,
-            # dnsseeds=["https://testnet.achownodes.xyz/seeds.txt.gz"]
-            # reindex=args.reindex,
+            max_outgoing_peers=config.max_outgoing_peers,
+            download_headers=download_headers,
+            download_blocks=download_blocks,
         )
         if args.info:
             node_info = p2p_node.get_node_info()
@@ -1406,7 +1440,11 @@ def main():
     elif args.subcommand == "block":
         if args.chain_info:
             node = bits.p2p.Node(
-                config.seeds, config.datadir, config.network, config.log_level
+                config.seeds,
+                config.datadir,
+                config.network,
+                config.log_level,
+                max_outgoing_peers=config.max_outgoing_peers,
             )
             print(json.dumps(node.get_blockchain_info()))
             return
@@ -1415,18 +1453,34 @@ def main():
             header = block[:80]
         else:
             node = bits.p2p.Node(
-                config.seeds, config.datadir, config.network, config.log_level
+                config.seeds,
+                config.datadir,
+                config.network,
+                config.log_level,
+                max_outgoing_peers=config.max_outgoing_peers,
             )
             if len(args.block) == 64:
                 # if provided arg is 64 digits, it is interpreted as a hash
-                block_index_data = node.db.get_block(blockheaderhash=args.block)
+                if args.header_index:
+                    best_peer_id = node.get_best_peer()
+                    block_index_data = node.db.get_blockheader(
+                        best_peer_id, blockheaderhash=args.block
+                    )
+                else:
+                    block_index_data = node.db.get_block(blockheaderhash=args.block)
             else:
                 # else a blockheight
-                block_index_data = node.db.get_block(blockheight=int(args.block))
+                if args.header_index:
+                    best_peer_id = node.get_best_peer()
+                    block_index_data = node.db.get_blockheader(
+                        best_peer_id, blockheight=int(args.block)
+                    )
+                else:
+                    block_index_data = node.db.get_block(blockheight=int(args.block))
             if not block_index_data:
                 log.error(f"no index data found for block {args.block}")
                 return
-            if args.index:
+            if args.index or args.header_index:
                 print(json.dumps(block_index_data))
                 return
             block = node.get_block_data(
@@ -1474,7 +1528,11 @@ def main():
                 return
 
         node = bits.p2p.Node(
-            config.seeds, config.datadir, config.network, config.log_level
+            config.seeds,
+            config.datadir,
+            config.network,
+            config.log_level,
+            max_outgoing_peers=config.max_outgoing_peers,
         )
         chain_info = node.get_blockchain_info()
         sat_block = int(bits.ordinals.decimal(sat).split(".")[0])

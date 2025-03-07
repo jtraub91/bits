@@ -17,6 +17,7 @@ class Config(object):
 
         self.datadir = kwargs.get("datadir", "")
         self.seeds = kwargs.get("seeds", [])
+        self.max_outgoing_peers = kwargs.get("max_outgoing_peers", 5)
 
         self.rpc_url = kwargs.get("rpc_url", "")
         self.rpc_user = kwargs.get("rpc_user", "")

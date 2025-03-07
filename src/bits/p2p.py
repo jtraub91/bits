@@ -13,11 +13,11 @@ import os
 import sqlite3
 import time
 import traceback
-from asyncio import StreamReader, StreamWriter
+from asyncio import Event, StreamReader, StreamWriter
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from ipaddress import ip_address
-from threading import Event, Thread, Lock
+from threading import Thread, Lock
 from typing import List, Optional, Tuple, Union
 
 import bits.blockchain
@@ -494,13 +494,12 @@ class Peer:
         self.writer: StreamWriter = None
 
         self._data = None
-        self._addr_processing_queue = deque([])
+        self._addr_processing_queue = asyncio.Queue()
 
         self.inventories = []
         self._header_processing_queue = deque([])
         self.orphan_blocks = {}
         self._pending_getdata_requests = deque([])
-        self._pending_getblocks_requests = deque([])
         self._pending_getblocks_request = None
         self._pending_getheaders_request = None
 
@@ -587,6 +586,8 @@ class Node:
         user_agent: bytes = BITS_USER_AGENT,
         max_outgoing_peers: int = 2,
         connection_timeout: int = 5,
+        download_headers: bool = True,
+        download_blocks: bool = True,
     ):
         """
         bits P2P node
@@ -600,6 +601,8 @@ class Node:
             relay: bool
             user_agent: bytes
         """
+        self.download_headers = download_headers
+        self.download_blocks = download_blocks
         self.max_outgoing_peers = max_outgoing_peers
         self.connection_timeout = connection_timeout
         self.seeds = seeds
@@ -678,8 +681,7 @@ class Node:
                 mediantime=block_index["nTime"],
             )
 
-        self.message_queue = deque([])
-        self._unhandled_message_queue = deque([])
+        self.message_queue = asyncio.Queue()
         self._ibd: bool = False
 
         self._block_processing_queue = deque([])
@@ -718,14 +720,12 @@ class Node:
         reject = parse_reject_payload(payload)
         log.debug(reject)
 
-    def handle_addr_command(self, peer: Peer, command: bytes, payload: bytes):
+    async def handle_addr_command(self, peer: Peer, command: bytes, payload: bytes):
         payload = parse_addr_payload(payload)
         addrs = payload["addrs"]
-        peer._addr_processing_queue.extend(addrs)
-        with self._thread_lock:
-            self.db.save_peer_addrs(peer._id, addrs)
+        await peer._addr_processing_queue.put(addrs)
         log.debug(
-            f"{len(addrs)} network addrs to queue for {peer}. total in queue: {len(peer._addr_processing_queue)}"
+            f"{len(addrs)} network addrs to queue for {peer}. queue size: {peer._addr_processing_queue.qsize()}"
         )
 
     def handle_inv_command(self, peer: Peer, command: bytes, payload: bytes):
@@ -900,12 +900,9 @@ class Node:
                 self.db._conn.commit()
                 self.peers.append(peer)
                 connected_peers.append(peer)
-                peer._ibd = True
                 asyncio.create_task(self.outgoing_peer_recv_loop(peer))
-                asyncio.create_task(self.request_headers(peer))
-                asyncio.create_task(self.process_headers(peer))
-                asyncio.create_task(peer.send_command(b"getaddr"))
-                asyncio.create_task(self.process_addrs(peer))
+                # asyncio.create_task(peer.send_command(b"getaddr"))
+                # asyncio.create_task(self.process_addrs(peer))
         return connected_peers
 
     async def connect_to_peer(self, peer: Peer) -> dict:
@@ -968,7 +965,7 @@ class Node:
             except ShutdownException as err:
                 log.info(f"shutdown except raised during recv_msg for {peer} - {err}")
             else:
-                self.message_queue.append((peer, command, payload))
+                await self.message_queue.put((peer, command, payload))
             await asyncio.sleep(0)
         log.info(f"exiting peer recv loop for {peer}")
         await peer.close()
@@ -1004,23 +1001,27 @@ class Node:
     async def message_handler_loop(self):
         loop = asyncio.get_running_loop()
         while not self.exit_event.is_set():
-            if self.message_queue:
-                peer, command, payload = self.message_queue.popleft()
-                if command == b"ping":
-                    asyncio.create_task(
-                        self.handle_ping_command(peer, command, payload)
-                    )
-                elif command == b"getheaders":
-                    asyncio.create_task(
-                        self.handle_getheaders_command(peer, command, payload)
-                    )
-                else:
-                    handler = getattr(self, f"handle_{command.decode('utf8')}_command")
-                    await loop.run_in_executor(
-                        self._thread_pool_executor, handler, peer, command, payload
-                    )
+            try:
+                peer, command, payload = await asyncio.wait_for(
+                    self.message_queue.get(), 1.0
+                )
+            except asyncio.TimeoutError:
+                continue
+            if command == b"ping":
+                asyncio.create_task(self.handle_ping_command(peer, command, payload))
+            elif command == b"getheaders":
+                asyncio.create_task(
+                    self.handle_getheaders_command(peer, command, payload)
+                )
+            elif command == b"addr":
+                asyncio.create_task(self.handle_addr_command(peer, command, payload))
+            else:
+                handler = getattr(self, f"handle_{command.decode('utf8')}_command")
+                await loop.run_in_executor(
+                    self._thread_pool_executor, handler, peer, command, payload
+                )
             await asyncio.sleep(0)
-        log.info("message handler loop exited.")
+        log.trace("message handler loop exited")
 
     def startup_checks(self):
         # check datadir for internal consistency
@@ -1123,9 +1124,15 @@ class Node:
                     f"local blockchain is behind sync node {sync_node} by {sync_node_version_data['start_height'] - blockheight} blocks. Entering IBD..."
                 )
                 self._ibd = True
-                asyncio.create_task(self.request_block_inventories(sync_node))
-                asyncio.create_task(self.request_blocks(sync_node))
-                asyncio.create_task(self.process_blocks())
+                if self.download_headers:
+                    for peer in connected_peers:
+                        peer._ibd = True
+                        asyncio.create_task(self.request_headers(peer))
+                        asyncio.create_task(self.process_headers(peer))
+                if self.download_blocks:
+                    asyncio.create_task(self.request_block_inventories(sync_node))
+                    asyncio.create_task(self.request_blocks(sync_node))
+                    asyncio.create_task(self.process_blocks())
 
             asyncio.create_task(self.message_handler_loop())
         else:
@@ -1144,9 +1151,26 @@ class Node:
         """
         loop = asyncio.get_running_loop()
         while not self.exit_event.is_set():
-            if peer._addr_processing_queue:
-                addr = peer._addr_processing_queue.popleft()
-                if len(self.peers) < self.max_outgoing_peers:
+            try:
+                addrs = await asyncio.wait_for(peer._addr_processing_queue.get(), 1.0)
+            except asyncio.TimeoutError:
+                continue
+
+            # remove addrs that have already been added to db for this peer
+            existing_addrs_set = set(
+                [
+                    (addr["host"], addr["port"])
+                    for addr in self.db.get_peer_addrs(peer._id)
+                ]
+            )
+            addrs = [
+                addr
+                for addr in addrs
+                if (addr["host"], addr["port"]) not in existing_addrs_set
+            ]
+
+            if len(self.peers) < self.max_outgoing_peers:
+                for addr in addrs:
                     if (addr["host"], addr["port"]) in [
                         (peer_.host, peer_.port) for peer_ in self.peers
                     ]:
@@ -1177,8 +1201,9 @@ class Node:
                         await loop.run_in_executor(
                             self._thread_pool_executor, self.save_addr, addr, None
                         )
-                else:
-                    # if we're already at max outgoing peers, just save to db
+            else:
+                # if we're already at max outgoing peers, just save to db
+                for addr in addrs:
                     await loop.run_in_executor(
                         self._thread_pool_executor, self.save_addr, addr, peer._id
                     )
@@ -1229,7 +1254,7 @@ class Node:
                     b"getheaders",
                     getblocks_payload([bytes.fromhex(best_blockheaderhash)[::-1]]),
                 )
-            await asyncio.sleep(0)
+            await asyncio.sleep(1)
         log.info(f"request_headers loop exit for {peer}")
 
     async def process_headers(self, peer: Peer):
@@ -1323,6 +1348,8 @@ class Node:
     async def request_block_inventories(self, peer: Peer):
         """
         Request block inventories via 'getblocks' from peer, during IBD
+
+        Expected response of 2000 inventories until we get current
         """
         while self._ibd and not self.exit_event.is_set():
             if (
@@ -1346,7 +1373,19 @@ class Node:
                         ]
                     ),
                 )
-            await asyncio.sleep(0)
+            elif (
+                peer._pending_getblocks_request
+                and peer._pending_getblocks_request["time"] < time.time() - 60
+            ):
+                log.debug(
+                    f"pending getblocks {peer._pending_getblocks_request} request expired."
+                )
+                peer._pending_getblocks_request = None
+            else:
+                log.trace(
+                    f"request_block_inventories skip. len(inventories)={len(peer.inventories)}, len(block_processsing_queue)={len(self._block_processing_queue)}, pending_getblocks_request={peer._pending_getblocks_request} "
+                )
+            await asyncio.sleep(1)
         log.trace("request_block_inventories loop exit")
 
     async def request_blocks(self, peer: Peer):
@@ -1360,24 +1399,40 @@ class Node:
                 and peer.inventories
                 and not peer._pending_getdata_requests
             ):
-                inventory_list = [
-                    inventory(inv["type_id"], inv["hash"])
-                    for inv in peer.inventories[
-                        : MAX_BLOCKS_IN_QUEUE - len(self._block_processing_queue)
-                    ]
+                inventory_list = peer.inventories[
+                    : MAX_BLOCKS_IN_QUEUE - len(self._block_processing_queue)
                 ]
+
                 current_time = int(time.time())
                 requests = [
-                    {"time": current_time} | inv
-                    for inv in peer.inventories[
-                        : MAX_BLOCKS_IN_QUEUE - len(self._block_processing_queue)
-                    ]
+                    {"time": current_time} | inventory_ for inventory_ in inventory_list
                 ]
                 peer._pending_getdata_requests.extend(requests)
                 await peer.send_command(
-                    b"getdata", inv_payload(len(inventory_list), inventory_list)
+                    b"getdata",
+                    inv_payload(
+                        len(inventory_list),
+                        [
+                            inventory(inv["type_id"], inv["hash"])
+                            for inv in inventory_list
+                        ],
+                    ),
                 )
-            await asyncio.sleep(0)
+            elif peer._pending_getdata_requests:
+                expired_requests = list(
+                    filter(
+                        lambda req: req["time"] < time.time() - 60,
+                        peer._pending_getdata_requests,
+                    )
+                )
+                if expired_requests:
+                    log.debug(f"pending getdata requests expired - {expired_requests}")
+                [peer._pending_getdata_requests.remove(req) for req in expired_requests]
+            else:
+                log.trace(
+                    f"request_blocks loop skip.  len(block processing_queue)={len(self._block_processing_queue)}, len(pending_getdata_requests)={len(peer._pending_getdata_requests)}"
+                )
+            await asyncio.sleep(1)
         log.trace("request_blocks loop exit")
 
     async def process_blocks(self):
@@ -1738,18 +1793,20 @@ class Node:
                     f"block {proposed_block['blockheaderhash']} has non-final transaction {txn['txid']}"
                 )
 
-        # check if proposed block is in the most work chain,
-        best_peer = self.get_best_peer()
-        if best_peer:
-            cursor = self.db._conn.cursor()
-            res = cursor.execute(
-                f"SELECT blockheaderhash FROM blockheader WHERE peer_id={best_peer._id} AND blockheight={proposed_blockheight} AND blockheaderhash='{proposed_block['blockheaderhash']}';"
-            ).fetchone()
-            cursor.close()
-            if not res:
-                raise PossibleForkError(
-                    f"proposed block {proposed_block['blockheaderhash']} is not in the most work chain"
-                )
+        # log.trace("get best peer")
+        # # check if proposed block is in the most work chain,
+        # best_peer_id = self.get_best_peer()
+        # if best_peer_id is not None:
+        #     cursor = self.db._conn.cursor()
+        #     res = cursor.execute(
+        #         f"SELECT blockheaderhash FROM blockheader WHERE peer_id={best_peer_id} AND blockheight={proposed_blockheight} AND blockheaderhash='{proposed_block['blockheaderhash']}';"
+        #     ).fetchone()
+        #     cursor.close()
+        #     if not res:
+        #         raise PossibleForkError(
+        #             f"proposed block {proposed_block['blockheaderhash']} is not in the most work chain"
+        #         )
+        # log.trace("get best peer end")
 
         ### save block to disk and index db ###
         self.save_block(block)
@@ -1964,15 +2021,14 @@ class Node:
 
     def get_best_peer(self) -> Union[Peer, None]:
         cursor = self.db._conn.cursor()
-        chainworks = self.db._curs.execute(
+        chainworks = cursor.execute(
             "SELECT MAX(blockheight), chainwork, peer_id FROM blockheader GROUP BY peer_id;"
         ).fetchall()
         cursor.close()
         sorted_chainworks = sorted(chainworks, key=lambda cw: int(cw[1], 16))
         best_peer_id = sorted_chainworks[-1][2]
         # possible for multiple peers to have best if they are synced, but we dpn't care
-        best_peer = filter(lambda p: p._id == best_peer_id, self.peers)
-        return next(best_peer, None)
+        return best_peer_id
 
     def get_next_nbits(
         self,
@@ -2059,7 +2115,6 @@ class Node:
                 return set([current_block_index_data["nBits"]])
         else:
             # difficulty adjustment block
-            log.debug(current_block_index_data)
             current_target = bits.blockchain.target_threshold(
                 bytes.fromhex(current_block_index_data["nBits"])[::-1]
             )
@@ -2672,20 +2727,23 @@ class Db:
         return result[0] if result else None
 
     def get_peer(self, host: str, port: int) -> Union[int, None]:
-        res = self._curs.execute(
+        cursor = self._conn.cursor()
+        result = cursor.execute(
             f"SELECT id FROM peer WHERE host='{host}' AND port={port};"
-        )
-        result = res.fetchone()
+        ).fetchone()
+        cursor.close()
         return result[0] if result else None
 
     def get_peers(self, is_connected: Optional[bool] = None) -> List[dict]:
+        cursor = self._conn.cursor()
         if is_connected is None:
-            res = self._curs.execute("SELECT * FROM peer;")
+            res = cursor.execute("SELECT * FROM peer;")
         else:
-            res = self._curs.execute(
+            res = cursor.execute(
                 f"SELECT * FROM peer WHERE is_connected={1 if is_connected else 0};"
             )
         results = res.fetchall()
+        cursor.close()
         return [
             {
                 "id": result[0],
