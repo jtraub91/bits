@@ -16,6 +16,7 @@ import traceback
 from asyncio import Event, StreamReader, StreamWriter
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from ipaddress import ip_address
 from threading import Thread, Lock
 from typing import List, Optional, Tuple, Union
@@ -563,9 +564,11 @@ class Peer:
 
     async def send_command(self, command: bytes, payload: bytes = b""):
         try:
-            self.writer.write(msg_ser(self.magic_start_bytes, command, payload))
+            message_bytes = msg_ser(self.magic_start_bytes, command, payload)
+            self.writer.write(message_bytes)
             await self.writer.drain()
             log.info(f"sent {command} and {len(payload)} payload bytes to {self}.")
+            log.trace(f"raw message bytes: {message_bytes.hex()}")
         except ConnectionResetError as err:
             log.error(err)
             log.info(f"connection reset while sending {command} to {self}.")
@@ -654,7 +657,9 @@ class Node:
 
             # write genesis block to disk
             gb = genesis_block(network=self.network)
-            self.save_block(gb)
+            self.save_block(
+                gb, bits.blockchain.new_chainwork((b"\x00" * 32).hex(), gb["nBits"])
+            )
 
             # update utxoset
             gb_deser = bits.blockchain.block_deser(gb)
@@ -672,14 +677,6 @@ class Node:
             )
             blockheight = self.db.get_blockchain_height()
             block_index = self.db.get_block(blockheight)
-            self.db.save_node_state(
-                network=self.network,
-                difficulty=difficulty,
-                height=blockheight,
-                bestblockheaderhash=block_index["blockheaderhash"],
-                time=block_index["nTime"],
-                mediantime=block_index["nTime"],
-            )
 
         self.message_queue = asyncio.Queue()
         self._ibd: bool = False
@@ -733,13 +730,6 @@ class Node:
         count = parsed_payload["count"]
         inventories = parsed_payload["inventory"]
         if self._ibd:
-
-            non_msg_block_inventories = list(
-                filter(lambda inv: inv["type_id"] != "MSG_BLOCK", inventories)
-            )
-            non_msg_block_typeset = set(
-                [inv["type_id"] for inv in non_msg_block_inventories]
-            )
             inventories = list(
                 filter(lambda inv: inv["type_id"] == "MSG_BLOCK", inventories)
             )
@@ -790,6 +780,7 @@ class Node:
         if pending_getdata_request_match:
             peer._pending_getdata_requests.remove(pending_getdata_request_match)
             pending_getdata_request_match.pop("time")
+            pending_getdata_request_match.pop("retries")
             peer.inventories.remove(pending_getdata_request_match)
         if (
             peer._pending_getblocks_request
@@ -1052,13 +1043,6 @@ class Node:
                 raise AssertionError(
                     "last blockheaderhash in index does not match last block on disk"
                 )
-            node_state = self.db.get_node_state()
-            if node_state["bestblockheaderhash"] != last_block_index["blockheaderhash"]:
-                log.warning(
-                    f"bestblockheaderhash stored in node_state {node_state['bestblockheaderhash']} is not equal to the last block's header hash {last_block_index['blockheaderhash']}. This probably means that the utxoset update was interrupted during validation."
-                )
-                deleted_block = self.delete_block()
-                log.info(f"deleted block {deleted_block['blockheaderhash']}")
 
     def run(self):
         asyncio.run(self.main(), debug=True)
@@ -1077,7 +1061,6 @@ class Node:
         log.info("node exit event set")
 
     async def main(self, reindex=False):
-        self.db.save_node_state(running=True)
         if reindex or not os.path.exists(self.index_db_filepath):
             # to rebuild the index do we need to validate each block again?
             # or do we assume if block is on disk then it's valid, and do a fast rebuild
@@ -1141,7 +1124,6 @@ class Node:
         tasks = asyncio.all_tasks()
         tasks.remove(asyncio.current_task())
         await asyncio.gather(*tasks)
-        self.db.save_node_state(running=False)
         log.trace("main exit")
 
     async def process_addrs(self, peer: Peer):
@@ -1405,7 +1387,8 @@ class Node:
 
                 current_time = int(time.time())
                 requests = [
-                    {"time": current_time} | inventory_ for inventory_ in inventory_list
+                    {"time": current_time, "retries": 3} | inventory_
+                    for inventory_ in inventory_list
                 ]
                 peer._pending_getdata_requests.extend(requests)
                 await peer.send_command(
@@ -1426,8 +1409,19 @@ class Node:
                     )
                 )
                 if expired_requests:
-                    log.debug(f"pending getdata requests expired - {expired_requests}")
-                [peer._pending_getdata_requests.remove(req) for req in expired_requests]
+                    for req in expired_requests:
+                        req["retries"] -= 1
+                        log.debug(
+                            f"{peer} pending getdata request timeout - {req}. {req['retires']} attemtps remaining..."
+                        )
+                        if req["retries"] <= 0:
+                            log.debug(
+                                f"pending getdata requests expired - {expired_requests}"
+                            )
+                            peer._pending_getdata_requests.remove(req)
+                            req.pop("time")
+                            req.pop("retries")
+                            peer.inventories.remove(req)
             else:
                 log.trace(
                     f"request_blocks loop skip.  len(block processing_queue)={len(self._block_processing_queue)}, len(pending_getdata_requests)={len(peer._pending_getdata_requests)}"
@@ -1517,15 +1511,16 @@ class Node:
         log.info(f"block {blockheight} deleted from {block_index['datafile']}")
         return Block(deleted_block_data)
 
-    def save_block(self, block: bytes):
+    def save_block(self, block: bytes, new_chainwork: str):
         """
-        Add block to local blockhain, i.e. save to disk, write to db index
+        Save block to disk
 
         observe max_blockfile_size &
         number files blk00000.dat, blk00001.dat, ...
 
         Args:
-            blocks: List[bytes]
+            block: Block | Bytes | bytes
+            new_chainwork: str, the new total chainwork upon adding this block (added to block index entry)
         """
         dat_files = sorted(
             [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
@@ -1574,19 +1569,50 @@ class Node:
                 blockheader_data["nTime"],
                 blockheader_data["nBits"],
                 blockheader_data["nNonce"],
+                new_chainwork,
                 rel_path,
                 start_offset,
             )
         log.info(f"block {blockheight} saved to {self.index_db_filename}")
 
     def get_blockchain_info(self) -> Union[dict, None]:
-        node_state = self.db.get_node_state()
-        node_state.pop("ibd")
-        node_state.pop("running")
-        return node_state
+        blockheight = self.db.get_blockchain_height()
+        block_index_data = self.db.get_block(blockheight)
+        cursor = self.db._conn.cursor()
+        start_height = cursor.execute(
+            "SELECT start_height FROM peer WHERE is_connected=1 ORDER BY start_height DESC LIMIT 1;"
+        ).fetchone()
+        start_height = start_height[0] if start_height else None
+        cursor.close()
+        _ = self.get_block_data(
+            os.path.join(self.datadir, block_index_data["datafile"]),
+            block_index_data["datafile_offset"],
+        )
+
+        last_11_block_index_ = [
+            self.db.get_block(blockheight - i) for i in range(min(blockheight + 1, 11))
+        ]
+        last_11_times = [block_index_["nTime"] for block_index_ in last_11_block_index_]
+        return {
+            "network": self.network,
+            "progress": float(format(blockheight / start_height, "0.8f")),
+            "difficulty": bits.blockchain.difficulty(
+                bits.blockchain.target_threshold(
+                    bytes.fromhex(block_index_data["nBits"])[::-1]
+                ),
+                network=self.network,
+            ),
+            "height": blockheight,
+            "blockheaderhash": block_index_data["blockheaderhash"],
+            "chainwork": block_index_data["chainwork"],
+            "time": block_index_data["nTime"],
+            "mediantime": bits.blockchain.median_time(last_11_times),
+            "timestamp": datetime.fromtimestamp(
+                block_index_data["nTime"], tz=timezone.utc
+            ).strftime("%Y-%m-%d %H:%M:%S %Z"),
+        }
 
     def get_node_info(self) -> Union[dict, None]:
-        node_state = self.db.get_node_state()
         peers = self.db.get_peers(is_connected=True)
         # pop off peer addrs info
         for peer in peers:
@@ -1604,7 +1630,7 @@ class Node:
             peer["bestblockheaderhash"] = best_blockheader["blockheaderhash"]
             peer["bestblockheight"] = best_blockheader["blockheight"]
             peer["totalchainwork"] = best_blockheader["chainwork"]
-        return {"running": node_state.pop("running"), "peers": peers}
+        return {"peers": peers}
 
     def rebuild_index(self):
         raise NotImplementedError
@@ -1635,6 +1661,7 @@ class Node:
                         block_dict["nTime"],
                         block_dict["nBits"],
                         block_dict["nNonce"],
+                        "TODO",
                         filename,
                         start_offset,
                     )
@@ -1809,7 +1836,12 @@ class Node:
         # log.trace("get best peer end")
 
         ### save block to disk and index db ###
-        self.save_block(block)
+        self.save_block(
+            block,
+            bits.blockchain.new_chainwork(
+                current_block_index_data["chainwork"], proposed_block["nBits"]
+            ),
+        )
 
         # cleanup proposed block variables
         del proposed_blockheight
@@ -1997,26 +2029,6 @@ class Node:
         log.debug(
             f"validated all of {len(current_block['txns'])} txns in block {current_blockheight}."
         )
-        last_11_block_index_ = [
-            self.db.get_block(current_blockheight - i)
-            for i in range(min(current_blockheight + 1, 11))
-        ]
-        last_11_times = [block["nTime"] for block in last_11_block_index_]
-        with self._thread_lock:
-            self.db.save_node_state(
-                progress=format(
-                    current_blockheight / self.sync_node_start_height, "0.8f"
-                ),
-                difficulty=bits.blockchain.difficulty(
-                    bits.blockchain.target_threshold(
-                        bytes.fromhex(current_block["nBits"])[::-1]
-                    )
-                ),
-                height=current_blockheight,
-                bestblockheaderhash=current_block["blockheaderhash"],
-                time=current_block["nTime"],
-                mediantime=bits.blockchain.median_time(last_11_times),
-            )
         return True
 
     def get_best_peer(self) -> Union[Peer, None]:
@@ -2165,8 +2177,8 @@ class Db:
             "blockheader",
             "utxoset",
             "peer",
-            "node_state",
             "tx",
+            "revert",
             "addr",
         ]:
             res = self._curs.execute(
@@ -2188,6 +2200,8 @@ class Db:
                     nTime INTEGER,
                     nBits TEXT,
                     nNonce INTEGER,
+
+                    chainwork TEXT,
 
                     datafile TEXT,
                     datafile_offset INTEGER
@@ -2252,6 +2266,19 @@ class Db:
             self._conn.commit()
             self._curs.execute(
                 """
+                CREATE TABLE ordinal_range (
+                    id INTEGER PRIMARY KEY,
+                    start INTEGER,
+                    end INTEGER,
+
+                    utxoset_id INTEGER,
+                    FOREIGN KEY(utxoset_id) REFERENCES utxoset(id)
+                );
+                """
+            )
+            self._conn.commit()
+            self._curs.execute(
+                """
                 CREATE TABLE peer(
                     id INTEGER PRIMARY KEY,
                     host TEXT,
@@ -2270,26 +2297,6 @@ class Db:
                     sendcmpct_version INTEGER,
 
                     is_connected BOOLEAN
-                );
-            """
-            )
-            self._conn.commit()
-            self._curs.execute(
-                """
-                CREATE TABLE node_state(
-                    id INTEGER PRIMARY KEY,
-                    network TEXT,
-                    ibd BOOLEAN,
-                    progress REAL,
-                    running BOOLEAN,
-                    difficulty REAL,
-                    height INTEGER,
-                    bestblockheaderhash TEXT,
-                    time INTEGER,
-                    mediantime INTEGER,
-
-                    best_blockheader_chain INTEGER,
-                    FOREIGN KEY(best_blockheader_chain) REFERENCES peer(id)
                 );
             """
             )
@@ -2575,6 +2582,7 @@ class Db:
         nTime: int,
         nBits: str,
         nNonce: int,
+        chainwork: str,
         datafile: str,
         datafile_offset: int,
     ):
@@ -2588,6 +2596,7 @@ class Db:
                 nTime,
                 nBits,
                 nNonce,
+                chainwork,
                 datafile,
                 datafile_offset
             ) VALUES (
@@ -2599,24 +2608,23 @@ class Db:
                 {nTime},
                 '{nBits}',
                 {nNonce},
+                '{chainwork}',
                 '{datafile}',
                 {datafile_offset}
             );
         """
-        with self._conn as conn:
-            conn.cursor().execute(cmd)
-            conn.commit()
+        cursor = self._conn.cursor()
+        cursor.execute(cmd)
+        self._conn.commit()
+        cursor.close()
 
-    def get_blockchain_height(
-        self, cursor: Optional[sqlite3.Cursor] = None
-    ) -> Union[int | None]:
-        if cursor is None:
-            cursor = self._conn.cursor()
-
+    def get_blockchain_height(self) -> Union[int | None]:
+        cursor = self._conn.cursor()
         res = cursor.execute(
             "SELECT blockheight FROM block ORDER BY blockheight DESC LIMIT 1;"
         )
         result = res.fetchone()
+        cursor.close()
         return result[0] if result else None
 
     def count_blocks(self) -> int:
@@ -2672,8 +2680,9 @@ class Db:
                 "nTime": int(result[6]),
                 "nBits": result[7],
                 "nNonce": int(result[8]),
-                "datafile": result[9],
-                "datafile_offset": int(result[10]),
+                "chainwork": result[9],
+                "datafile": result[10],
+                "datafile_offset": int(result[11]),
             }
             if result
             else None
@@ -2803,77 +2812,6 @@ class Db:
         if key and result:
             return data.get(key)
         return data
-
-    def save_node_state(
-        self,
-        network: Optional[str] = None,
-        ibd: Optional[bool] = None,
-        progress: Optional[float] = None,
-        running: Optional[bool] = None,
-        difficulty: Optional[float] = None,
-        height: Optional[int] = None,
-        bestblockheaderhash: Optional[str] = None,
-        time: Optional[int] = None,
-        mediantime: Optional[int] = None,
-        cursor: Optional[sqlite3.Cursor] = None,
-        commit: bool = True,
-    ):
-        if cursor is None:
-            cursor = self._conn.cursor()
-        if not self.get_node_state():
-            cursor.execute("INSERT INTO node_state (id) VALUES (1);")
-            self._conn.commit()
-        res = cursor.execute("SELECT * from node_state;")
-        results = res.fetchall()
-        assert len(results) == 1, "multiple rows in node_state table"
-        result = results[0]
-        assert result[0] == 1, "node state row id != 1"
-        set_statement = ""
-        if network is not None:
-            set_statement += f"network='{network}', "
-        if ibd is not None:
-            set_statement += "ibd='TRUE', " if ibd else "ibd='FALSE', "
-        if progress is not None:
-            set_statement += f"progress='{progress}', "
-        if running is not None:
-            set_statement += "running='TRUE', " if running else "running='FALSE', "
-        if difficulty is not None:
-            set_statement += f"difficulty='{difficulty}', "
-        if height is not None:
-            set_statement += f"height={height}, "
-        if bestblockheaderhash is not None:
-            set_statement += f"bestblockheaderhash='{bestblockheaderhash}', "
-        if time is not None:
-            set_statement += f"time={time}, "
-        if mediantime is not None:
-            set_statement += f"mediantime={mediantime}, "
-        set_statement = set_statement[:-2]  # remove trailing ", "
-        cursor.execute(f"UPDATE node_state SET {set_statement} WHERE id=1;")
-        if commit:
-            self._conn.commit()
-
-    def get_node_state(
-        self, cursor: Optional[sqlite3.Cursor] = None
-    ) -> Union[dict, None]:
-        if cursor is None:
-            cursor = self._conn.cursor()
-        res = cursor.execute("SELECT * from node_state;")
-        results = res.fetchall()
-        if not results:
-            return
-        assert len(results) == 1, "multiple rows in node_state table"
-        node_state = results[0]
-        return {
-            "network": node_state[1],
-            "ibd": True if node_state[2] == "TRUE" else False,
-            "progress": node_state[3],
-            "running": True if node_state[4] == "TRUE" else False,
-            "difficulty": node_state[5],
-            "height": node_state[6],
-            "bestblockheaderhash": node_state[7],
-            "time": node_state[8],
-            "mediantime": node_state[9],
-        }
 
     def get_block_revert(self, block_id: int):
         """
