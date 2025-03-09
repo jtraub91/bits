@@ -24,6 +24,7 @@ from typing import List, Optional, Tuple, Union
 import bits.blockchain
 import bits.crypto
 from bits.blockchain import Block, Blockheader, Bytes, genesis_block
+import bits.ordinals
 import bits.script
 
 
@@ -656,27 +657,21 @@ class Node:
             # if there are no dat files yet,
 
             # write genesis block to disk
-            gb = genesis_block(network=self.network)
+            gb = Block(genesis_block(network=self.network))
             self.save_block(
                 gb, bits.blockchain.new_chainwork((b"\x00" * 32).hex(), gb["nBits"])
             )
 
             # update utxoset
-            gb_deser = bits.blockchain.block_deser(gb)
-            genesis_coinbase_tx = gb_deser["txns"][0]
+            genesis_coinbase_tx = gb["txns"][0]
             with self._thread_lock:
-                self.db.add_tx(
-                    genesis_coinbase_tx["txid"], gb_deser["blockheaderhash"], 0, 1
+                self.db.add_tx(genesis_coinbase_tx["txid"], gb["blockheaderhash"], 0, 1)
+                self.db.add_to_utxoset(
+                    genesis_coinbase_tx["txid"],
+                    0,
+                    1,
+                    [(0, bits.blockchain.block_reward(0) - 1)],
                 )
-                self.db.add_to_utxoset(genesis_coinbase_tx["txid"], 0, 1)
-            difficulty = bits.blockchain.difficulty(
-                bits.blockchain.target_threshold(
-                    bytes.fromhex(gb_deser["nBits"])[::-1]
-                ),
-                network=self.network,
-            )
-            blockheight = self.db.get_blockchain_height()
-            block_index = self.db.get_block(blockheight)
 
         self.message_queue = asyncio.Queue()
         self._ibd: bool = False
@@ -880,15 +875,15 @@ class Node:
                 # nonce, timestamp, recv / trans addrs services
                 log.debug(f"{peer} version payload: {version_data}")
                 self.db.save_peer_data(peer._id, {"version": version_data})
-                self.db._curs.execute(
+                cursor = self.db._conn.cursor()
+                cursor.execute(
                     f"UPDATE peer SET protocol_version={version_data['protocol_version']}, services={version_data['services']}, user_agent='{version_data['user_agent']}', start_height='{version_data['start_height']}' WHERE id={peer._id};"
                 )
                 self.db._conn.commit()
                 log.info(f"version data for {peer} saved to db")
-                self.db._curs.execute(
-                    f"UPDATE peer SET is_connected=1 WHERE id={peer._id};"
-                )
+                cursor.execute(f"UPDATE peer SET is_connected=1 WHERE id={peer._id};")
                 self.db._conn.commit()
+                cursor.close()
                 self.peers.append(peer)
                 connected_peers.append(peer)
                 asyncio.create_task(self.outgoing_peer_recv_loop(peer))
@@ -1044,12 +1039,12 @@ class Node:
                     "last blockheaderhash in index does not match last block on disk"
                 )
 
-    def run(self):
-        asyncio.run(self.main(), debug=True)
+    def run(self, reindex: bool = False):
+        asyncio.run(self.main(reindex=reindex), debug=True)
 
-    def start(self):
+    def start(self, reindex: bool = False):
         self.exit_event.clear()
-        self._thread = Thread(target=self.run)
+        self._thread = Thread(target=self.run, kwargs={"reindex": reindex})
         self._thread.start()
 
     def stop(self):
@@ -1062,11 +1057,10 @@ class Node:
 
     async def main(self, reindex=False):
         if reindex or not os.path.exists(self.index_db_filepath):
-            # to rebuild the index do we need to validate each block again?
-            # or do we assume if block is on disk then it's valid, and do a fast rebuild
-            # of the index+utxoset?
-            # i suppose we can't detect tampering without a re-validation
-            # so reindex, will ignore that
+            self.db._conn.close()
+            os.remove(self.index_db_filepath)
+            self.db = Db(self.index_db_filepath)
+            self.db.create_tables()
             self.rebuild_index()
         else:
             self.startup_checks()
@@ -1412,7 +1406,7 @@ class Node:
                     for req in expired_requests:
                         req["retries"] -= 1
                         log.debug(
-                            f"{peer} pending getdata request timeout - {req}. {req['retires']} attemtps remaining..."
+                            f"{peer} pending getdata request timeout - {req}. {req['retries']} attemtps remaining..."
                         )
                         if req["retries"] <= 0:
                             log.debug(
@@ -1464,14 +1458,14 @@ class Node:
                 if op["vout"] is None:
                     self.db.remove_tx(op["txid"])
                 elif op["revert"]:
-                    self.db.remove_from_utxoset(op["txid"], op["vout"])
+                    self.db.remove_from_utxoset(op["txid"], op["vout"], "TODO")
                 else:
                     # TODO: add the revert_block_id for add_to_utxoset
                     #   this is probably the block id for the block which originally included this tx
                     #   which is not necessarily the previous block
                     #   probably should store this via the tx table schema
                     # pylint: disable-next=no-value-for-parameter
-                    self.db.add_to_utxoset(op["txid"], op["vout"])
+                    self.db.add_to_utxoset(op["txid"], op["vout"], "TODO")
             log.info(
                 f"changes to tx / utxoset via block {current_block_index_data['blockheight']} reverted in {self.index_db_filename}"
             )
@@ -1513,7 +1507,7 @@ class Node:
 
     def save_block(self, block: bytes, new_chainwork: str):
         """
-        Save block to disk
+        Save block to disk, and index db with new chainwork
 
         observe max_blockfile_size &
         number files blk00000.dat, blk00001.dat, ...
@@ -1595,7 +1589,9 @@ class Node:
         last_11_times = [block_index_["nTime"] for block_index_ in last_11_block_index_]
         return {
             "network": self.network,
-            "progress": float(format(blockheight / start_height, "0.8f")),
+            "progress": float(format(blockheight / start_height, "0.8f"))
+            if start_height is not None
+            else None,
             "difficulty": bits.blockchain.difficulty(
                 bits.blockchain.target_threshold(
                     bytes.fromhex(block_index_data["nBits"])[::-1]
@@ -1613,6 +1609,7 @@ class Node:
         }
 
     def get_node_info(self) -> Union[dict, None]:
+        cursor = self.db._conn.cursor()
         peers = self.db.get_peers(is_connected=True)
         # pop off peer addrs info
         for peer in peers:
@@ -1620,7 +1617,7 @@ class Node:
             invs = peer.pop("invs")
             data = peer.pop("data")
             peer["addrs"] = len(addrs) if addrs else 0
-            num_blockheaders = self.db._curs.execute(
+            num_blockheaders = cursor.execute(
                 f"SELECT COUNT(*) FROM blockheader WHERE peer_id={peer['id']};"
             ).fetchone()[0]
             peer["blockheaders"] = num_blockheaders
@@ -1630,43 +1627,46 @@ class Node:
             peer["bestblockheaderhash"] = best_blockheader["blockheaderhash"]
             peer["bestblockheight"] = best_blockheader["blockheight"]
             peer["totalchainwork"] = best_blockheader["chainwork"]
+        cursor.close()
         return {"peers": peers}
 
     def rebuild_index(self):
-        raise NotImplementedError
-        # TODO: need to account for utxoset rebuild
         log.info("rebuilding index...")
+        # write genesis blockheader to disk
+        gb = Block(genesis_block(network=self.network))
+
         dat_filenames = sorted(
             [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
         )
-        log.info(f"found {len(dat_filenames)} in {self.blocksdir}")
-        blockheight = 0
+        log.info(f"found {len(dat_filenames)} dat files in {self.blocksdir}")
+        chainwork = "0000000000000000000000000000000000000000000000000000000000000000"
         for i, filename in enumerate(dat_filenames, start=1):
-            log.info(f"parsing {filename} (file {i} of {len(dat_filenames)})... ")
-            with open(os.path.join(self.blocksdir, filename), "rb") as dat_file:
-                start_offset = dat_file.tell()
-                magic = dat_file.read(4)
-                while magic:
+            log.info(f"parsing file {i} of {len(dat_filenames)} - {filename} ...")
+            filepath = os.path.join(self.blocksdir, filename)
+            with open(filepath, "rb") as dat_file:
+                while not self.exit_event.is_set():
+                    start_offset = dat_file.tell()
+                    magic = dat_file.read(4)
+                    if not magic:
+                        break
                     assert magic == self.magic_start_bytes, "magic mismatch"
                     length = int.from_bytes(dat_file.read(4), "little")
-                    block = dat_file.read(length)
+                    block = Block(dat_file.read(length))
                     assert len(block) == length, "length mismatch"
-                    block_dict = bits.blockchain.block_deser(block)
-                    self.db.save_block(
-                        blockheight,
-                        block_dict["blockheaderhash"],
-                        block_dict["version"],
-                        block_dict["prev_blockheaderhash"],
-                        block_dict["merkle_root_hash"],
-                        block_dict["nTime"],
-                        block_dict["nBits"],
-                        block_dict["nNonce"],
-                        "TODO",
-                        filename,
-                        start_offset,
-                    )
-                    log.info(f"block {blockheight} saved to {self.index_db_filename}")
-                    blockheight += 1
+                    chainwork = bits.blockchain.new_chainwork(chainwork, block["nBits"])
+                    try:
+                        log.debug(f"reindexing block {block['blockheaderhash']} ...")
+                        self.accept_block(
+                            block,
+                            reindex=True,
+                            rel_path=os.path.relpath(filepath, start=self.datadir),
+                            start_offset=start_offset,
+                            assumevalid=True,
+                        )
+                    except Exception as err:
+                        traceback.format_exc()
+                        log.error(err)
+                        raise err
 
     def get_block_data(
         self, datafile: str, datafile_offset: int, cache: bool = False
@@ -1735,11 +1735,23 @@ class Node:
                 blocks.append(block)
         return blocks
 
-    def accept_block(self, block: Union[Block, Bytes, bytes]) -> bool:
+    def accept_block(
+        self,
+        block: Union[Block, Bytes, bytes],
+        reindex: bool = False,
+        rel_path: str = None,
+        start_offset: int = None,
+        assumevalid: bool = False,
+    ) -> bool:
         """
-        Validate block as new tip
+        Validate block as new tip and save block data and / or index and chainstate
         Args:
             block: Block | bytes, block data
+            reindex: bool, True if this function if this is a reindex operation,
+                meaning the block data won't be saved, but index and chainstate are still updated
+            rel_path: str, relative path of block data, use if and only if reindex=True
+            start_offset: int, start offset byte of block data in rel_path, use if and only if reindex=True
+            assumevalid: bool, True to skip transaction verfication
         Returns:
             bool: True if block is accepted
         Throws:
@@ -1751,9 +1763,26 @@ class Node:
                 i.e. after block is saved to disk
         """
         current_blockheight = self.db.get_blockchain_height()
-        current_block_index_data = self.db.get_block(blockheight=current_blockheight)
+        if current_blockheight is None:
+            # hack for reindexing
+            # no block index exists yet for block 0
+            # set "current_block_index_data" to be able to check and derive "new" chainwork
+            current_block_index_data = {
+                "blockheaderhash": "0000000000000000000000000000000000000000000000000000000000000000",
+                "chainwork": "0000000000000000000000000000000000000000000000000000000000000000",
+                "nBits": "1d00ffff",
+                "nTime": 1231006505
+                if self.network.lower() == "mainnet"
+                else 1296688602,
+            }
+        else:
+            current_block_index_data = self.db.get_block(
+                blockheight=current_blockheight
+            )
 
-        proposed_blockheight = current_blockheight + 1
+        proposed_blockheight = (
+            current_blockheight + 1 if current_blockheight is not None else 0
+        )
         proposed_block = Block(block)
         if not bits.blockchain.check_block(proposed_block, network=self.network):
             raise CheckBlockError(
@@ -1794,13 +1823,17 @@ class Node:
             )
 
         # ensure timestamp is strictly greater than the median_time of last 11 blocks
-        last_11_block_index_ = [
-            self.db.get_block(current_blockheight - i)
-            for i in range(min(current_blockheight + 1, 11))
-        ]
+        last_11_block_index_ = (
+            [
+                self.db.get_block(current_blockheight - i)
+                for i in range(min(current_blockheight + 1, 11))
+            ]
+            if current_blockheight is not None
+            else []
+        )
         last_11_times = [block["nTime"] for block in last_11_block_index_]
         median_time = bits.blockchain.median_time(last_11_times)
-        if proposed_block["nTime"] <= median_time:
+        if median_time is not None and proposed_block["nTime"] <= median_time:
             raise AcceptBlockError(
                 f"proposed block nTime {proposed_block['nTime']} is not strictly greater than the median time {median_time}"
             )
@@ -1835,13 +1868,33 @@ class Node:
         #         )
         # log.trace("get best peer end")
 
-        ### save block to disk and index db ###
-        self.save_block(
-            block,
-            bits.blockchain.new_chainwork(
-                current_block_index_data["chainwork"], proposed_block["nBits"]
-            ),
-        )
+        if not reindex:
+            ### save block to disk and index db ###
+            self.save_block(
+                block,
+                bits.blockchain.new_chainwork(
+                    current_block_index_data["chainwork"], proposed_block["nBits"]
+                ),
+            )
+        else:
+            # TODO: this if/else code looks misleading
+            with self._thread_lock:
+                self.db.save_block(
+                    proposed_blockheight,
+                    proposed_block["blockheaderhash"],
+                    proposed_block["version"],
+                    proposed_block["prev_blockheaderhash"],
+                    proposed_block["merkle_root_hash"],
+                    proposed_block["nTime"],
+                    proposed_block["nBits"],
+                    proposed_block["nNonce"],
+                    bits.blockchain.new_chainwork(
+                        current_block_index_data["chainwork"], proposed_block["nBits"]
+                    ),
+                    rel_path,
+                    start_offset,
+                )
+            log.info(f"block {proposed_blockheight} saved to {self.index_db_filename}")
 
         # cleanup proposed block variables
         del proposed_blockheight
@@ -1881,14 +1934,19 @@ class Node:
         for txo in coinbase_tx_txouts:
             coinbase_tx_txouts_total_value += txo["value"]
 
-        # update utxoset with coinbase tx outputs
-        for vout in range(len(coinbase_tx_txouts)):
-            with self._thread_lock:
-                self.db.add_to_utxoset(
-                    coinbase_tx["txid"],
-                    vout,
-                    current_block_index_data["id"],
+        # pool of ordinal ranges to be assigned to outputs
+        # first range is newly created corresponding to the block reward
+        block_ordinal_ranges = deque(
+            [
+                (
+                    bits.ordinals.from_decimal(f"{current_blockheight}.0"),
+                    bits.ordinals.from_decimal(f"{current_blockheight}.0")
+                    + bits.blockchain.block_reward(current_blockheight)
+                    - 1,
                 )
+            ]
+        )
+        # this pool list will be used to accumulate the ordinal ranges from transaction inputs unspent value i.e. fees
 
         MIN_TX_FEE = 0
 
@@ -1905,9 +1963,11 @@ class Node:
                 )
 
             log.debug(
-                f"validating tx {txn_i} of {len(current_block['txns'][1:])} non-coinbase txns in new block {current_blockheight}..."
+                f"processing tx {txn_i} of {len(current_block['txns'][1:])} non-coinbase txns in new block {current_blockheight}..."
             )
             txn_txid = txn["txid"]
+
+            tx_ordinal_ranges = deque([])
 
             txn_value_in = 0
             txn_value_out = 0
@@ -1924,9 +1984,11 @@ class Node:
                     raise ConnectBlockError(
                         f"a matching blockheaderhash for txo {txin_vout} in txid {txin_txid} was not found in the utxoset"
                     )
-                res = self.db._curs.execute(
+                cursor = self.db._conn.cursor()
+                res = cursor.execute(
                     f"SELECT * FROM utxoset WHERE txid='{txin_txid}' AND vout={txin_vout};"
                 ).fetchone()
+                cursor.close()
                 if not res:
                     raise ConnectBlockError(
                         f"utxo(txid='{txin_txid}', vout={txin_vout}) not found in utxoset"
@@ -1969,25 +2031,26 @@ class Node:
                 # add utxo value to total transction value input
                 txn_value_in += utxo_value
 
-                # evaluate tx_in unlocking script for its utxo
-                tx_in_scriptsig = tx_in["scriptsig"]
-                utxo_scriptpubkey = utxo["scriptpubkey"]
-                script_ = bits.script.script(
-                    [tx_in_scriptsig, "OP_CODESEPARATOR", utxo_scriptpubkey]
-                )
-                log.trace(
-                    f"evaluating script for tx input {txin_i} of {len(txn['txins'])} txins in txn {txn_i}/{len(current_block['txns'][1:])} of new block {current_blockheight}..."
-                )
-                if not bits.script.eval_script(
-                    script_, bytes.fromhex(utxo_tx["raw"]), txin_vout
-                ):
-                    raise ConnectBlockError(
-                        f"script evaluation failed for txin {txin_i} in txn {txn_i} in block(blockheaderhash={current_block['blockheaderhash']})"
+                if not assumevalid:
+                    # evaluate tx_in unlocking script for its utxo
+                    tx_in_scriptsig = tx_in["scriptsig"]
+                    utxo_scriptpubkey = utxo["scriptpubkey"]
+                    script_ = bits.script.script(
+                        [tx_in_scriptsig, "OP_CODESEPARATOR", utxo_scriptpubkey]
                     )
+                    log.trace(
+                        f"evaluating script for tx input {txin_i} of {len(txn['txins'])} txins in txn {txn_i}/{len(current_block['txns'][1:])} of new block {current_blockheight}..."
+                    )
+                    if not bits.script.eval_script(
+                        script_, bytes.fromhex(utxo_tx["raw"]), txin_vout
+                    ):
+                        raise ConnectBlockError(
+                            f"script evaluation failed for txin {txin_i} in txn {txn_i} in block(blockheaderhash={current_block['blockheaderhash']})"
+                        )
 
                 # this tx_in succeeds, update utxoset
                 with self._thread_lock:
-                    self.db.remove_from_utxoset(
+                    tx_ordinal_ranges += self.db.remove_from_utxoset(
                         txin_txid,
                         txin_vout,
                         current_block_index_data["id"],
@@ -2011,13 +2074,28 @@ class Node:
             miner_tips += txn_surplus_value
 
             # add newly created utxos to utxoset too
-            for vout in range(len(txn["txouts"])):
+            for vout, txout_ in enumerate(txn["txouts"]):
+                value = txout_["value"]
+                utxo_ordinal_ranges = []
+                while value > 0:
+                    start, end = tx_ordinal_ranges.popleft()
+
+                    if end - start + 1 > value:
+                        utxo_ordinal_ranges += [(start, start + value - 1)]
+                        tx_ordinal_ranges.appendleft((start + value, end))
+                        break
+                    else:
+                        utxo_ordinal_ranges += [(start, end)]
+                        value -= end - start + 1
+
                 with self._thread_lock:
                     self.db.add_to_utxoset(
                         txn["txid"],
                         vout,
                         current_block_index_data["id"],
+                        utxo_ordinal_ranges,
                     )
+            block_ordinal_ranges += tx_ordinal_ranges
 
         max_block_reward = (
             bits.blockchain.block_reward(current_blockheight) + miner_tips
@@ -2026,8 +2104,29 @@ class Node:
             raise ConnectBlockError(
                 f"block {current_block['blockheaderhash']} coinbase tx spends more than the max block reward"
             )
+
+        for vout, txout_ in enumerate(coinbase_tx_txouts):
+            value = txout_["value"]
+            utxo_ordinal_ranges = []
+            while value > 0:
+                start, end = block_ordinal_ranges.popleft()
+                if end - start + 1 > value:
+                    utxo_ordinal_ranges += [(start, start + value - 1)]
+                    block_ordinal_ranges.appendleft((start + value, end))
+                    break
+                else:
+                    utxo_ordinal_ranges += [(start, end)]
+                    value -= end - start + 1
+            with self._thread_lock:
+                self.db.add_to_utxoset(
+                    coinbase_tx["txid"],
+                    vout,
+                    current_block_index_data["id"],
+                    utxo_ordinal_ranges,
+                )
+
         log.debug(
-            f"validated all of {len(current_block['txns'])} txns in block {current_blockheight}."
+            f"processed all of {len(current_block['txns'])} txns in block {current_blockheight}."
         )
         return True
 
@@ -2083,7 +2182,12 @@ class Node:
         else:
             next_block = Block(next_block)
             current_blockheight = self.db.get_blockchain_height()
-            current_block_index_data = self.db.get_block(current_blockheight)
+            if current_blockheight is None:
+                # hack, special case for reindexing, there is not block 0 index yet
+                # just return with known starting nbits
+                return set(["1d00ffff"])
+            else:
+                current_block_index_data = self.db.get_block(current_blockheight)
 
         next_blockheight = current_blockheight + 1
 
@@ -2161,7 +2265,6 @@ class Db:
         self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute("PRAGMA foreign_keys=ON;")
         self._conn.execute("PRAGMA busy_timeout=1000;")
-        self._curs = self._conn.cursor()
 
     def __enter__(self):
         return self
@@ -2170,25 +2273,23 @@ class Db:
         self._conn.close()
 
     def create_tables(self):
-        # if any table doesn't exist, create all tables
-        _create_tables = False
-        for table in [
-            "block",
-            "blockheader",
-            "utxoset",
-            "peer",
-            "tx",
-            "revert",
-            "addr",
-        ]:
-            res = self._curs.execute(
-                f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}';"
-            )
-            if not res.fetchone():
-                _create_tables = True
-                break
-        if _create_tables:
-            self._curs.execute(
+        self.create_block_table()
+        self.create_blockheader_table()
+        self.create_utxoset_table()
+        self.create_ordinal_range_table()
+        self.create_peer_table()
+        self.create_tx_table()
+        self.create_revert_table()
+        self.create_addr_table()
+
+    def create_block_table(self):
+        cursor = self._conn.cursor()
+        query = cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='block';"
+        ).fetchone()
+        if not query:
+            cursor.execute("BEGIN TRANSACTION;")
+            cursor.execute(
                 """
                 CREATE TABLE block(
                     id INTEGER PRIMARY KEY,
@@ -2203,19 +2304,26 @@ class Db:
 
                     chainwork TEXT,
 
-                    datafile TEXT,
-                    datafile_offset INTEGER
+                    datafile TEXT NOT NULL,
+                    datafile_offset INTEGER NOT NULL
                 );
             """
             )
-            self._conn.commit()
-            self._curs.execute("CREATE INDEX blockheight_index ON block(blockheight);")
-            self._conn.commit()
-            self._curs.execute(
+            cursor.execute("CREATE INDEX blockheight_index ON block(blockheight);")
+            cursor.execute(
                 "CREATE INDEX blockheaderhash_index ON block(blockheaderhash);"
             )
             self._conn.commit()
-            self._curs.execute(
+        cursor.close()
+
+    def create_blockheader_table(self):
+        cursor = self._conn.cursor()
+        query = cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='blockheader';"
+        ).fetchone()
+        if not query:
+            cursor.execute("BEGIN TRANSACTION;")
+            cursor.execute(
                 """
                 CREATE TABLE blockheader (
                     id INTEGER PRIMARY KEY,
@@ -2236,16 +2344,23 @@ class Db:
                 )
                 """
             )
-            self._conn.commit()
-            self._curs.execute(
+            cursor.execute(
                 "CREATE INDEX blockheader_blockheaderhash_index ON blockheader(blockheaderhash, peer_id);"
             )
-            self._conn.commit()
-            self._curs.execute(
+            cursor.execute(
                 "CREATE INDEX blockheader_blockheight_index ON blockheader(blockheight, peer_id);"
             )
             self._conn.commit()
-            self._curs.execute(
+        cursor.close()
+
+    def create_utxoset_table(self):
+        cursor = self._conn.cursor()
+        query = cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='utxoset';"
+        ).fetchone()
+        if not query:
+            cursor.execute("BEGIN TRANSACTION;")
+            cursor.execute(
                 """
                 CREATE TABLE utxoset(
                     id INTEGER PRIMARY KEY,
@@ -2255,19 +2370,24 @@ class Db:
                 );
             """
             )
-            self._conn.commit()
-            self._curs.execute(
-                "CREATE INDEX utxo_txid_vout_index ON utxoset(txid, vout);"
-            )
-            self._conn.commit()
-            self._curs.execute(
+            cursor.execute("CREATE INDEX utxo_txid_vout_index ON utxoset(txid, vout);")
+            cursor.execute(
                 "CREATE INDEX utxo_blockheaderhash_index ON utxoset(blockheaderhash);"
             )
             self._conn.commit()
-            self._curs.execute(
+        cursor.close()
+
+    def create_ordinal_range_table(self):
+        cursor = self._conn.cursor()
+        query = cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='ordinal_range';"
+        ).fetchone()
+        if not query:
+            cursor.execute("BEGIN TRANSACTION;")
+            cursor.execute(
                 """
                 CREATE TABLE ordinal_range (
-                    id INTEGER PRIMARY KEY,
+                    id INTEGER PRIMARY KEY UNIQUE,
                     start INTEGER,
                     end INTEGER,
 
@@ -2277,7 +2397,15 @@ class Db:
                 """
             )
             self._conn.commit()
-            self._curs.execute(
+        cursor.close()
+
+    def create_peer_table(self):
+        cursor = self._conn.cursor()
+        query = cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='peer';"
+        ).fetchone()
+        if not query:
+            cursor.execute(
                 """
                 CREATE TABLE peer(
                     id INTEGER PRIMARY KEY,
@@ -2301,7 +2429,16 @@ class Db:
             """
             )
             self._conn.commit()
-            self._curs.execute(
+        cursor.close()
+
+    def create_tx_table(self):
+        cursor = self._conn.cursor()
+        query = cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='tx';"
+        ).fetchone()
+        if not query:
+            cursor.execute("BEGIN TRANSACTION;")
+            cursor.execute(
                 """
                 CREATE TABLE tx(
                     id INTEGER PRIMARY KEY,
@@ -2315,31 +2452,49 @@ class Db:
                 );
             """
             )
+            cursor.execute("CREATE INDEX tx_txid_index ON tx(txid);")
             self._conn.commit()
-            self._curs.execute("CREATE INDEX tx_txid_index ON tx(txid);")
-            self._conn.commit()
-            # revert table for block reorgs
-            # block_id references the block for which this reversion is for (not the block that the utxo is contained in)
-            #   note also that block_id references the primary key id, not blockheight nor blockheaderhash
-            # id reflects the order in which the operation was made, thus reverse for the reversion order
-            # revert is a boolean, True if revert, False if this is to be re-added
-            # txid and vout refer to the utxo to be re-added or removed to utxoset
-            # if vout is NULL, this indicates this txid itself to be removed from the tx table table during reversion,
-            #   note that tx are never re-added during reversion
-            self._curs.execute(
+        cursor.close()
+
+    def create_revert_table(self):
+        # revert table for block reorgs
+        # block_id references the block for which this reversion is for (not the block that the utxo is contained in)
+        #   note also that block_id references the primary key id, not blockheight nor blockheaderhash
+        # id reflects the order in which the operation was made, thus reverse for the reversion order
+        # revert is a boolean, True if revert, False if this is to be re-added
+        # txid and vout refer to the utxo to be re-added or removed to utxoset
+        # if vout is NULL, this indicates this txid itself to be removed from the tx table table during reversion,
+        #   note that tx are never re-added during reversion
+        cursor = self._conn.cursor()
+        query = cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='revert';"
+        ).fetchone()
+        if not query:
+            cursor.execute("BEGIN TRANSACTION;")
+            cursor.execute(
                 """
                 CREATE TABLE revert(
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     revert BOOLEAN DEFAULT 1,
                     txid TEXT,
                     vout INTEGER,
+                    ordinal_ranges TEXT,
                     block_id INTEGER,
                     FOREIGN KEY(block_id) REFERENCES block(id)
                 )
                 """
             )
             self._conn.commit()
-            self._curs.execute(
+        cursor.close()
+
+    def create_addr_table(self):
+        cursor = self._conn.cursor()
+        query = cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='addr';"
+        ).fetchone()
+        if not query:
+            cursor.execute("BEGIN TRANSACTION;")
+            cursor.execute(
                 """
                 CREATE TABLE addr(
                     id INTEGER PRIMARY KEY,
@@ -2355,6 +2510,7 @@ class Db:
             """
             )
             self._conn.commit()
+        cursor.close()
 
     def save_blockheader(
         self,
@@ -2522,7 +2678,6 @@ class Db:
         blockheaderhash: str,
         n: int,
         revert_block_id: int,
-        cursor: Optional[sqlite3.Cursor] = None,
     ):
         """
         Create a new tx row in index db
@@ -2532,8 +2687,7 @@ class Db:
             n: int, tx index in block
             revert_block_id: int, block id this tx is added in (for the revert table)
         """
-        if cursor is None:
-            cursor = self._conn.cursor()
+        cursor = self._conn.cursor()
         cursor.execute("BEGIN TRANSACTION;")
         cursor.execute(
             f"INSERT INTO tx (txid, blockheaderhash, n) VALUES ('{txid}', '{blockheaderhash}', {n});"
@@ -2542,6 +2696,7 @@ class Db:
             f"INSERT INTO revert (revert, txid, vout, block_id) VALUES (1, '{txid}', NULL, {revert_block_id});"
         )
         self._conn.commit()
+        cursor.close()
 
     def remove_tx(self, txid: str):
         """
@@ -2554,10 +2709,12 @@ class Db:
         self._conn.commit()
 
     def get_tx(self, txid: str) -> Union[dict, None]:
-        res = self._curs.execute(
+        cursor = self._conn.cursor()
+        res = cursor.execute(
             f"SELECT txid, blockheaderhash, n FROM tx WHERE txid='{txid}';"
         )
         result = res.fetchone()
+        cursor.close()
         if not result:
             return
         return {
@@ -2567,10 +2724,10 @@ class Db:
         }
 
     def delete_block(self, blockheaderhash: str):
-        self._curs.execute(
-            f"DELETE FROM block WHERE blockheaderhash='{blockheaderhash}';"
-        )
+        cursor = self._conn.cursor()
+        cursor.execute(f"DELETE FROM block WHERE blockheaderhash='{blockheaderhash}';")
         self._conn.commit()
+        cursor.close()
 
     def save_block(
         self,
@@ -2619,6 +2776,11 @@ class Db:
         cursor.close()
 
     def get_blockchain_height(self) -> Union[int | None]:
+        """
+        Get blockchain height according to block index
+        Returns:
+            blockheight: int, or None if no block row found from query
+        """
         cursor = self._conn.cursor()
         res = cursor.execute(
             "SELECT blockheight FROM block ORDER BY blockheight DESC LIMIT 1;"
@@ -2628,14 +2790,15 @@ class Db:
         return result[0] if result else None
 
     def count_blocks(self) -> int:
-        res = self._curs.execute("SELECT COUNT(*) FROM block;")
+        cursor = self._conn.cursor()
+        res = cursor.execute("SELECT COUNT(*) FROM block;")
+        cursor.close()
         return int(res.fetchone()[0])
 
     def get_block(
         self,
         blockheight: int = None,
         blockheaderhash: str = None,
-        cursor: Optional[sqlite3.Cursor] = None,
     ) -> Union[dict, None]:
         """
         Get the block data from index db, i.e. header data, meta data
@@ -2650,8 +2813,7 @@ class Db:
             dict, block index db data, or
             None, if not found
         """
-        if cursor is None:
-            cursor = self._conn.cursor()
+        cursor = self._conn.cursor()
         if blockheight is not None and blockheaderhash is not None:
             raise ValueError(
                 "both blockheight and blockheaderhash should not be specified"
@@ -2669,6 +2831,7 @@ class Db:
             )
 
         result = res.fetchone()
+        cursor.close()
         return (
             {
                 "id": int(result[0]),
@@ -2688,43 +2851,82 @@ class Db:
             else None
         )
 
+    def remove_ordinal_range(self, start: int, end: int, utxoset_id: int):
+        cursor = self._conn.cursor()
+        cursor.execute(
+            f"DELETE FROM ordinal_range WHERE start={start} AND end={end} AND utxoset_id={utxoset_id};"
+        )
+        self._conn.commit()
+        cursor.close()
+
+    def save_ordinal_range(self, start: int, end: int, utxoset_id: int):
+        cursor = self._conn.cursor()
+        cursor.execute(
+            f"INSERT INTO ordinal_range(start, end, utxoset_id) VALUES {start}, {end}, {utxoset_id};"
+        )
+        self._conn.commit()
+        cursor.close()
+
     def remove_from_utxoset(
         self,
         txid: str,
         vout: int,
-        revert_block_id: Optional[int] = None,
-        cursor: Optional[sqlite3.Cursor] = None,
-    ):
+        revert_block_id: int,
+    ) -> Tuple[Tuple[int, int]]:
         """
         Remove row from utxoset, optionally writing to revert table
         Args:
-            revert_block_id: Optional[int], block id this operation corresponds to for revert purposes
+            revert_block_id: int, block id this operation corresponds to for revert purposes
+        Return:
+            ordinal ranges removed e.g. ((0, 16), (420, 690), ...)
         """
-        if cursor is None:
-            cursor = self._conn.cursor()
+        cursor = self._conn.cursor()
         cursor.execute("BEGIN TRANSACTION;")
+        utxoset_id = cursor.execute(
+            f"SELECT id FROM utxoset WHERE txid='{txid}' AND vout={vout};"
+        ).fetchone()[0]
+        ordinal_ranges = cursor.execute(
+            f"SELECT start, end FROM ordinal_range WHERE utxoset_id={utxoset_id};"
+        ).fetchall()
+        cursor.execute(f"DELETE FROM ordinal_range WHERE utxoset_id={utxoset_id};")
         cursor.execute(f"DELETE FROM utxoset WHERE txid='{txid}' AND vout='{vout}';")
-        if revert_block_id is not None:
-            cursor.execute(
-                f"INSERT INTO revert (revert, txid, vout, block_id) VALUES (0, '{txid}', {vout}, {revert_block_id});"
-            )
+        cursor.execute(
+            f"INSERT INTO revert (revert, txid, vout, ordinal_ranges, block_id) VALUES (0, '{txid}', {vout}, '{json.dumps([[start, end] for start, end in ordinal_ranges])}', {revert_block_id});"
+        )
         self._conn.commit()
+        cursor.close()
+        return ordinal_ranges
 
     def add_to_utxoset(
         self,
         txid: str,
         vout: int,
         revert_block_id: int,
-        cursor: Optional[sqlite3.Cursor] = None,
+        ordinal_ranges: List[List[int]],
     ):
-        if cursor is None:
-            cursor = self._conn.cursor()
+        """
+        Add to utxo set
+        Args:
+            txid: str, transaction id
+            vout: str, output number
+            revert_block_id: int, block id primary key that a potential reversion is for
+            ordinal_ranges: list, list of ordinal ranges contained in this utxo
+        """
+        cursor = self._conn.cursor()
         cursor.execute("BEGIN TRANSACTION;")
         cursor.execute(f"INSERT INTO utxoset (txid, vout) VALUES ('{txid}', {vout});")
+        utxoset_id = cursor.execute(
+            f"SELECT id FROM utxoset WHERE txid='{txid}' AND vout={vout};"
+        ).fetchone()[0]
+        for start, end in ordinal_ranges:
+            cursor.execute(
+                f"INSERT INTO ordinal_range(start, end, utxoset_id) VALUES ({start}, {end}, {utxoset_id});"
+            )
         cursor.execute(
-            f"INSERT INTO revert (revert, txid, vout, block_id) VALUES (1, '{txid}', {vout}, {revert_block_id});"
+            f"INSERT INTO revert (revert, txid, vout, ordinal_ranges, block_id) VALUES (1, '{txid}', {vout}, '{json.dumps([[start, end] for start, end in ordinal_ranges])}', {revert_block_id});"
         )
         self._conn.commit()
+        cursor.close()
 
     def find_blockheaderhash_for_utxo(
         self, txid: str, cursor: Optional[sqlite3.Cursor] = None
@@ -2781,12 +2983,14 @@ class Db:
         cursor.close()
 
     def save_peer(self, host: str, port: int) -> int:
-        self._curs.execute(f"INSERT INTO peer (host, port) VALUES ('{host}', {port});")
+        cursor = self._conn.cursor()
+        cursor.execute(f"INSERT INTO peer (host, port) VALUES ('{host}', {port});")
         self._conn.commit()
-        res = self._curs.execute(
+        res = cursor.execute(
             f"SELECT id FROM peer WHERE host='{host}' and port='{port}';"
         )
         peer_id = res.fetchone()[0]
+        cursor.close()
         return peer_id
 
     def save_peer_data(self, peer_id: int, data: dict):
@@ -2803,8 +3007,10 @@ class Db:
     def get_peer_data(
         self, peer_id: int, key: Optional[str] = None
     ) -> Union[None, str, list, dict, int, float]:
-        res = self._curs.execute(f"SELECT data FROM peer WHERE id='{peer_id}';")
+        cursor = self._conn.cursor()
+        res = cursor.execute(f"SELECT data FROM peer WHERE id='{peer_id}';")
         result = res.fetchone()
+        cursor.close()
         if result:
             data = json.loads(result[0]) if result[0] else {}
         else:
@@ -2821,9 +3027,11 @@ class Db:
         Returns:
             Entries in revert table for block_id, in descending order
         """
-        rows = self._curs.execute(
+        cursor = self._conn.cursor()
+        rows = cursor.execute(
             f"SELECT * FROM revert WHERE block_id={block_id} ORDER BY id DESC;"
         ).fetchall()
+        cursor.close()
         return [
             {
                 "id": row[0],

@@ -1429,7 +1429,7 @@ def main():
             node_info = p2p_node.get_node_info()
             print(json.dumps(node_info))
             return
-        p2p_node.start()
+        p2p_node.start(reindex=args.reindex)
 
         def shutdown(*args):
             p2p_node.stop()

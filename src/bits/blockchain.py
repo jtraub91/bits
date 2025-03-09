@@ -591,7 +591,7 @@ def check_block(block: Union[Block, Bytes, bytes], network: str = "mainnet") -> 
     return True
 
 
-def median_time(times: List[int]) -> int:
+def median_time(times: List[int]) -> Union[int | None]:
     """
     Return the median time
 
@@ -600,6 +600,8 @@ def median_time(times: List[int]) -> int:
     Args:
         times: List[int], list of integer times
     """
+    if len(times) == 0:
+        return None
     if len(times) == 1:
         return times[0]
     times = sorted(times)
