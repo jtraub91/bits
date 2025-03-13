@@ -9,6 +9,7 @@ https://en.bitcoin.it/wiki/Protocol_documentation
 import asyncio
 import json
 import logging
+import logging.handlers
 import os
 import sqlite3
 import time
@@ -632,7 +633,11 @@ class Node:
             raise ValueError(f"network not recognized: {network}")
         self.network = network
         self.log_level = log_level
-        fh = logging.FileHandler(os.path.join(self.datadir, "debug.log"), "a")
+        fh = logging.handlers.RotatingFileHandler(
+            os.path.join(self.datadir, "p2p.log"),
+            maxBytes=128 * 1024 * 1024,  # 128MB
+            backupCount=8,
+        )
         formatter = logging.Formatter(
             "[%(asctime)s] %(levelname)s [%(name)s] %(message)s"
         )
@@ -1039,10 +1044,10 @@ class Node:
                     "last blockheaderhash in index does not match last block on disk"
                 )
 
-    def run(self, reindex: bool = False):
+    def run(self, reindex: Optional[int] = None):
         asyncio.run(self.main(reindex=reindex), debug=True)
 
-    def start(self, reindex: bool = False):
+    def start(self, reindex: Optional[int] = None):
         self.exit_event.clear()
         self._thread = Thread(target=self.run, kwargs={"reindex": reindex})
         self._thread.start()
@@ -1055,14 +1060,26 @@ class Node:
         self.exit_event.set()
         log.info("node exit event set")
 
-    async def main(self, reindex=False):
-        if reindex or not os.path.exists(self.index_db_filepath):
+    async def main(self, reindex: Optional[int] = None):
+        if not os.path.exists(self.index_db_filepath):
+            reindex = 0
+        if reindex == 0:
             self.db._conn.close()
             os.remove(self.index_db_filepath)
             self.db = Db(self.index_db_filepath)
             self.db.create_tables()
             self.rebuild_index()
+        elif reindex > 0:
+            blockheight = self.db.get_blockchain_height()
+            for blockheight in range(blockheight, reindex - 1, -1):
+                log.info(
+                    f"reverting tx and utxoset changes for blockheight {blockheight}..."
+                )
+                self.revert_block(blockheight)
+                self.db.delete_block(blockheight)
+                log.info(f"block {blockheight} index deleted")
         else:
+            # reindex is None
             self.startup_checks()
 
         # parse seeds into list of (host, port)
@@ -1453,19 +1470,10 @@ class Node:
             current_block_index_data = self.db.get_block(
                 blockheight=self.db.get_blockchain_height()
             )
-            revert_ops = self.db.get_block_revert(current_block_index_data["id"])
-            for op in revert_ops:
-                if op["vout"] is None:
-                    self.db.remove_tx(op["txid"])
-                elif op["revert"]:
-                    self.db.remove_from_utxoset(op["txid"], op["vout"], "TODO")
-                else:
-                    # TODO: add the revert_block_id for add_to_utxoset
-                    #   this is probably the block id for the block which originally included this tx
-                    #   which is not necessarily the previous block
-                    #   probably should store this via the tx table schema
-                    # pylint: disable-next=no-value-for-parameter
-                    self.db.add_to_utxoset(op["txid"], op["vout"], "TODO")
+            log.info(
+                f"reverting changes to tx / utxoset via block {current_block_index_data['blockheight']} ..."
+            )
+            self.revert_block(current_block_index_data["id"])
             log.info(
                 f"changes to tx / utxoset via block {current_block_index_data['blockheight']} reverted in {self.index_db_filename}"
             )
@@ -1473,6 +1481,44 @@ class Node:
             _deleted_block = self.delete_block()
             log.trace(_deleted_block)
             raise err
+
+    def revert_block(self, blockheight: int):
+        """
+        Revert tx and utxoset changes for a block, given by revert table entries
+
+        NOTE: This function does NOT delete the block data from disk nor the block index entry
+        """
+        block_id = self.db.get_block(blockheight=blockheight)["id"]
+        revert_ops = self.db.get_block_revert(block_id)
+        for op in revert_ops:
+            if op["vout"] is None:
+                # implied tx (not utxo) rollback
+                self.db.remove_tx(op["txid"])
+                log.debug(f"removed tx {op['txid']} from tx table")
+            elif op["revert"]:
+                # utxo rollback
+                self.db.remove_from_utxoset(op["txid"], op["vout"])
+                log.debug(
+                    f"removed utxo(txid={op['txid']}, vout={op['vout']}) from utxoset"
+                )
+            else:
+                cursor = self.db._conn.cursor()
+                tx_blockheaderhash = cursor.execute(
+                    f"SELECT blockheaderhash FROM tx WHERE txid='{op['txid']}';"
+                ).fetchone()[0]
+                cursor.close()
+                revert_block_id = self.db.get_block(blockheaderhash=tx_blockheaderhash)[
+                    "id"
+                ]
+                self.db.add_to_utxoset(
+                    op["txid"],
+                    op["vout"],
+                    revert_block_id,
+                    json.loads(op["ordinal_ranges"]),
+                )
+                log.debug(
+                    f"added utxo(txid={op['txid']}, vout={op['vout']}) to utxoset with revert_block_id {revert_block_id}"
+                )
 
     def delete_block(self) -> Block:
         """
@@ -1631,10 +1677,17 @@ class Node:
         return {"peers": peers}
 
     def rebuild_index(self):
-        log.info("rebuilding index...")
-        # write genesis blockheader to disk
-        gb = Block(genesis_block(network=self.network))
+        """
+        Rebuild block index db from the latest block index entry.
 
+        Assumes that the blocks on disk are ordered by blockheight.
+        """
+        # blockheight is the blockheight as indicated by the block index db
+        blockheight = self.db.get_blockchain_height()
+        # block_i is our counter for the blockheight as indicated by the order of block data on disk
+        block_i = 0
+
+        log.info("rebuilding index...")
         dat_filenames = sorted(
             [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
         )
@@ -1653,6 +1706,11 @@ class Node:
                     length = int.from_bytes(dat_file.read(4), "little")
                     block = Block(dat_file.read(length))
                     assert len(block) == length, "length mismatch"
+                    if block_i <= blockheight:
+                        # if block_i is lte the latest index entry, we skip the block
+                        # because it has already been indexed
+                        block_i += 1
+                        continue
                     chainwork = bits.blockchain.new_chainwork(chainwork, block["nBits"])
                     try:
                         log.debug(f"reindexing block {block['blockheaderhash']} ...")
@@ -2396,6 +2454,9 @@ class Db:
                 );
                 """
             )
+            cursor.execute(
+                "CREATE INDEX ordinal_range_utxoset_id_index ON ordinal_range(utxoset_id);"
+            )
             self._conn.commit()
         cursor.close()
 
@@ -2453,6 +2514,9 @@ class Db:
             """
             )
             cursor.execute("CREATE INDEX tx_txid_index ON tx(txid);")
+            cursor.execute(
+                "CREATE INDEX tx_blockheaderhash_index ON tx(blockheaderhash);"
+            )
             self._conn.commit()
         cursor.close()
 
@@ -2465,6 +2529,8 @@ class Db:
         # txid and vout refer to the utxo to be re-added or removed to utxoset
         # if vout is NULL, this indicates this txid itself to be removed from the tx table table during reversion,
         #   note that tx are never re-added during reversion
+        # If txid and vout are provided, this is a utxo, and the revert table should have an entry
+        #   for each ordinal_range in the utxo, thus potentially multiple rows per utxo
         cursor = self._conn.cursor()
         query = cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='revert';"
@@ -2478,12 +2544,14 @@ class Db:
                     revert BOOLEAN DEFAULT 1,
                     txid TEXT,
                     vout INTEGER,
-                    ordinal_ranges TEXT,
+                    ordinal_start INTEGER,
+                    ordinal_end INTEGER,
                     block_id INTEGER,
                     FOREIGN KEY(block_id) REFERENCES block(id)
                 )
                 """
             )
+            cursor.execute("CREATE INDEX revert_block_id_index ON revert(block_id);")
             self._conn.commit()
         cursor.close()
 
@@ -2791,14 +2859,14 @@ class Db:
 
     def count_blocks(self) -> int:
         cursor = self._conn.cursor()
-        res = cursor.execute("SELECT COUNT(*) FROM block;")
+        res = cursor.execute("SELECT COUNT(*) FROM block;").fetchone()[0]
         cursor.close()
-        return int(res.fetchone()[0])
+        return int(res)
 
     def get_block(
         self,
-        blockheight: int = None,
-        blockheaderhash: str = None,
+        blockheight: Optional[int] = None,
+        blockheaderhash: Optional[str] = None,
     ) -> Union[dict, None]:
         """
         Get the block data from index db, i.e. header data, meta data
@@ -2818,9 +2886,10 @@ class Db:
             raise ValueError(
                 "both blockheight and blockheaderhash should not be specified"
             )
-        elif blockheight is None and blockheaderhash is None:
+        if blockheight is None and blockheaderhash is None:
             raise ValueError("blockheight or blockheaderhash must be provided")
-        elif blockheight is not None:
+
+        if blockheight is not None:
             res = cursor.execute(
                 f"SELECT * FROM block WHERE blockheight='{blockheight}';"
             )
@@ -2851,32 +2920,16 @@ class Db:
             else None
         )
 
-    def remove_ordinal_range(self, start: int, end: int, utxoset_id: int):
-        cursor = self._conn.cursor()
-        cursor.execute(
-            f"DELETE FROM ordinal_range WHERE start={start} AND end={end} AND utxoset_id={utxoset_id};"
-        )
-        self._conn.commit()
-        cursor.close()
-
-    def save_ordinal_range(self, start: int, end: int, utxoset_id: int):
-        cursor = self._conn.cursor()
-        cursor.execute(
-            f"INSERT INTO ordinal_range(start, end, utxoset_id) VALUES {start}, {end}, {utxoset_id};"
-        )
-        self._conn.commit()
-        cursor.close()
-
     def remove_from_utxoset(
         self,
         txid: str,
         vout: int,
-        revert_block_id: int,
+        revert_block_id: Optional[int] = None,
     ) -> Tuple[Tuple[int, int]]:
         """
         Remove row from utxoset, optionally writing to revert table
         Args:
-            revert_block_id: int, block id this operation corresponds to for revert purposes
+            revert_block_id: Optional[int], block id this operation corresponds to for revert purposes
         Return:
             ordinal ranges removed e.g. ((0, 16), (420, 690), ...)
         """
@@ -2890,9 +2943,11 @@ class Db:
         ).fetchall()
         cursor.execute(f"DELETE FROM ordinal_range WHERE utxoset_id={utxoset_id};")
         cursor.execute(f"DELETE FROM utxoset WHERE txid='{txid}' AND vout='{vout}';")
-        cursor.execute(
-            f"INSERT INTO revert (revert, txid, vout, ordinal_ranges, block_id) VALUES (0, '{txid}', {vout}, '{json.dumps([[start, end] for start, end in ordinal_ranges])}', {revert_block_id});"
-        )
+        if revert_block_id is not None:
+            for start, end in ordinal_ranges:
+                cursor.execute(
+                    f"INSERT INTO revert (revert, txid, vout, ordinal_start, ordinal_end, block_id) VALUES (0, '{txid}', {vout}, {start}, {end}, {revert_block_id});"
+                )
         self._conn.commit()
         cursor.close()
         return ordinal_ranges
@@ -2918,13 +2973,15 @@ class Db:
         utxoset_id = cursor.execute(
             f"SELECT id FROM utxoset WHERE txid='{txid}' AND vout={vout};"
         ).fetchone()[0]
-        for start, end in ordinal_ranges:
+        for i, (start, end) in enumerate(ordinal_ranges):
             cursor.execute(
                 f"INSERT INTO ordinal_range(start, end, utxoset_id) VALUES ({start}, {end}, {utxoset_id});"
             )
-        cursor.execute(
-            f"INSERT INTO revert (revert, txid, vout, ordinal_ranges, block_id) VALUES (1, '{txid}', {vout}, '{json.dumps([[start, end] for start, end in ordinal_ranges])}', {revert_block_id});"
-        )
+            cursor.execute(
+                f"INSERT INTO revert (revert, txid, vout, ordinal_start, ordinal_end, block_id) VALUES (1, '{txid}', {vout}, {start}, {end}, {revert_block_id});"
+            )
+            if i % 10 == 0:
+                self._conn.commit()
         self._conn.commit()
         cursor.close()
 
@@ -3038,7 +3095,9 @@ class Db:
                 "revert": row[1],
                 "txid": row[2],
                 "vout": row[3],
-                "block_id": row[4],
+                "ordinal_start": row[4],
+                "ordinal_end": row[5],
+                "block_id": row[6],
             }
             for row in rows
         ]

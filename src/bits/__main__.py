@@ -882,7 +882,7 @@ See "bits wif -h" for help on creating WIF-encoded keys.
         help="p2p node data directory",
     )
     p2p_parser.add_argument(
-        "--reindex", action="store_true", default=False, help="reindex block indexes"
+        "--reindex", nargs="?", type=int, help="reindex block indexes from blockheight"
     )
     p2p_parser.add_argument(
         "--headers-only",
@@ -1429,6 +1429,11 @@ def main():
             node_info = p2p_node.get_node_info()
             print(json.dumps(node_info))
             return
+        if args.reindex is not None:
+            key = input(f"reindex from blockheight {args.reindex}? (y/n) ")
+            if key != "y":
+                print("reindex cancelled")
+                return
         p2p_node.start(reindex=args.reindex)
 
         def shutdown(*args):
