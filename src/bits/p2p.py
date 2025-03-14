@@ -688,6 +688,8 @@ class Node:
         # upon each entry, record time stamp,
         # and remove oldest entry if greater than MAX_BLOCK_CACHE_SIZE
 
+        self._mempool = []
+
         self.peers: list[Peer] = []
 
         self.exit_event = Event()
@@ -759,6 +761,9 @@ class Node:
         log.debug(
             f"{len(peer._header_processing_queue)} blockheaders in queue for {peer}"
         )
+
+    def handle_tx_command(self, peer: Peer, command: bytes, payload: bytes):
+        return
 
     def handle_block_command(self, peer: Peer, command: bytes, payload: bytes):
         block = Block(payload)

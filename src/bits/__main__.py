@@ -1172,7 +1172,7 @@ def main():
             print(json.dumps(decoded))
             return
         privkey_ = bits.read_bytes(args.in_file, input_format=config.input_format)
-        wif = bits.utils.wif_encode(
+        wif = bits.wif_encode(
             privkey_,
             addr_type=args.addr_type,
             data=args.data,

@@ -8,7 +8,6 @@ import re
 import typing
 
 import bits.ecmath
-import bits.utils
 
 # monkeypatch base64 global variables for proper PEM encoding
 # via base64.encodebytes
@@ -371,8 +370,7 @@ def pem_encode_key(key_: bytes) -> bytes:
                             [
                                 ["BIT STRING", "Primitive", "Universal"],
                                 66,
-                                b"\x00"
-                                + bits.utils.pubkey(*bits.ecmath.compute_point(key_)),
+                                b"\x00" + bits.pubkey(*bits.ecmath.compute_point(key_)),
                             ]
                         ],
                     ],
