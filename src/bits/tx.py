@@ -4,7 +4,7 @@ Utilities for transactions
 https://developer.bitcoin.org/reference/transactions.html
 """
 import logging
-from typing import Generator, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import bits.constants
 import bits.crypto
@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 class Tx(Bytes):
     def __new__(cls, data, **kwargs):
-        cls._deserializer_fun = tx_deser
+        cls._deserializer_fun = lambda data: tx_deser(data)[0]
         cls._serializer_fun = tx_ser
         return super().__new__(cls, data, **kwargs)
 
@@ -32,7 +32,8 @@ def outpoint(txid_: bytes, index: int) -> bytes:
     """
     # https://developer.bitcoin.org/reference/transactions.html#outpoint-the-specific-part-of-a-specific-output
     Args:
-        txid_: bytes, txid in internal byte order
+        txid_: bytes, txid (little endian)
+        index: int, output index
     """
     return txid_ + index.to_bytes(4, "little")
 
@@ -47,7 +48,7 @@ def txin(
     Args:
         prev_outpoint: bytes
         script_sig: bytes
-        sequence: bytes, sequence (little endian internal byte order)
+        sequence: bytes, sequence (little endian byte order)
     """
     return (
         prev_outpoint + bits.compact_size_uint(len(script_sig)) + script_sig + sequence
@@ -70,6 +71,14 @@ def txin_deser(txin_: bytes) -> Tuple[dict, bytes]:
 
 
 def txout(value: int, script_pubkey: bytes) -> bytes:
+    """
+    Serialize txout
+    Args:
+        value: int, value in satoshis
+        script_pubkey: bytes, scriptpubkey (big endian)
+    Returns:
+        bytes, serialized txout
+    """
     return (
         value.to_bytes(8, "little")
         + bits.compact_size_uint(len(script_pubkey))
@@ -149,13 +158,6 @@ def tx_ser(tx_: dict) -> bytes:
         version=tx_["version"],
         locktime=tx_["locktime"],
     )
-
-
-def parse_tx(txns_: bytes) -> Generator[bytes]:
-    while txns_:
-        number_of_inputs, txns_prime = bits.parse_compact_size_uint(txns_[4:])
-        yield txns_[:80]
-        txns_ = txns_[80:]
 
 
 def tx_deser(tx_: bytes) -> Tuple[dict, bytes]:

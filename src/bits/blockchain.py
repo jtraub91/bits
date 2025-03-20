@@ -405,12 +405,10 @@ def block_deser(block: bytes) -> dict:
     header = block[:80]
     number_of_txns, block_prime = bits.parse_compact_size_uint(block[80:])
     txns = []
-    # pylint: disable-next=unexpected-keyword-arg
-    coinbase_tx_deser, block_prime = bits.tx.tx_deser(block_prime, include_raw=True)
+    coinbase_tx_deser, block_prime = bits.tx.tx_deser(block_prime)
     txns.append(coinbase_tx_deser)
     while block_prime:
-        # pylint: disable-next=unexpected-keyword-arg
-        deserialized_tx, block_prime = bits.tx.tx_deser(block_prime, include_raw=True)
+        deserialized_tx, block_prime = bits.tx.tx_deser(block_prime)
         txns.append(deserialized_tx)
     assert (
         len(txns) == number_of_txns

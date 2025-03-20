@@ -24,17 +24,13 @@ from typing import List, Optional, Tuple, Union
 
 import bits.blockchain
 import bits.crypto
-from bits.blockchain import Block, Blockheader, Bytes, genesis_block
 import bits.ordinals
 import bits.script
-
+import bits.tx
+from bits.blockchain import Block, Blockheader, Bytes, genesis_block
+from bits.tx import Tx
 
 BITS_USER_AGENT = f"/bits:{bits.__version__}/"
-
-# default ports
-MAINNET_PORT = 8333
-TESTNET_PORT = 18333
-REGTEST_PORT = 18444
 
 MSG_HEADER_LEN = 24
 
@@ -593,6 +589,8 @@ class Node:
         connection_timeout: int = 5,
         download_headers: bool = True,
         download_blocks: bool = True,
+        index_ordinals: bool = False,
+        assumevalid: int = 0,
     ):
         """
         bits P2P node
@@ -606,6 +604,8 @@ class Node:
             relay: bool
             user_agent: bytes
         """
+        self._assumevalid = assumevalid
+        self._index_ordinals = index_ordinals
         self.download_headers = download_headers
         self.download_blocks = download_blocks
         self.max_outgoing_peers = max_outgoing_peers
@@ -676,6 +676,7 @@ class Node:
                     0,
                     1,
                     [(0, bits.blockchain.block_reward(0) - 1)],
+                    index_ordinals=self._index_ordinals,
                 )
 
         self.message_queue = asyncio.Queue()
@@ -731,10 +732,6 @@ class Node:
         parsed_payload = parse_inv_payload(payload)
         count = parsed_payload["count"]
         inventories = parsed_payload["inventory"]
-        if self._ibd:
-            inventories = list(
-                filter(lambda inv: inv["type_id"] == "MSG_BLOCK", inventories)
-            )
 
         peer_inventories = peer.inventories
 
@@ -763,7 +760,33 @@ class Node:
         )
 
     def handle_tx_command(self, peer: Peer, command: bytes, payload: bytes):
-        return
+        tx = Tx(payload)
+
+        tx_in_mempool = next(
+            filter(
+                lambda tx_: tx_["txid"] == tx["txid"],
+                self._mempool,
+            ),
+            None,
+        )
+        if not tx_in_mempool:
+            self._mempool.append(tx)
+            log.info(
+                f"tx(txid={tx['txid']}) added to mempool. total mempool txns: {len(self._mempool)}"
+            )
+
+        pending_getdata_request_match = next(
+            filter(
+                lambda inv: inv["type_id"] == "MSG_TX" and inv["hash"] == tx["txid"],
+                peer._pending_getdata_requests,
+            ),
+            None,
+        )
+        if pending_getdata_request_match:
+            peer._pending_getdata_requests.remove(pending_getdata_request_match)
+            pending_getdata_request_match.pop("time")
+            pending_getdata_request_match.pop("retries")
+            peer.inventories.remove(pending_getdata_request_match)
 
     def handle_block_command(self, peer: Peer, command: bytes, payload: bytes):
         block = Block(payload)
@@ -1019,8 +1042,23 @@ class Node:
             await asyncio.sleep(0)
         log.trace("message handler loop exited")
 
-    def startup_checks(self):
-        # check datadir for internal consistency
+    def get_size(self):
+        """
+        Get size on disk of datadir, including all files and subdirectories
+
+        This includes the blocks, index db, logs, etc.
+        """
+        total_size = 0
+        for dirpath, dirnames, filenames in os.walk(self.datadir):
+            for f in filenames:
+                fp = os.path.join(dirpath, f)
+                total_size += os.path.getsize(fp)
+        return total_size
+
+    def count_blocks(self):
+        """
+        Count the number of blocks on disk
+        """
         dat_filenames = sorted(
             [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
         )
@@ -1028,9 +1066,22 @@ class Node:
         for dat_filename in dat_filenames:
             blocks = self.parse_dat_file(os.path.join(self.blocksdir, dat_filename))
             if not blocks:
-                raise AssertionError(f"{dat_filename} is empty")
-            last_block = blocks[-1]
+                continue
             number_of_blocks_on_disk += len(blocks)
+        return number_of_blocks_on_disk
+
+    def startup_checks(self):
+        # check datadir for internal consistency
+        dat_filenames = sorted(
+            [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
+        )
+        dat_filename = dat_filenames[-1]
+        blocks = self.parse_dat_file(os.path.join(self.blocksdir, dat_filename))
+        if not blocks:
+            raise AssertionError(f"{dat_filename} is empty")
+        last_block = blocks[-1]
+
+        number_of_blocks_on_disk = self.count_blocks()
         number_of_blocks_in_index = self.db.count_blocks()
 
         if number_of_blocks_on_disk != number_of_blocks_in_index:
@@ -1049,10 +1100,10 @@ class Node:
                     "last blockheaderhash in index does not match last block on disk"
                 )
 
-    def run(self, reindex: Optional[int] = None):
+    def run(self, reindex: bool = False):
         asyncio.run(self.main(reindex=reindex), debug=True)
 
-    def start(self, reindex: Optional[int] = None):
+    def start(self, reindex: bool = False):
         self.exit_event.clear()
         self._thread = Thread(target=self.run, kwargs={"reindex": reindex})
         self._thread.start()
@@ -1065,26 +1116,16 @@ class Node:
         self.exit_event.set()
         log.info("node exit event set")
 
-    async def main(self, reindex: Optional[int] = None):
+    async def main(self, reindex: bool = False):
         if not os.path.exists(self.index_db_filepath):
-            reindex = 0
-        if reindex == 0:
+            reindex = True
+        if reindex:
             self.db._conn.close()
             os.remove(self.index_db_filepath)
             self.db = Db(self.index_db_filepath)
             self.db.create_tables()
             self.rebuild_index()
-        elif reindex > 0:
-            blockheight = self.db.get_blockchain_height()
-            for blockheight in range(blockheight, reindex - 1, -1):
-                log.info(
-                    f"reverting tx and utxoset changes for blockheight {blockheight}..."
-                )
-                self.revert_block(blockheight)
-                self.db.delete_block(blockheight)
-                log.info(f"block {blockheight} index deleted")
         else:
-            # reindex is None
             self.startup_checks()
 
         # parse seeds into list of (host, port)
@@ -1134,6 +1175,7 @@ class Node:
                     asyncio.create_task(self.process_blocks())
 
             asyncio.create_task(self.message_handler_loop())
+            asyncio.create_task(self.request_tx(sync_node))
         else:
             log.error("couldn't connect to peers")
 
@@ -1343,6 +1385,55 @@ class Node:
             )
         log.info(f"added blockheader {blockheader_height} to header chain for {peer}")
 
+    async def request_tx(self, peer: Peer):
+        while not self.exit_event.is_set():
+            tx_inventories = list(
+                filter(lambda inv: inv["type_id"] == "MSG_TX", peer.inventories)
+            )
+            pending_getdata_requests = list(
+                filter(
+                    lambda req: req["type_id"] == "MSG_TX",
+                    peer._pending_getdata_requests,
+                )
+            )
+            if tx_inventories and not pending_getdata_requests:
+                tx_inventory_ = tx_inventories[0]
+                peer._pending_getdata_requests.append(
+                    {"time": int(time.time()), "retries": 3, **tx_inventory_}
+                )
+                await peer.send_command(
+                    b"getdata",
+                    inv_payload(
+                        1,
+                        [inventory(tx_inventory_["type_id"], tx_inventory_["hash"])],
+                    ),
+                )
+            elif pending_getdata_requests:
+                expired_requests = list(
+                    filter(
+                        lambda req: req["time"] < time.time() - 60,
+                        pending_getdata_requests,
+                    )
+                )
+                if expired_requests:
+                    for req in expired_requests:
+                        req["retries"] -= 1
+                        log.debug(
+                            f"{peer} pending getdata request timeout - {req}. {req['retries']} attemtps remaining..."
+                        )
+                        if req["retries"] <= 0:
+                            log.debug(f"pending getdata request expired - {req}")
+                            peer._pending_getdata_requests.remove(req)
+                            req.pop("time")
+                            req.pop("retries")
+                            peer.inventories.remove(req)
+            else:
+                log.trace(
+                    f"request_tx loop skip. len(tx_inventories)={len(tx_inventories)}, len(pending_getdata_requests)={len(pending_getdata_requests)}"
+                )
+            await asyncio.sleep(1)
+        log.trace("request_tx loop exit")
+
     async def request_block_inventories(self, peer: Peer):
         """
         Request block inventories via 'getblocks' from peer, during IBD
@@ -1350,8 +1441,11 @@ class Node:
         Expected response of 2000 inventories until we get current
         """
         while self._ibd and not self.exit_event.is_set():
+            block_inventories = list(
+                filter(lambda inv: inv["type_id"] == "MSG_BLOCK", peer.inventories)
+            )
             if (
-                not peer.inventories
+                not block_inventories
                 and not self._block_processing_queue
                 and not peer._pending_getblocks_request
             ):
@@ -1381,7 +1475,7 @@ class Node:
                 peer._pending_getblocks_request = None
             else:
                 log.trace(
-                    f"request_block_inventories skip. len(inventories)={len(peer.inventories)}, len(block_processsing_queue)={len(self._block_processing_queue)}, pending_getblocks_request={peer._pending_getblocks_request} "
+                    f"request_block_inventories skip. len(block_inventories)={len(block_inventories)}, len(block_processsing_queue)={len(self._block_processing_queue)}, pending_getblocks_request={peer._pending_getblocks_request} "
                 )
             await asyncio.sleep(1)
         log.trace("request_block_inventories loop exit")
@@ -1392,12 +1486,21 @@ class Node:
         """
         MAX_BLOCKS_IN_QUEUE = 128
         while self._ibd and not self.exit_event.is_set():
+            block_inventories = list(
+                filter(lambda inv: inv["type_id"] == "MSG_BLOCK", peer.inventories)
+            )
+            pending_getdata_requests = list(
+                filter(
+                    lambda req: req["type_id"] == "MSG_BLOCK",
+                    peer._pending_getdata_requests,
+                )
+            )
             if (
                 len(self._block_processing_queue) < MAX_BLOCKS_IN_QUEUE
-                and peer.inventories
-                and not peer._pending_getdata_requests
+                and block_inventories
+                and not pending_getdata_requests
             ):
-                inventory_list = peer.inventories[
+                inventory_list = block_inventories[
                     : MAX_BLOCKS_IN_QUEUE - len(self._block_processing_queue)
                 ]
 
@@ -1417,7 +1520,7 @@ class Node:
                         ],
                     ),
                 )
-            elif peer._pending_getdata_requests:
+            elif pending_getdata_requests:
                 expired_requests = list(
                     filter(
                         lambda req: req["time"] < time.time() - 60,
@@ -1431,16 +1534,14 @@ class Node:
                             f"{peer} pending getdata request timeout - {req}. {req['retries']} attemtps remaining..."
                         )
                         if req["retries"] <= 0:
-                            log.debug(
-                                f"pending getdata requests expired - {expired_requests}"
-                            )
+                            log.debug(f"pending getdata request expired - {req}")
                             peer._pending_getdata_requests.remove(req)
                             req.pop("time")
                             req.pop("retries")
                             peer.inventories.remove(req)
             else:
                 log.trace(
-                    f"request_blocks loop skip.  len(block processing_queue)={len(self._block_processing_queue)}, len(pending_getdata_requests)={len(peer._pending_getdata_requests)}"
+                    f"request_blocks loop skip. len(block_inventories)={len(block_inventories)}, len(pending_getdata_requests)={len(pending_getdata_requests)}"
                 )
             await asyncio.sleep(1)
         log.trace("request_blocks loop exit")
@@ -1478,13 +1579,12 @@ class Node:
             log.info(
                 f"reverting changes to tx / utxoset via block {current_block_index_data['blockheight']} ..."
             )
-            self.revert_block(current_block_index_data["id"])
+            self.revert_block(current_block_index_data["blockheight"])
             log.info(
                 f"changes to tx / utxoset via block {current_block_index_data['blockheight']} reverted in {self.index_db_filename}"
             )
             # delete last block & block index
             _deleted_block = self.delete_block()
-            log.trace(_deleted_block)
             raise err
 
     def revert_block(self, blockheight: int):
@@ -1502,7 +1602,9 @@ class Node:
                 log.debug(f"removed tx {op['txid']} from tx table")
             elif op["revert"]:
                 # utxo rollback
-                self.db.remove_from_utxoset(op["txid"], op["vout"])
+                self.db.remove_from_utxoset(
+                    op["txid"], op["vout"], index_ordinals=self._index_ordinals
+                )
                 log.debug(
                     f"removed utxo(txid={op['txid']}, vout={op['vout']}) from utxoset"
                 )
@@ -1520,6 +1622,7 @@ class Node:
                     op["vout"],
                     revert_block_id,
                     json.loads(op["ordinal_ranges"]),
+                    index_ordinals=self._index_ordinals,
                 )
                 log.debug(
                     f"added utxo(txid={op['txid']}, vout={op['vout']}) to utxoset with revert_block_id {revert_block_id}"
@@ -1625,7 +1728,7 @@ class Node:
         block_index_data = self.db.get_block(blockheight)
         cursor = self.db._conn.cursor()
         start_height = cursor.execute(
-            "SELECT start_height FROM peer WHERE is_connected=1 ORDER BY start_height DESC LIMIT 1;"
+            "SELECT start_height FROM peer ORDER BY start_height DESC LIMIT 1;"
         ).fetchone()
         start_height = start_height[0] if start_height else None
         cursor.close()
@@ -1649,6 +1752,8 @@ class Node:
                 ),
                 network=self.network,
             ),
+            "blocks": self.count_blocks(),
+            "size": self.get_size(),
             "height": blockheight,
             "blockheaderhash": block_index_data["blockheaderhash"],
             "chainwork": block_index_data["chainwork"],
@@ -1661,7 +1766,7 @@ class Node:
 
     def get_node_info(self) -> Union[dict, None]:
         cursor = self.db._conn.cursor()
-        peers = self.db.get_peers(is_connected=True)
+        peers = self.db.get_peers()
         # pop off peer addrs info
         for peer in peers:
             addrs = peer.pop("addrs")
@@ -1687,8 +1792,6 @@ class Node:
 
         Assumes that the blocks on disk are ordered by blockheight.
         """
-        # blockheight is the blockheight as indicated by the block index db
-        blockheight = self.db.get_blockchain_height()
         # block_i is our counter for the blockheight as indicated by the order of block data on disk
         block_i = 0
 
@@ -1711,11 +1814,6 @@ class Node:
                     length = int.from_bytes(dat_file.read(4), "little")
                     block = Block(dat_file.read(length))
                     assert len(block) == length, "length mismatch"
-                    if block_i <= blockheight:
-                        # if block_i is lte the latest index entry, we skip the block
-                        # because it has already been indexed
-                        block_i += 1
-                        continue
                     chainwork = bits.blockchain.new_chainwork(chainwork, block["nBits"])
                     try:
                         log.debug(f"reindexing block {block['blockheaderhash']} ...")
@@ -1724,7 +1822,6 @@ class Node:
                             reindex=True,
                             rel_path=os.path.relpath(filepath, start=self.datadir),
                             start_offset=start_offset,
-                            assumevalid=True,
                         )
                     except Exception as err:
                         traceback.format_exc()
@@ -1804,7 +1901,6 @@ class Node:
         reindex: bool = False,
         rel_path: str = None,
         start_offset: int = None,
-        assumevalid: bool = False,
     ) -> bool:
         """
         Validate block as new tip and save block data and / or index and chainstate
@@ -1814,7 +1910,6 @@ class Node:
                 meaning the block data won't be saved, but index and chainstate are still updated
             rel_path: str, relative path of block data, use if and only if reindex=True
             start_offset: int, start offset byte of block data in rel_path, use if and only if reindex=True
-            assumevalid: bool, True to skip transaction verfication
         Returns:
             bool: True if block is accepted
         Throws:
@@ -2094,7 +2189,7 @@ class Node:
                 # add utxo value to total transction value input
                 txn_value_in += utxo_value
 
-                if not assumevalid:
+                if current_blockheight >= self._assumevalid:
                     # evaluate tx_in unlocking script for its utxo
                     tx_in_scriptsig = tx_in["scriptsig"]
                     utxo_scriptpubkey = utxo["scriptpubkey"]
@@ -2105,18 +2200,22 @@ class Node:
                         f"evaluating script for tx input {txin_i} of {len(txn['txins'])} txins in txn {txn_i}/{len(current_block['txns'][1:])} of new block {current_blockheight}..."
                     )
                     if not bits.script.eval_script(
-                        script_, bytes.fromhex(utxo_tx["raw"]), txin_vout
+                        script_, bits.tx.tx_ser(utxo_tx), txin_vout
                     ):
                         raise ConnectBlockError(
                             f"script evaluation failed for txin {txin_i} in txn {txn_i} in block(blockheaderhash={current_block['blockheaderhash']})"
                         )
 
                 # this tx_in succeeds, update utxoset
+                log.trace(
+                    f"removing tx input {txin_i} in txn {txn_i} of new block {current_blockheight} from utxoset..."
+                )
                 with self._thread_lock:
                     tx_ordinal_ranges += self.db.remove_from_utxoset(
                         txin_txid,
                         txin_vout,
                         current_block_index_data["id"],
+                        index_ordinals=self._index_ordinals,
                     )
                 log.trace(
                     f"tx input {txin_i} in txn {txn_i} of new block {current_blockheight} removed from utxoset."
@@ -2140,23 +2239,28 @@ class Node:
             for vout, txout_ in enumerate(txn["txouts"]):
                 value = txout_["value"]
                 utxo_ordinal_ranges = []
-                while value > 0:
-                    start, end = tx_ordinal_ranges.popleft()
+                if self._index_ordinals:
+                    while value > 0:
+                        start, end = tx_ordinal_ranges.popleft()
 
-                    if end - start + 1 > value:
-                        utxo_ordinal_ranges += [(start, start + value - 1)]
-                        tx_ordinal_ranges.appendleft((start + value, end))
-                        break
-                    else:
-                        utxo_ordinal_ranges += [(start, end)]
-                        value -= end - start + 1
+                        if end - start + 1 > value:
+                            utxo_ordinal_ranges += [(start, start + value - 1)]
+                            tx_ordinal_ranges.appendleft((start + value, end))
+                            break
+                        else:
+                            utxo_ordinal_ranges += [(start, end)]
+                            value -= end - start + 1
 
+                log.trace(
+                    f"adding tx output {vout} in txn {txn_i} of new block {current_blockheight} to utxoset..."
+                )
                 with self._thread_lock:
                     self.db.add_to_utxoset(
                         txn["txid"],
                         vout,
                         current_block_index_data["id"],
                         utxo_ordinal_ranges,
+                        index_ordinals=self._index_ordinals,
                     )
             block_ordinal_ranges += tx_ordinal_ranges
 
@@ -2171,21 +2275,23 @@ class Node:
         for vout, txout_ in enumerate(coinbase_tx_txouts):
             value = txout_["value"]
             utxo_ordinal_ranges = []
-            while value > 0:
-                start, end = block_ordinal_ranges.popleft()
-                if end - start + 1 > value:
-                    utxo_ordinal_ranges += [(start, start + value - 1)]
-                    block_ordinal_ranges.appendleft((start + value, end))
-                    break
-                else:
-                    utxo_ordinal_ranges += [(start, end)]
-                    value -= end - start + 1
+            if self._index_ordinals:
+                while value > 0:
+                    start, end = block_ordinal_ranges.popleft()
+                    if end - start + 1 > value:
+                        utxo_ordinal_ranges += [(start, start + value - 1)]
+                        block_ordinal_ranges.appendleft((start + value, end))
+                        break
+                    else:
+                        utxo_ordinal_ranges += [(start, end)]
+                        value -= end - start + 1
             with self._thread_lock:
                 self.db.add_to_utxoset(
                     coinbase_tx["txid"],
                     vout,
                     current_block_index_data["id"],
                     utxo_ordinal_ranges,
+                    index_ordinals=self._index_ordinals,
                 )
 
         log.debug(
@@ -2379,6 +2485,57 @@ class Db:
             self._conn.commit()
         cursor.close()
 
+    def create_tx_table(self):
+        cursor = self._conn.cursor()
+        query = cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='tx';"
+        ).fetchone()
+        if not query:
+            cursor.execute("BEGIN TRANSACTION;")
+            cursor.execute(
+                """
+                CREATE TABLE tx(
+                    id INTEGER PRIMARY KEY,
+                    txid TEXT UNIQUE,
+                    wtxid TEXT,
+                    version INTEGER,
+
+                    blockheaderhash TEXT,
+                    n INTEGER,
+                    FOREIGN KEY(blockheaderhash) REFERENCES block(blockheaderhash)
+                );
+            """
+            )
+            cursor.execute("CREATE INDEX tx_txid_index ON tx(txid);")
+            cursor.execute(
+                "CREATE INDEX tx_blockheaderhash_index ON tx(blockheaderhash);"
+            )
+            self._conn.commit()
+        cursor.close()
+
+    def create_utxoset_table(self):
+        cursor = self._conn.cursor()
+        query = cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='utxoset';"
+        ).fetchone()
+        if not query:
+            cursor.execute("BEGIN TRANSACTION;")
+            cursor.execute(
+                """
+                CREATE TABLE utxoset(
+                    id INTEGER PRIMARY KEY,
+                    txid TEXT,
+                    vout INTEGER,
+                    value INTEGER,
+                    scriptpubkey TEXT,
+                    FOREIGN KEY(txid) REFERENCES tx(txid)
+                );
+            """
+            )
+            cursor.execute("CREATE INDEX utxo_txid_vout_index ON utxoset(txid, vout);")
+            self._conn.commit()
+        cursor.close()
+
     def create_blockheader_table(self):
         cursor = self._conn.cursor()
         query = cursor.execute(
@@ -2416,30 +2573,6 @@ class Db:
             self._conn.commit()
         cursor.close()
 
-    def create_utxoset_table(self):
-        cursor = self._conn.cursor()
-        query = cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='utxoset';"
-        ).fetchone()
-        if not query:
-            cursor.execute("BEGIN TRANSACTION;")
-            cursor.execute(
-                """
-                CREATE TABLE utxoset(
-                    id INTEGER PRIMARY KEY,
-                    blockheaderhash TEXT,
-                    txid TEXT,
-                    vout INTEGER
-                );
-            """
-            )
-            cursor.execute("CREATE INDEX utxo_txid_vout_index ON utxoset(txid, vout);")
-            cursor.execute(
-                "CREATE INDEX utxo_blockheaderhash_index ON utxoset(blockheaderhash);"
-            )
-            self._conn.commit()
-        cursor.close()
-
     def create_ordinal_range_table(self):
         cursor = self._conn.cursor()
         query = cursor.execute(
@@ -2455,12 +2588,17 @@ class Db:
                     end INTEGER,
 
                     utxoset_id INTEGER,
-                    FOREIGN KEY(utxoset_id) REFERENCES utxoset(id)
+                    revert_block_id INTEGER,
+                    FOREIGN KEY(utxoset_id) REFERENCES utxoset(id) ON DELETE SET NULL,
+                    FOREIGN KEY(revert_block_id) REFERENCES revert(id) ON DELETE SET NULL
                 );
                 """
             )
             cursor.execute(
                 "CREATE INDEX ordinal_range_utxoset_id_index ON ordinal_range(utxoset_id);"
+            )
+            cursor.execute(
+                "CREATE INDEX ordinal_range_revert_block_id_index ON ordinal_range(revert_block_id);"
             )
             self._conn.commit()
         cursor.close()
@@ -2497,34 +2635,6 @@ class Db:
             self._conn.commit()
         cursor.close()
 
-    def create_tx_table(self):
-        cursor = self._conn.cursor()
-        query = cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='tx';"
-        ).fetchone()
-        if not query:
-            cursor.execute("BEGIN TRANSACTION;")
-            cursor.execute(
-                """
-                CREATE TABLE tx(
-                    id INTEGER PRIMARY KEY,
-                    txid TEXT UNIQUE,
-                    wtxid TEXT,
-                    version INTEGER,
-
-                    blockheaderhash TEXT,
-                    n INTEGER,
-                    FOREIGN KEY(blockheaderhash) REFERENCES block(blockheaderhash)
-                );
-            """
-            )
-            cursor.execute("CREATE INDEX tx_txid_index ON tx(txid);")
-            cursor.execute(
-                "CREATE INDEX tx_blockheaderhash_index ON tx(blockheaderhash);"
-            )
-            self._conn.commit()
-        cursor.close()
-
     def create_revert_table(self):
         # revert table for block reorgs
         # block_id references the block for which this reversion is for (not the block that the utxo is contained in)
@@ -2534,8 +2644,6 @@ class Db:
         # txid and vout refer to the utxo to be re-added or removed to utxoset
         # if vout is NULL, this indicates this txid itself to be removed from the tx table table during reversion,
         #   note that tx are never re-added during reversion
-        # If txid and vout are provided, this is a utxo, and the revert table should have an entry
-        #   for each ordinal_range in the utxo, thus potentially multiple rows per utxo
         cursor = self._conn.cursor()
         query = cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='revert';"
@@ -2549,8 +2657,6 @@ class Db:
                     revert BOOLEAN DEFAULT 1,
                     txid TEXT,
                     vout INTEGER,
-                    ordinal_start INTEGER,
-                    ordinal_end INTEGER,
                     block_id INTEGER,
                     FOREIGN KEY(block_id) REFERENCES block(id)
                 )
@@ -2930,6 +3036,7 @@ class Db:
         txid: str,
         vout: int,
         revert_block_id: Optional[int] = None,
+        index_ordinals: bool = False,
     ) -> Tuple[Tuple[int, int]]:
         """
         Remove row from utxoset, optionally writing to revert table
@@ -2941,21 +3048,27 @@ class Db:
         cursor = self._conn.cursor()
         cursor.execute("BEGIN TRANSACTION;")
         utxoset_id = cursor.execute(
-            f"SELECT id FROM utxoset WHERE txid='{txid}' AND vout={vout};"
+            "SELECT id FROM utxoset WHERE txid=? AND vout=?;", (txid, vout)
         ).fetchone()[0]
-        ordinal_ranges = cursor.execute(
-            f"SELECT start, end FROM ordinal_range WHERE utxoset_id={utxoset_id};"
-        ).fetchall()
-        cursor.execute(f"DELETE FROM ordinal_range WHERE utxoset_id={utxoset_id};")
-        cursor.execute(f"DELETE FROM utxoset WHERE txid='{txid}' AND vout='{vout}';")
+        if index_ordinals:
+            ordinal_ranges = cursor.execute(
+                "SELECT start, end FROM ordinal_range WHERE utxoset_id=?;",
+                (utxoset_id,),
+            ).fetchall()
+            revert_block_id = "NULL" if revert_block_id is None else revert_block_id
+            cursor.execute(
+                "UPDATE ordinal_range SET utxoset_id=NULL, revert_block_id=? WHERE utxoset_id=?;",
+                (revert_block_id, utxoset_id),
+            )
+        cursor.execute("DELETE FROM utxoset WHERE txid=? AND vout=?;", (txid, vout))
         if revert_block_id is not None:
-            for start, end in ordinal_ranges:
-                cursor.execute(
-                    f"INSERT INTO revert (revert, txid, vout, ordinal_start, ordinal_end, block_id) VALUES (0, '{txid}', {vout}, {start}, {end}, {revert_block_id});"
-                )
+            cursor.execute(
+                "INSERT INTO revert (revert, txid, vout, block_id) VALUES (?, ?, ?, ?);",
+                (0, txid, vout, revert_block_id),
+            )
         self._conn.commit()
         cursor.close()
-        return ordinal_ranges
+        return ordinal_ranges if index_ordinals else []
 
     def add_to_utxoset(
         self,
@@ -2963,6 +3076,7 @@ class Db:
         vout: int,
         revert_block_id: int,
         ordinal_ranges: List[List[int]],
+        index_ordinals: bool = False,
     ):
         """
         Add to utxo set
@@ -2974,29 +3088,30 @@ class Db:
         """
         cursor = self._conn.cursor()
         cursor.execute("BEGIN TRANSACTION;")
-        cursor.execute(f"INSERT INTO utxoset (txid, vout) VALUES ('{txid}', {vout});")
+        cursor.execute("INSERT INTO utxoset (txid, vout) VALUES (?, ?);", (txid, vout))
         utxoset_id = cursor.execute(
-            f"SELECT id FROM utxoset WHERE txid='{txid}' AND vout={vout};"
+            "SELECT id FROM utxoset WHERE txid=? AND vout=?;", (txid, vout)
         ).fetchone()[0]
-        for i, (start, end) in enumerate(ordinal_ranges):
-            cursor.execute(
-                f"INSERT INTO ordinal_range(start, end, utxoset_id) VALUES ({start}, {end}, {utxoset_id});"
+        if index_ordinals:
+            cursor.executemany(
+                "INSERT INTO ordinal_range(start, end, utxoset_id, revert_block_id) VALUES (?, ?, ?, ?);",
+                [
+                    (start, end, utxoset_id, revert_block_id)
+                    for start, end in ordinal_ranges
+                ],
             )
-            cursor.execute(
-                f"INSERT INTO revert (revert, txid, vout, ordinal_start, ordinal_end, block_id) VALUES (1, '{txid}', {vout}, {start}, {end}, {revert_block_id});"
-            )
-            if i % 10 == 0:
-                self._conn.commit()
+        cursor.execute(
+            "INSERT INTO revert (revert, txid, vout, block_id) VALUES (?, ?, ?, ?);",
+            (1, txid, vout, revert_block_id),
+        )
         self._conn.commit()
         cursor.close()
 
-    def find_blockheaderhash_for_utxo(
-        self, txid: str, cursor: Optional[sqlite3.Cursor] = None
-    ) -> Union[str, None]:
-        if cursor is None:
-            cursor = self._conn.cursor()
+    def find_blockheaderhash_for_utxo(self, txid: str) -> Union[str, None]:
+        cursor = self._conn.cursor()
         res = cursor.execute(f"SELECT blockheaderhash FROM tx WHERE txid='{txid}';")
         result = res.fetchone()
+        cursor.close()
         return result[0] if result else None
 
     def get_peer(self, host: str, port: int) -> Union[int, None]:
@@ -3100,9 +3215,8 @@ class Db:
                 "revert": row[1],
                 "txid": row[2],
                 "vout": row[3],
-                "ordinal_start": row[4],
-                "ordinal_end": row[5],
-                "block_id": row[6],
+                "ordinal_ranges": json.loads(row[4]) if row[4] else None,
+                "block_id": row[5],
             }
             for row in rows
         ]

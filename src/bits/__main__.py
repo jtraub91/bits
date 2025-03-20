@@ -882,7 +882,9 @@ See "bits wif -h" for help on creating WIF-encoded keys.
         help="p2p node data directory",
     )
     p2p_parser.add_argument(
-        "--reindex", nargs="?", type=int, help="reindex block indexes from blockheight"
+        "--reindex",
+        action="store_true",
+        help="reindex block indexes from blockheight 0",
     )
     p2p_parser.add_argument(
         "--headers-only",
@@ -897,6 +899,12 @@ See "bits wif -h" for help on creating WIF-encoded keys.
         action="store_true",
         default=False,
         help="only download blocks for IBD",
+    )
+    p2p_parser.add_argument(
+        "--assumevalid",
+        type=int,
+        default=0,
+        help="assume block tx input scripts are valid, i.e. skip script verification, before blockheight",
     )
     add_common_arguments(p2p_parser)
 
@@ -1291,8 +1299,7 @@ def main():
                 os.path.join(node.datadir, block_index["datafile"]),
                 block_index["datafile_offset"],
             )
-            block_dict = bits.blockchain.block_deser(block)
-            tx_ = bytes.fromhex(block_dict["txns"][tx_index["n"]]["raw"])
+            tx_ = bits.tx.tx_ser(block["txns"][tx_index["n"]])
         elif args.txins or args.txouts:
             txins = []
             for txin_dict in args.txins:
@@ -1424,13 +1431,14 @@ def main():
             max_outgoing_peers=config.max_outgoing_peers,
             download_headers=download_headers,
             download_blocks=download_blocks,
+            assumevalid=args.assumevalid,
         )
         if args.info:
             node_info = p2p_node.get_node_info()
             print(json.dumps(node_info))
             return
-        if args.reindex is not None:
-            key = input(f"reindex from blockheight {args.reindex}? (y/n) ")
+        if args.reindex:
+            key = input(f"reindex from blockheight 0? (y/n) ")
             if key != "y":
                 print("reindex cancelled")
                 return
