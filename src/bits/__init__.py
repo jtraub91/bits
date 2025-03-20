@@ -1,6 +1,7 @@
 __version__ = "0.2.2"
 
 import hashlib
+import json
 import logging
 import os
 import sys
@@ -454,3 +455,49 @@ def wif_decode(
         return decoded
     else:
         return version, key_, addtl_data
+
+
+class Bytes(bytes):
+    def __new__(cls, data, **kwargs):
+        _deserializer_fun = getattr(cls, "_deserializer_fun", None)
+        _serializer_fun = getattr(cls, "_serializer_fun", None)
+        if isinstance(data, dict):
+            bytes_data = _serializer_fun(**data)
+            obj = super().__new__(cls, bytes_data, **kwargs)
+            obj._dict = data
+        else:
+            obj = super().__new__(cls, data, **kwargs)
+            obj._dict = getattr(cls, "_dict", None)
+        obj._deserializer_fun = _deserializer_fun
+        obj._serializer_fun = _serializer_fun
+        return obj
+
+    def __getitem__(self, key: str):
+        if isinstance(key, (int, slice)):  # normal bytes behavior
+            return super().__getitem__(key)
+        return self.dict()[key]
+
+    def __getattr__(self, attr: str):
+        try:
+            self.dict()[attr]
+        except KeyError:
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{attr}'"
+            )
+
+    def bin(self) -> str:
+        if bytes(self) == b"":
+            return ""
+        return format(int.from_bytes(self, "big"), f"0{len(self) * 8}b")
+
+    def dict(self, refresh: bool = False) -> dict:
+        if self._dict is None or refresh:
+            if self._deserializer_fun is None:
+                raise RuntimeError(
+                    "Cannot deserialize. _deserializer_fun is not defined"
+                )
+            self._dict = self._deserializer_fun(self)
+        return self._dict
+
+    def json(self, indent: int = None) -> str:
+        return json.dumps(self.dict(), indent=indent)

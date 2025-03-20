@@ -2,7 +2,6 @@
 blockchain lulz :P
 """
 import copy
-import json
 import logging
 import time
 from typing import List, Union
@@ -11,54 +10,9 @@ import bits.constants
 import bits.crypto
 import bits.script
 import bits.tx
+from bits import Bytes
 
 log = logging.getLogger(__name__)
-
-
-class Bytes(bytes):
-    def __new__(cls, data, **kwargs):
-        _deserializer_fun = getattr(cls, "_deserializer_fun", None)
-        _serializer_fun = getattr(cls, "_serializer_fun", None)
-        if isinstance(data, dict):
-            bytes_data = _serializer_fun(**data)
-            obj = super().__new__(cls, bytes_data, **kwargs)
-            obj._dict = data
-        else:
-            obj = super().__new__(cls, data, **kwargs)
-            obj._dict = getattr(cls, "_dict", None)
-        obj._deserializer_fun = _deserializer_fun
-        obj._serializer_fun = _serializer_fun
-        return obj
-
-    def __getitem__(self, key: str):
-        if isinstance(key, (int, slice)):  # normal bytes behavior
-            return super().__getitem__(key)
-        return self.dict()[key]
-
-    def __getattr__(self, attr: str):
-        try:
-            self.dict()[attr]
-        except KeyError:
-            raise AttributeError(
-                f"'{self.__class__.__name__}' object has no attribute '{attr}'"
-            )
-
-    def bin(self) -> str:
-        if bytes(self) == b"":
-            return ""
-        return format(int.from_bytes(self, "big"), f"0{len(self) * 8}b")
-
-    def dict(self, refresh: bool = False) -> dict:
-        if self._dict is None or refresh:
-            if self._deserializer_fun is None:
-                raise RuntimeError(
-                    "Cannot deserialize. _deserializer_fun is not defined"
-                )
-            self._dict = self._deserializer_fun(self)
-        return self._dict
-
-    def json(self, indent: int = None) -> str:
-        return json.dumps(self.dict(), indent=indent)
 
 
 class Block(Bytes):
@@ -451,9 +405,11 @@ def block_deser(block: bytes) -> dict:
     header = block[:80]
     number_of_txns, block_prime = bits.parse_compact_size_uint(block[80:])
     txns = []
+    # pylint: disable-next=unexpected-keyword-arg
     coinbase_tx_deser, block_prime = bits.tx.tx_deser(block_prime, include_raw=True)
     txns.append(coinbase_tx_deser)
     while block_prime:
+        # pylint: disable-next=unexpected-keyword-arg
         deserialized_tx, block_prime = bits.tx.tx_deser(block_prime, include_raw=True)
         txns.append(deserialized_tx)
     assert (

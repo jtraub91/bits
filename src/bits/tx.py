@@ -4,15 +4,28 @@ Utilities for transactions
 https://developer.bitcoin.org/reference/transactions.html
 """
 import logging
-from typing import List, Optional, Tuple, Union
+from typing import Generator, List, Optional, Tuple, Union
 
 import bits.constants
 import bits.crypto
 import bits.keys
 import bits.script.constants
+from bits import Bytes
 from bits.bips import bip143
 
 log = logging.getLogger(__name__)
+
+
+class Tx(Bytes):
+    def __new__(cls, data, **kwargs):
+        cls._deserializer_fun = tx_deser
+        cls._serializer_fun = tx_ser
+        return super().__new__(cls, data, **kwargs)
+
+    def __getitem__(self, key: str):
+        if key == "txid":
+            return bits.crypto.hash256(self)[::-1].hex()
+        return super().__getitem__(key)
 
 
 def outpoint(txid_: bytes, index: int) -> bytes:
@@ -138,12 +151,18 @@ def tx_ser(tx_: dict) -> bytes:
     )
 
 
-def tx_deser(tx_: bytes, include_raw: bool = False) -> Tuple[dict, bytes]:
+def parse_tx(txns_: bytes) -> Generator[bytes]:
+    while txns_:
+        number_of_inputs, txns_prime = bits.parse_compact_size_uint(txns_[4:])
+        yield txns_[:80]
+        txns_ = txns_[80:]
+
+
+def tx_deser(tx_: bytes) -> Tuple[dict, bytes]:
     """
     Deserialize tx data
     Args:
         tx_: bytes, tx data
-        include_raw: bool, if True, include raw hex transaction in dict
     Returns:
         tuple, (deserialized tx, leftover )
     """
@@ -182,34 +201,9 @@ def tx_deser(tx_: bytes, include_raw: bool = False) -> Tuple[dict, bytes]:
     tx_prime = tx_prime[4:]
     tx_ = tx_.split(tx_prime)[0] if tx_prime else tx_
 
-    # re-serialize without witness for txid, and hash
-    # TODO: Tx class to maybe calculate this more efficiently?
-    tx_dict = (
-        {
-            "txid": txid(
-                tx(
-                    [
-                        txin(
-                            outpoint(bytes.fromhex(ti["txid"]), ti["vout"]),
-                            bytes.fromhex(ti["scriptsig"]),
-                        )
-                        for ti in deserialized_tx["txins"]
-                    ],
-                    [
-                        txout(to["value"], bytes.fromhex(to["scriptpubkey"]))
-                        for to in deserialized_tx["txouts"]
-                    ],
-                    version=deserialized_tx["version"],
-                    locktime=deserialized_tx["locktime"],
-                )
-            )
-        }
-        if is_segwit
-        else {"txid": bits.tx.txid(tx_)}
-    )
-    tx_dict["wtxid"] = bits.tx.txid(tx_)
-    if include_raw:
-        tx_dict["raw"] = tx_.hex()
+    # re-serialize without witness for txid
+    tx_dict = {"txid": Tx(tx_)["txid"] if is_segwit else txid(tx_)}
+    tx_dict["wtxid"] = txid(tx_)
     tx_dict.update(deserialized_tx)
     return tx_dict, tx_prime
 
