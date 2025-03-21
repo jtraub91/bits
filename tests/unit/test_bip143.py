@@ -5,13 +5,17 @@ import bits.bips.bip143 as bip143
 import bits.keys
 import bits.ecmath
 import bits.script
-import bits.script.constants as constants
 import bits.tx
+from bits import constants
+from bits.tx import Tx
 
 
 def test_p2wpkh():
-    unsigned_tx = "0100000002fff7f7881a8099afa6940d42d1e7f6362bec38171ea3edf433541db4e4ad969f0000000000eeffffffef51e1b804cc89d182d279655c3aa89e815b1b309fe287d9b2b55d57b90ec68a0100000000ffffffff02202cb206000000001976a9148280b37df378db99f66f85c95a783a76ac7a6d5988ac9093510d000000001976a9143bde42dbee7e4dbe6a21b2d50ce2f0167faa815988ac11000000"
-    deserialized_tx, _ = bits.tx.tx_deser(bytes.fromhex(unsigned_tx))
+    unsigned_tx = Tx(
+        bytes.fromhex(
+            "0100000002fff7f7881a8099afa6940d42d1e7f6362bec38171ea3edf433541db4e4ad969f0000000000eeffffffef51e1b804cc89d182d279655c3aa89e815b1b309fe287d9b2b55d57b90ec68a0100000000ffffffff02202cb206000000001976a9148280b37df378db99f66f85c95a783a76ac7a6d5988ac9093510d000000001976a9143bde42dbee7e4dbe6a21b2d50ce2f0167faa815988ac11000000"
+        )
+    )
 
     """
     The first input comes from an ordinary P2PK:
@@ -26,15 +30,15 @@ def test_p2wpkh():
 
     txins = [
         bits.tx.txin(
-            bits.tx.outpoint(bytes.fromhex(ti["txid"]), ti["vout"]),
+            bits.tx.outpoint(bytes.fromhex(txin_["txid"]), txin_["vout"]),
             b"",
-            sequence=ti["sequence"].to_bytes(4, "little"),
+            sequence=txin_["sequence"].to_bytes(4, "little"),
         )
-        for ti in deserialized_tx["txins"]
+        for txin_ in unsigned_tx["txins"]
     ]
     txouts = [
-        bits.tx.txout(to["value"], bytes.fromhex(to["scriptpubkey"]))
-        for to in deserialized_tx["txouts"]
+        bits.tx.txout(txout_["value"], bytes.fromhex(txout_["scriptpubkey"]))
+        for txout_ in unsigned_tx["txouts"]
     ]
 
     input_2_scriptpubkey = bytes.fromhex(
@@ -52,7 +56,7 @@ def test_p2wpkh():
                     input_2_witness_program.hex(),
                     "OP_EQUALVERIFY",
                     "OP_CHECKSIG",
-                ]
+                ],
             ).hex()
         ]
     )
@@ -62,8 +66,8 @@ def test_p2wpkh():
         int(6e8),
         scriptcode,
         txouts,
-        version=deserialized_tx["version"],
-        locktime=deserialized_tx["locktime"],
+        version=unsigned_tx["version"],
+        locktime=unsigned_tx["locktime"],
         sighash_flag=constants.SIGHASH_ALL,
     )
 
@@ -90,26 +94,26 @@ def test_p2wpkh():
     txins = [
         bits.tx.txin(
             bits.tx.outpoint(
-                bytes.fromhex(deserialized_tx["txins"][0]["txid"]),
-                deserialized_tx["txins"][0]["vout"],
+                bytes.fromhex(unsigned_tx["txins"][0]["txid"]),
+                unsigned_tx["txins"][0]["vout"],
             ),
             input_1_scriptpubkey,
-            sequence=deserialized_tx["txins"][0]["sequence"].to_bytes(4, "little"),
+            sequence=unsigned_tx["txins"][0]["sequence"].to_bytes(4, "little"),
         ),
         bits.tx.txin(
             bits.tx.outpoint(
-                bytes.fromhex(deserialized_tx["txins"][1]["txid"]),
-                deserialized_tx["txins"][1]["vout"],
+                bytes.fromhex(unsigned_tx["txins"][1]["txid"]),
+                unsigned_tx["txins"][1]["vout"],
             ),
             b"",
-            sequence=deserialized_tx["txins"][1]["sequence"].to_bytes(4, "little"),
+            sequence=unsigned_tx["txins"][1]["sequence"].to_bytes(4, "little"),
         ),
     ]
     tx_ = bits.tx.tx(
         txins,
         txouts,
-        version=deserialized_tx["version"],
-        locktime=deserialized_tx["locktime"],
+        version=unsigned_tx["version"],
+        locktime=unsigned_tx["locktime"],
     )
     input_1_private_key = bytes.fromhex(
         "bbc27228ddcb9209d7fd6f36b02f7dfa6252af40bb2f1cbc7a557da8027ff866"
@@ -123,19 +127,19 @@ def test_p2wpkh():
     txins = [
         bits.tx.txin(
             bits.tx.outpoint(
-                bytes.fromhex(deserialized_tx["txins"][0]["txid"]),
-                deserialized_tx["txins"][0]["vout"],
+                bytes.fromhex(unsigned_tx["txins"][0]["txid"]),
+                unsigned_tx["txins"][0]["vout"],
             ),
             input_1_scriptsig,
-            sequence=deserialized_tx["txins"][0]["sequence"].to_bytes(4, "little"),
+            sequence=unsigned_tx["txins"][0]["sequence"].to_bytes(4, "little"),
         ),
         bits.tx.txin(
             bits.tx.outpoint(
-                bytes.fromhex(deserialized_tx["txins"][1]["txid"]),
-                deserialized_tx["txins"][1]["vout"],
+                bytes.fromhex(unsigned_tx["txins"][1]["txid"]),
+                unsigned_tx["txins"][1]["vout"],
             ),
             b"",
-            sequence=deserialized_tx["txins"][1]["sequence"].to_bytes(4, "little"),
+            sequence=unsigned_tx["txins"][1]["sequence"].to_bytes(4, "little"),
         ),
     ]
     input_2_pubkey = bytes.fromhex(
@@ -151,8 +155,8 @@ def test_p2wpkh():
     tx_ = bits.tx.tx(
         txins,
         txouts,
-        version=deserialized_tx["version"],
-        locktime=deserialized_tx["locktime"],
+        version=unsigned_tx["version"],
+        locktime=unsigned_tx["locktime"],
         script_witnesses=[
             bits.script.script([], witness=True),
             input_2_witness_script,
@@ -184,7 +188,9 @@ def test_p2wpkh():
         + "21025476c2e83188368da1ff3e292e7acafcdb3566bb0ad253f62fc70f07aeee6357"
         + "11000000"
     )
-    assert tx_.hex() == expected_signed_transaction.hex()
+    assert (
+        tx_.hex() == expected_signed_transaction.hex()
+    ), "tx does not match expected signed transaction"
 
 
 def test_p2sh_p2wpkh():

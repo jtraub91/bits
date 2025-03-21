@@ -1,8 +1,9 @@
 """
 Test __main__ cli entrypoints / functions
 """
-from subprocess import PIPE
-from subprocess import Popen
+from subprocess import Popen, PIPE
+
+import bits  # pylint: disable=unused-import
 
 
 def test_help():

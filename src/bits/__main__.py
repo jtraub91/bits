@@ -17,7 +17,6 @@ import bits.crypto
 import bits.p2p
 import bits.pem
 import bits.ordinals
-import bits.rpc
 import bits.script
 import bits.tx
 import bits.wallet.hd
@@ -26,7 +25,6 @@ from bits.bips import bip173
 from bits.bips import bip32
 from bits.bips import bip39
 from bits.config import Config
-from bits.integrations import mine_block
 
 
 class RawDescriptionDefaultsHelpFormatter(
@@ -799,72 +797,6 @@ Examples:
     add_input_arguments(tx_parser)
     add_output_arguments(tx_parser)
 
-    send_parser = sub_parser.add_parser(
-        "send",
-        help="Utility for sending funds",
-        formatter_class=RawDescriptionDefaultsHelpFormatter,
-        description="""
-Utility  for creating a send transaction, sending funds from sender address to recipient address, 
-with optional change address.
-
-Depends on a configured Bitcoin Core RPC node.
-
-This command will, by default, send all funds associated with the sender address to the recipient address.
-If a --send-fraction is provided, only the fractional amount will be sent (minus --miner-fee).
-If a fractional amount is sent, and --change-address is not provided, the leftover amount, i.e. 
-total amount - fractional amount, will be returned to the sender address. 
-If --change-address is provided, the leftover amount will be sent here instead.
-
-This utility provides convenience by forming (and optionally signing) the transaction from 
-the arguments provided. It works by inferring the transaction semantics from the address type
-of sender_addr and recipient_addr, respectively, which may be either a pubkey, legacy address, 
-segwit address, or raw scriptpubkey. The presence of the --sighash option implies that the 
-transaction shall be signed and note that signature operations will occur. To unlock the funds 
-sent from the sender address, the necessary WIF key(s) must be provided via IN_FILE. 
-If multiple keys are needed to unlock funds, they can be specified, ordered, and separated 
-by whitespace, in IN_FILE.
-
-See "bits wif -h" for help on creating WIF-encoded keys.
-        """,
-    )
-    send_parser.add_argument("sender_addr", type=os.fsencode, help="Sender address")
-    send_parser.add_argument(
-        "recipient_addr", type=os.fsencode, help="Recipient address"
-    )
-    send_parser.add_argument("--change-addr", type=os.fsencode, help="Change address")
-    send_parser.add_argument(
-        "--send-fraction",
-        type=send_fraction,
-        default=1.0,
-        help="fraction of sender address's UTXO value to send",
-    )
-    send_parser.add_argument(
-        "--miner-fee", type=int, default=1000, help="satoshis to include as miner fee"
-    )
-    send_parser.add_argument(
-        "--version", "-v", type=int, default=1, help="transaction version"
-    )
-    send_parser.add_argument(
-        "--locktime", type=int, default=0, help="transaction locktime"
-    )
-    send_parser.add_argument(
-        "--sighash",
-        choices=["all", "none", "single"],
-        help="SIGHASH flag to use for signing (if key(s) are provided)",
-    )
-    send_parser.add_argument(
-        "--anyone-can-pay",
-        action="store_true",
-        help="If present, ORs SIGHASH_FLAG with SIGHASH_ANYONECANPAY",
-    )
-    add_common_arguments(send_parser, include_network=False)
-    add_input_arguments(
-        send_parser,
-        in_file_help="WIF unlocking key(s) for sender address",
-        include_input_format=False,
-    )
-    add_output_arguments(send_parser)
-
     p2p_parser = sub_parser.add_parser("p2p", help="start p2p node")
     p2p_parser.add_argument(
         "--info", "-I", action="store_true", default=False, help="get p2p node info"
@@ -1033,31 +965,6 @@ Mine blocks.
         help="Set a limit of the number of blocks to mine before exit. Useful in regtest mode for generating a set number of blocks",
     )
     add_common_arguments(mine_parser, include_network=False)
-
-    rpc_parser = sub_parser.add_parser(
-        "rpc",
-        help="rpc interface to bitcoind node",
-        formatter_class=RawDescriptionDefaultsHelpFormatter,
-        description="Send command to RPC node",
-    )
-    rpc_parser.add_argument("rpc_command", help="rpc command")
-    rpc_parser.add_argument("params", nargs="*", help="params for rpc_command")
-    rpc_parser.add_argument(
-        "-rpc-url", "--rpc-url", action=ExplicitOption, help="rpc url"
-    )
-    rpc_parser.add_argument(
-        "-rpc-user", "--rpc-user", action=ExplicitOption, help="rpc user"
-    )
-    rpc_parser.add_argument(
-        "-rpc-password", "--rpc-password", action=ExplicitOption, help="rpc password"
-    )
-    rpc_parser.add_argument(
-        "-rpc-datadir",
-        "--rpc-datadir",
-        action=ExplicitOption,
-        help="For cookie based rpc auth, supply rpc datadir.",
-    )
-    add_common_arguments(rpc_parser)
     return parser
 
 
@@ -1363,56 +1270,15 @@ def main():
             )
             return
         key = bits.read_bytes(args.in_file, input_format=config.input_format)
-        sighash_flag = getattr(bits.script.constants, f"SIGHASH_{args.sighash.upper()}")
+        sighash_flag = getattr(bits.constants, f"SIGHASH_{args.sighash.upper()}")
         if args.anyone_can_pay:
-            sighash_flag |= bits.script.constants.SIGHASH_ANYONECANPAY
+            sighash_flag |= bits.constants.SIGHASH_ANYONECANPAY
         sig = bits.script.sig(
             key, args.msg, sighash_flag=sighash_flag, msg_preimage=args.msg_preimage
         )
         bits.write_bytes(sig, args.out_file, output_format=config.output_format)
-    elif args.subcommand == "send":
-        if args.sighash:
-            sender_keys = bits.read_bytes(args.in_file, input_format="raw").split()
-            sighash_flag = getattr(
-                bits.script.constants, f"SIGHASH_{args.sighash.upper()}"
-            )
-            if args.anyone_can_pay:
-                sighash_flag |= bits.script.constants.SIGHASH_ANYONECANPAY
-        else:
-            sender_keys = []
-            sighash_flag = 0
-        tx_ = bits.tx.send_tx(
-            args.sender_addr,
-            args.recipient_addr,
-            change_addr=args.change_addr,
-            sender_keys=sender_keys,
-            send_fraction=args.send_fraction,
-            miner_fee=args.miner_fee,
-            version=args.version,
-            locktime=args.locktime,
-            sighash_flag=sighash_flag,
-            rpc_url=config.rpc_url,
-            rpc_datadir=config.rpc_datadir,
-            rpc_user=config.rpc_user,
-            rpc_password=config.rpc_password,
-        )
-        bits.write_bytes(tx_, output_format=config.output_format)
     elif args.subcommand == "mine":
-        n = 0
-        while True:
-            mine_block(
-                args.recv_addr,
-                rpc_url=config.rpc_url,
-                rpc_datadir=config.rpc_datadir,
-                rpc_user=config.rpc_user,
-                rpc_password=config.rpc_password,
-            )
-            n += 1
-            if args.limit and n >= args.limit:
-                print(
-                    f"{n} blocks mined. Reward sent to {args.recv_addr.decode('utf8')}"
-                )
-                break
+        raise NotImplementedError  # yet
     elif args.subcommand == "p2p":
         if args.headers_only and args.blocks_only:
             log.error("only one of --headers-only or --blocks-only may be supplied")
@@ -1584,16 +1450,6 @@ def main():
                 }
             )
         )
-    elif args.subcommand == "rpc":
-        result = bits.rpc.rpc_method(
-            args.rpc_command,
-            *args.params,
-            rpc_url=config.rpc_url,
-            rpc_user=config.rpc_user,
-            rpc_password=config.rpc_password,
-            rpc_datadir=config.rpc_datadir,
-        )
-        print(json.dumps(result) if type(result) is dict else result)
     else:
         raise ValueError("command not recognized")
 

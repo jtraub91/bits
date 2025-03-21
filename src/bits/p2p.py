@@ -635,8 +635,8 @@ class Node:
         self.log_level = log_level
         fh = logging.handlers.RotatingFileHandler(
             os.path.join(self.datadir, "p2p.log"),
-            maxBytes=128 * 1024 * 1024,  # 128MB
-            backupCount=8,
+            maxBytes=32 * 1024 * 1024,  # 32MB
+            backupCount=3,
         )
         formatter = logging.Formatter(
             "[%(asctime)s] %(levelname)s [%(name)s] %(message)s"
@@ -732,6 +732,10 @@ class Node:
         parsed_payload = parse_inv_payload(payload)
         count = parsed_payload["count"]
         inventories = parsed_payload["inventory"]
+
+        if self._ibd:
+            # ignore non msg_block inventories during ibd
+            inventories = [inv for inv in inventories if inv["type_id"] == "MSG_BLOCK"]
 
         peer_inventories = peer.inventories
 
@@ -1175,7 +1179,7 @@ class Node:
                     asyncio.create_task(self.process_blocks())
 
             asyncio.create_task(self.message_handler_loop())
-            asyncio.create_task(self.request_tx(sync_node))
+            # asyncio.create_task(self.request_tx(sync_node))
         else:
             log.error("couldn't connect to peers")
 

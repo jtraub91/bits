@@ -14,9 +14,7 @@ Double SHA256 of the serialization of:
 10. sighash type of the signature (4-byte little endian)
 """
 import hashlib
-from typing import List
-from typing import Optional
-from typing import Union
+from typing import List, Optional, Union
 
 
 def witness_message(
