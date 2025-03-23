@@ -7,7 +7,6 @@ import os
 import secrets
 import signal
 import sys
-import time
 from datetime import datetime, timezone
 from getpass import getpass
 
@@ -895,7 +894,7 @@ Examples:
 
     satoshi_parser = sub_parser.add_parser(
         "satoshi",
-        help="get info on satoshis",
+        help="get info on satoshis, per ordinal theory",
         formatter_class=RawDescriptionDefaultsHelpFormatter,
         description="""
         Get info on satoshi (see ordinal theory)
@@ -936,11 +935,6 @@ Examples:
         "--third",
         type=int,
         help="third, the 4th integer per degree notation, i.e. index of sat in block",
-    )
-    satoshi_parser.add_argument(
-        "--utc",
-        action="store_true",
-        help="output satoshi timestamp in UTC (instead of local time)",
     )
     add_common_arguments(satoshi_parser)
 
@@ -1418,24 +1412,16 @@ def main():
         if sat_block <= chain_info["height"]:
             block_index_data = node.db.get_block(blockheight=sat_block)
             n_time = block_index_data["nTime"]
-            strf_format = (
-                "%Y-%m-%d %H:%M:%S %Z"
-                if args.utc
-                else f"%Y-%m-%d %H:%M:%S {time.tzname[time.daylight]}"
+            strf_format = "%Y-%m-%d %H:%M:%S %Z"
+            timestamp = datetime.fromtimestamp(n_time, tz=timezone.utc).strftime(
+                strf_format
             )
-            timestamp = datetime.fromtimestamp(
-                n_time, tz=timezone.utc if args.utc else None
-            ).strftime(strf_format)
         else:
             best_time = chain_info["time"]
             n_time_expected = best_time + (sat_block - chain_info["height"]) * 60 * 10
-            strf_format = (
-                "%Y-%m-%d %H:%M:%S %Z (expected)"
-                if args.utc
-                else f"%Y-%m-%d %H:%M:%S {time.tzname[time.daylight]} (expected)"
-            )
+            strf_format = "%Y-%m-%d %H:%M:%S %Z (expected)"
             timestamp = datetime.fromtimestamp(
-                n_time_expected, tz=timezone.utc if args.utc else None
+                n_time_expected, tz=timezone.utc
             ).strftime(strf_format)
         print(
             json.dumps(

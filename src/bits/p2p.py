@@ -1756,7 +1756,6 @@ class Node:
                 ),
                 network=self.network,
             ),
-            "blocks": self.count_blocks(),
             "size": self.get_size(),
             "height": blockheight,
             "blockheaderhash": block_index_data["blockheaderhash"],

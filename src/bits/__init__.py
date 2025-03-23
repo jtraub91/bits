@@ -11,7 +11,6 @@ import bits.base58
 import bits.crypto
 import bits.ecmath
 import bits.keys
-import bits.script.constants
 from bits.bips import bip173
 from bits.bips.bip350 import BECH32M_CONST
 
@@ -167,6 +166,9 @@ def witness_script_hash(witness_script: bytes) -> bytes:
 def compact_size_uint(integer: int) -> bytes:
     """
     https://developer.bitcoin.org/reference/transactions.html#compactsize-unsigned-integers
+
+    >>> compact_size_uint(420).hex()
+    'fda401'
     """
     if integer < 0:
         raise ValueError("signed integer")

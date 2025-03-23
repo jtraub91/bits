@@ -1,7 +1,7 @@
 """
 https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki#example
 """
-import bits.bips.bip143 as bip143
+import bits.crypto
 import bits.keys
 import bits.ecmath
 import bits.script
@@ -11,6 +11,7 @@ from bits.tx import Tx
 
 
 def test_p2wpkh():
+    # https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki#native-p2wpkh
     unsigned_tx = Tx(
         bytes.fromhex(
             "0100000002fff7f7881a8099afa6940d42d1e7f6362bec38171ea3edf433541db4e4ad969f0000000000eeffffffef51e1b804cc89d182d279655c3aa89e815b1b309fe287d9b2b55d57b90ec68a0100000000ffffffff02202cb206000000001976a9148280b37df378db99f66f85c95a783a76ac7a6d5988ac9093510d000000001976a9143bde42dbee7e4dbe6a21b2d50ce2f0167faa815988ac11000000"
@@ -27,19 +28,6 @@ def test_p2wpkh():
         private key  : 619c335025c7f4012e556c2a58b2506e30b8511b53ade95ea316fd8c3286feb9
         public key   : 025476c2e83188368da1ff3e292e7acafcdb3566bb0ad253f62fc70f07aeee6357
     """
-
-    txins = [
-        bits.tx.txin(
-            bits.tx.outpoint(bytes.fromhex(txin_["txid"]), txin_["vout"]),
-            b"",
-            sequence=txin_["sequence"].to_bytes(4, "little"),
-        )
-        for txin_ in unsigned_tx["txins"]
-    ]
-    txouts = [
-        bits.tx.txout(txout_["value"], bytes.fromhex(txout_["scriptpubkey"]))
-        for txout_ in unsigned_tx["txouts"]
-    ]
 
     input_2_scriptpubkey = bytes.fromhex(
         "00"  # witness version
@@ -60,64 +48,47 @@ def test_p2wpkh():
             ).hex()
         ]
     )
-    msg = bip143.witness_message(
-        txins,
+    preimage = bits.script.v0_witness_preimage(
+        unsigned_tx,
         1,
-        int(6e8),
+        int(6 * constants.COIN),
         scriptcode,
-        txouts,
-        version=unsigned_tx["version"],
-        locktime=unsigned_tx["locktime"],
-        sighash_flag=constants.SIGHASH_ALL,
+        constants.SIGHASH_ALL,
     )
 
-    expected_hash_preimage = bytes.fromhex(
+    expected_preimage = bytes.fromhex(
         "0100000096b827c8483d4e9b96712b6713a7b68d6e8003a781feba36c31143470b4efd3752b0a642eea2fb7ae638c36f6252b6750293dbe574a806984b8e4d8548339a3bef51e1b804cc89d182d279655c3aa89e815b1b309fe287d9b2b55d57b90ec68a010000001976a9141d0f172a0ecb48aee1be1f2687d2963ae33f71a188ac0046c32300000000ffffffff863ef3e1a92afbfdb97f31ad0fc7683ee943e9abcf2501590ff8f6551f47e5e51100000001000000"
     )
-    assert msg.hex() == expected_hash_preimage.hex(), "hash preimage mismatch"
+    assert preimage.hex() == expected_preimage.hex(), "preimage mismatch"
 
-    sighash = bip143.witness_digest(msg)
+    sighash = bits.crypto.hash256(preimage)
     expected_sighash = bytes.fromhex(
         "c37af31116d1b27caf68aae9e3ac82f1477929014d5b917657d0eb49478cb670"
     )
     assert sighash.hex() == expected_sighash.hex(), "sighash data mismatch"
 
-    input_2_private_key = bytes.fromhex(
-        "619c335025c7f4012e556c2a58b2506e30b8511b53ade95ea316fd8c3286feb9"
-    )
-
-    witness_signature = bits.script.sig(input_2_private_key, msg, msg_preimage=True)
-
+    # sign for tx input 0 P2PK
     input_1_scriptpubkey = bytes.fromhex(
         "2103c9f4836b9a4f77fc0d81f7bcb01b7f1b35916864b9476c241ce9fc198bd25432ac"
-    )
-    txins = [
-        bits.tx.txin(
-            bits.tx.outpoint(
-                bytes.fromhex(unsigned_tx["txins"][0]["txid"]),
-                unsigned_tx["txins"][0]["vout"],
-            ),
-            input_1_scriptpubkey,
-            sequence=unsigned_tx["txins"][0]["sequence"].to_bytes(4, "little"),
-        ),
-        bits.tx.txin(
-            bits.tx.outpoint(
-                bytes.fromhex(unsigned_tx["txins"][1]["txid"]),
-                unsigned_tx["txins"][1]["vout"],
-            ),
-            b"",
-            sequence=unsigned_tx["txins"][1]["sequence"].to_bytes(4, "little"),
-        ),
-    ]
-    tx_ = bits.tx.tx(
-        txins,
-        txouts,
-        version=unsigned_tx["version"],
-        locktime=unsigned_tx["locktime"],
     )
     input_1_private_key = bytes.fromhex(
         "bbc27228ddcb9209d7fd6f36b02f7dfa6252af40bb2f1cbc7a557da8027ff866"
     )
+    txins = [
+        bits.tx.txin(
+            unsigned_tx["txins"][0]["outpoint"],
+            input_1_scriptpubkey,  # re-serialize with outpoint's scriptpubkey as scriptsig
+            sequence=unsigned_tx["txins"][0]["sequence"].to_bytes(4, "little"),
+        ),
+        unsigned_tx["txins"][1],
+    ]
+    tx_ = bits.tx.tx(
+        txins,
+        unsigned_tx["txouts"],
+        version=unsigned_tx["version"],
+        locktime=unsigned_tx["locktime"],
+    )
+
     input_1_signature = bits.script.sig(
         input_1_private_key,
         tx_,
@@ -126,22 +97,21 @@ def test_p2wpkh():
     input_1_scriptsig = bits.script.p2pk_script_sig(input_1_signature)
     txins = [
         bits.tx.txin(
-            bits.tx.outpoint(
-                bytes.fromhex(unsigned_tx["txins"][0]["txid"]),
-                unsigned_tx["txins"][0]["vout"],
-            ),
-            input_1_scriptsig,
+            unsigned_tx["txins"][0]["outpoint"],
+            input_1_scriptsig,  # re-serialize now with scriptsig
             sequence=unsigned_tx["txins"][0]["sequence"].to_bytes(4, "little"),
         ),
-        bits.tx.txin(
-            bits.tx.outpoint(
-                bytes.fromhex(unsigned_tx["txins"][1]["txid"]),
-                unsigned_tx["txins"][1]["vout"],
-            ),
-            b"",
-            sequence=unsigned_tx["txins"][1]["sequence"].to_bytes(4, "little"),
-        ),
+        unsigned_tx["txins"][1],
     ]
+
+    # sign for tx input 1 P2WPKH
+    input_2_private_key = bytes.fromhex(
+        "619c335025c7f4012e556c2a58b2506e30b8511b53ade95ea316fd8c3286feb9"
+    )
+    witness_signature = bits.script.sig(
+        input_2_private_key, preimage, msg_preimage=True
+    )
+
     input_2_pubkey = bytes.fromhex(
         "025476c2e83188368da1ff3e292e7acafcdb3566bb0ad253f62fc70f07aeee6357"
     )
@@ -152,9 +122,9 @@ def test_p2wpkh():
         ],
         witness=True,
     )
-    tx_ = bits.tx.tx(
+    signed_tx = bits.tx.tx(
         txins,
-        txouts,
+        unsigned_tx["txouts"],
         version=unsigned_tx["version"],
         locktime=unsigned_tx["locktime"],
         script_witnesses=[
@@ -189,16 +159,17 @@ def test_p2wpkh():
         + "11000000"
     )
     assert (
-        tx_.hex() == expected_signed_transaction.hex()
+        signed_tx.hex() == expected_signed_transaction.hex()
     ), "tx does not match expected signed transaction"
 
 
 def test_p2sh_p2wpkh():
-    unsigned_transaction = bytes.fromhex(
-        "0100000001db6b1b20aa0fd7b23880be2ecbd4a98130974cf4748fb66092ac4d3ceb1a54770100000000feffffff02b8b4eb0b000000001976a914a457b684d7f0d539a46a45bbc043f35b59d0d96388ac0008af2f000000001976a914fd270b1ee6abcaea97fea7ad0402e8bd8ad6d77c88ac92040000"
+    # https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki#p2sh-p2wpkh
+    unsigned_tx = Tx(
+        bytes.fromhex(
+            "0100000001db6b1b20aa0fd7b23880be2ecbd4a98130974cf4748fb66092ac4d3ceb1a54770100000000feffffff02b8b4eb0b000000001976a914a457b684d7f0d539a46a45bbc043f35b59d0d96388ac0008af2f000000001976a914fd270b1ee6abcaea97fea7ad0402e8bd8ad6d77c88ac92040000"
+        )
     )
-    deserialized_tx, _ = bits.tx.tx_deser(unsigned_transaction)
-
     """
     The input comes from a P2SH-P2WPKH witness program:
         scriptPubKey : a9144733f37cf4db86fbc2efed2500b4f4e49f31202387, value: 10
@@ -206,24 +177,22 @@ def test_p2sh_p2wpkh():
         private key  : eb696a065ef48a2192da5b28b694f87544b30fae8327c4510137a922f32c6dcf
         public key   : 03ad1d8e89212f0b92c74d23bb710c00662ad1470198ac48c43f7d6f93a2a26873
     """
-    outpoint_index = 0
-    outpoint_value = int(10e8)
-    outpoint_scriptpubkey = bytes.fromhex(
-        "a9144733f37cf4db86fbc2efed2500b4f4e49f31202387"
-    )
-    outpoint_redeem_script = bytes.fromhex(
+    txin_index = 0
+    txin_value = int(10e8)
+    txin_scriptpubkey = bytes.fromhex("a9144733f37cf4db86fbc2efed2500b4f4e49f31202387")
+    txin_redeem_script = bytes.fromhex(
         "00"  # witness v0
         + "14"  # length of witness program = 20 => p2wpkh
         + "79091972186c449eb1ded22b78e40d009bdf0089"
     )
-    outpoint_witness_program = outpoint_redeem_script[2:]
+    txin_witness_program = txin_redeem_script[2:]
     scriptcode = bits.script.script(
         [
             bits.script.script(
                 [
                     "OP_DUP",
                     "OP_HASH160",
-                    outpoint_witness_program.hex(),
+                    txin_witness_program.hex(),
                     "OP_EQUALVERIFY",
                     "OP_CHECKSIG",
                 ]
@@ -231,58 +200,56 @@ def test_p2sh_p2wpkh():
         ]
     )
 
-    outpoint_pubkey = bytes.fromhex(
+    txin_pubkey = bytes.fromhex(
         "03ad1d8e89212f0b92c74d23bb710c00662ad1470198ac48c43f7d6f93a2a26873"
     )
 
     txins = [
         bits.tx.txin(
-            bits.tx.outpoint(bytes.fromhex(ti["txid"]), ti["vout"]),
-            bits.script.script(
-                [outpoint_redeem_script.hex()]
-            ),  # ignored in bits.bips.bip143.witness_message
-            sequence=ti["sequence"].to_bytes(4, "little"),
+            unsigned_tx["txins"][txin_index]["outpoint"],
+            bits.script.script([txin_redeem_script.hex()]),
+            sequence=unsigned_tx["txins"][txin_index]["sequence"].to_bytes(4, "little"),
         )
-        for ti in deserialized_tx["txins"]
     ]
-    txouts = [
-        bits.tx.txout(to["value"], bytes.fromhex(to["scriptpubkey"]))
-        for to in deserialized_tx["txouts"]
-    ]
-    msg = bip143.witness_message(
-        txins,
-        outpoint_index,
-        outpoint_value,
-        scriptcode,
-        txouts,
-        version=deserialized_tx["version"],
-        locktime=deserialized_tx["locktime"],
-        sighash_flag=constants.SIGHASH_ALL,
+    tx_ = Tx(
+        bits.tx.tx(
+            txins,
+            unsigned_tx["txouts"],
+            version=unsigned_tx["version"],
+            locktime=unsigned_tx["locktime"],
+        )
     )
-    expected_hash_preimage = bytes.fromhex(
+    preimage = bits.script.v0_witness_preimage(
+        tx_,
+        txin_index,
+        txin_value,
+        scriptcode,
+        constants.SIGHASH_ALL,
+    )
+    expected_preimage = bytes.fromhex(
         "01000000b0287b4a252ac05af83d2dcef00ba313af78a3e9c329afa216eb3aa2a7b4613a18606b350cd8bf565266bc352f0caddcf01e8fa789dd8a15386327cf8cabe198db6b1b20aa0fd7b23880be2ecbd4a98130974cf4748fb66092ac4d3ceb1a5477010000001976a91479091972186c449eb1ded22b78e40d009bdf008988ac00ca9a3b00000000feffffffde984f44532e2173ca0d64314fcefe6d30da6f8cf27bafa706da61df8a226c839204000001000000"
     )
     assert (
-        msg.hex() == expected_hash_preimage.hex()
+        preimage.hex() == expected_preimage.hex()
     ), "mismatch for expected hash preimage"
 
-    digest = bip143.witness_digest(msg)
+    sighash = bits.crypto.hash256(preimage)
     expected_sighash = bytes.fromhex(
         "64f3b0f4dd2bb3aa1ce8566d220cc74dda9df97d8490cc81d89d735c92e59fb6"
     )
-    assert digest.hex() == expected_sighash.hex(), "mismatch for expected sighash"
+    assert sighash.hex() == expected_sighash.hex(), "mismatch for expected sighash"
 
     private_key = bytes.fromhex(
         "eb696a065ef48a2192da5b28b694f87544b30fae8327c4510137a922f32c6dcf"
     )
-    signature = bits.script.sig(private_key, msg, msg_preimage=True)
+    signature = bits.script.sig(private_key, preimage, msg_preimage=True)
     signed_tx = bits.tx.tx(
         txins,
-        txouts,
-        version=deserialized_tx["version"],
-        locktime=deserialized_tx["locktime"],
+        unsigned_tx["txouts"],
+        version=unsigned_tx["version"],
+        locktime=unsigned_tx["locktime"],
         script_witnesses=[
-            bits.script.script([signature.hex(), outpoint_pubkey.hex()], witness=True)
+            bits.script.script([signature.hex(), txin_pubkey.hex()], witness=True)
         ],
     )
     expected_signed_transaction = bytes.fromhex(
@@ -311,10 +278,12 @@ def test_p2sh_p2wpkh():
 
 
 def test_p2wsh_1():
-    unsigned_transaction = bytes.fromhex(
-        "0100000002fe3dc9208094f3ffd12645477b3dc56f60ec4fa8e6f5d67c565d1c6b9216b36e0000000000ffffffff0815cf020f013ed6cf91d29f4202e8a58726b1ac6c79da47c23d1bee0a6925f80000000000ffffffff0100f2052a010000001976a914a30741f8145e5acadf23f751864167f32e0963f788ac00000000"
+    # https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki#native-p2wsh
+    unsigned_tx = Tx(
+        bytes.fromhex(
+            "0100000002fe3dc9208094f3ffd12645477b3dc56f60ec4fa8e6f5d67c565d1c6b9216b36e0000000000ffffffff0815cf020f013ed6cf91d29f4202e8a58726b1ac6c79da47c23d1bee0a6925f80000000000ffffffff0100f2052a010000001976a914a30741f8145e5acadf23f751864167f32e0963f788ac00000000"
+        )
     )
-    deserialized_tx, _ = bits.tx.tx_deser(unsigned_transaction)
 
     """
     The first input comes from an ordinary P2PK:
@@ -331,7 +300,7 @@ def test_p2wsh_1():
     input_0_scriptpubkey = bytes.fromhex(
         "21036d5c20fa14fb2f635474c1dc4ef5909d4568e5569b79fc94d3448486e14685f8ac"
     )
-    input_0_value = int(1.5625e8)
+    input_0_value = int(1.5625 * constants.COIN)
     input_0_private_key = bytes.fromhex(
         "b8f28a772fccbf9b4f58a4f027e07dc2e35e7cd80529975e292ea34f84c4580c"
     )
@@ -339,19 +308,19 @@ def test_p2wsh_1():
         "304402200af4e47c9b9629dbecc21f73af989bdaa911f7e6f6c2e9394588a3aa68f81e9902204f3fcf6ade7e5abb1295b6774c8e0abd94ae62217367096bc02ee5e435b67da201"
     )
 
-    outpoint_index = 1
-    outpoint_value = int(49e8)
-    outpoint_scriptpubkey = bytes.fromhex(
+    # second input, P2WSH, the one we are signing for
+    txin_index = 1
+    txin_value = int(49 * constants.COIN)
+    txin_scriptpubkey = bytes.fromhex(
         "00"  # witness v0
         + "20"  # length of witness program = 32 => p2wsh
         + "5d1b56b63d714eebe542309525f484b7e9d6f686b3781b6f61ef925d66d6f6a0"
     )
-    outpoint_witness_program = outpoint_scriptpubkey[2:]
-    outpoint_witness_script = bytes.fromhex(
+    txin_witness_script = bytes.fromhex(
         "21026dccc749adc2a9d0d89497ac511f760f45c47dc5ed9cf352a58ac706453880aeadab210255a9626aebf5e29c0e6538428ba0d1dcf6ca98ffdf086aa8ced5e0d0215ea465ac"
     )
-    scriptcode = bits.script.script([outpoint_witness_script.hex()])
-    decoded_witness_script = bits.script.decode_script(outpoint_witness_script)
+    scriptcode = bits.script.script([txin_witness_script.hex()])
+    decoded_witness_script = bits.script.decode_script(txin_witness_script)
     # decoded_witness_script = [
     #    "026dccc749adc2a9d0d89497ac511f760f45c47dc5ed9cf352a58ac706453880ae",
     #    "OP_CHECKSIGVERIFY",
@@ -361,82 +330,73 @@ def test_p2wsh_1():
     # ]
     txins = [
         bits.tx.txin(
-            bits.tx.outpoint(
-                bytes.fromhex(deserialized_tx["txins"][0]["txid"]),
-                deserialized_tx["txins"][0]["vout"],
-            ),
+            unsigned_tx["txins"][0]["outpoint"],
             bits.script.script([input_0_sig.hex()]),
-            sequence=deserialized_tx["txins"][0]["sequence"].to_bytes(4, "little"),
+            sequence=unsigned_tx["txins"][0]["sequence"].to_bytes(4, "little"),
         ),
         bits.tx.txin(
-            bits.tx.outpoint(
-                bytes.fromhex(deserialized_tx["txins"][1]["txid"]),
-                deserialized_tx["txins"][1]["vout"],
-            ),
+            unsigned_tx["txins"][1]["outpoint"],
             b"",
-            sequence=deserialized_tx["txins"][1]["sequence"].to_bytes(4, "little"),
+            sequence=unsigned_tx["txins"][1]["sequence"].to_bytes(4, "little"),
         ),
     ]
-    txouts = [
-        bits.tx.txout(to["value"], bytes.fromhex(to["scriptpubkey"]))
-        for to in deserialized_tx["txouts"]
-    ]
-    msg = bip143.witness_message(
-        txins,
-        outpoint_index,
-        outpoint_value,
-        scriptcode,
-        txouts,
-        version=deserialized_tx["version"],
-        locktime=deserialized_tx["locktime"],
-        sighash_flag=constants.SIGHASH_SINGLE,
+    tx_ = Tx(
+        bits.tx.tx(
+            txins,
+            unsigned_tx["txouts"],
+            version=unsigned_tx["version"],
+            locktime=unsigned_tx["locktime"],
+        )
     )
-    expected_hash_preimage = bytes.fromhex(
+    preimage = bits.script.v0_witness_preimage(
+        tx_,
+        txin_index,
+        txin_value,
+        scriptcode,
+        constants.SIGHASH_SINGLE,
+    )
+    expected_preimage = bytes.fromhex(
         "01000000ef546acf4a020de3898d1b8956176bb507e6211b5ed3619cd08b6ea7e2a09d4100000000000000000000000000000000000000000000000000000000000000000815cf020f013ed6cf91d29f4202e8a58726b1ac6c79da47c23d1bee0a6925f8000000004721026dccc749adc2a9d0d89497ac511f760f45c47dc5ed9cf352a58ac706453880aeadab210255a9626aebf5e29c0e6538428ba0d1dcf6ca98ffdf086aa8ced5e0d0215ea465ac0011102401000000ffffffff00000000000000000000000000000000000000000000000000000000000000000000000003000000"
     )
-    assert (
-        msg.hex() == expected_hash_preimage.hex()
-    ), "mismatch for expected hash preimage"
+    assert preimage.hex() == expected_preimage.hex(), "preimage mismatch"
 
+    sighash = bits.crypto.hash256(preimage)
     expected_sighash = bytes.fromhex(
         "82dde6e4f1e94d02c2b7ad03d2115d691f48d064e9d52f58194a6637e4194391"
     )
-    assert (
-        bip143.witness_digest(msg).hex() == expected_sighash.hex()
-    ), "mismatch for expected sighash"
+    assert sighash.hex() == expected_sighash.hex(), "mismatch for expected sighash"
 
     # 026dccc749adc2a9d0d89497ac511f760f45c47dc5ed9cf352a58ac706453880ae private key
     private_key_1 = bytes.fromhex(
         "8e02b539b1500aa7c81cf3fed177448a546f19d2be416c0c61ff28e577d8d0cd"
     )
-    signature_1 = bits.script.sig(private_key_1, msg, msg_preimage=True)
+    signature_1 = bits.script.sig(private_key_1, preimage, msg_preimage=True)
 
     decoded_witness_script = decoded_witness_script[
         decoded_witness_script.index("OP_CODESEPARATOR") + 1 :
     ]
-    outpoint_witness_script_prime = bits.script.script(decoded_witness_script)
-    scriptcode = bits.script.script([outpoint_witness_script_prime.hex()])
-    msg = bip143.witness_message(
-        txins,
-        outpoint_index,
-        outpoint_value,
+    txin_witness_script_prime = bits.script.script(decoded_witness_script)
+    scriptcode = bits.script.script([txin_witness_script_prime.hex()])
+    preimage = bits.script.v0_witness_preimage(
+        tx_,
+        txin_index,
+        txin_value,
         scriptcode,
-        txouts,
-        version=deserialized_tx["version"],
-        locktime=deserialized_tx["locktime"],
-        sighash_flag=constants.SIGHASH_SINGLE,
+        constants.SIGHASH_SINGLE,
     )
-    expected_hash_preimage = bytes.fromhex(
+    expected_preimage = bytes.fromhex(
         "01000000ef546acf4a020de3898d1b8956176bb507e6211b5ed3619cd08b6ea7e2a09d4100000000000000000000000000000000000000000000000000000000000000000815cf020f013ed6cf91d29f4202e8a58726b1ac6c79da47c23d1bee0a6925f80000000023210255a9626aebf5e29c0e6538428ba0d1dcf6ca98ffdf086aa8ced5e0d0215ea465ac0011102401000000ffffffff00000000000000000000000000000000000000000000000000000000000000000000000003000000"
     )
     assert (
-        msg.hex() == expected_hash_preimage.hex()
-    ), "mismatch for expected hash pre-image post-op-codeseparator"
+        preimage.hex() == expected_preimage.hex()
+    ), "mismatch for expected pre-image post-op-codeseparator"
+
+    sighash = bits.crypto.hash256(preimage)
     expected_sighash = bytes.fromhex(
         "fef7bd749cce710c5c052bd796df1af0d935e59cea63736268bcbe2d2134fc47"
     )
     assert (
-        bip143.witness_digest(msg).hex() == expected_sighash.hex()
+        sighash.hex() == expected_sighash.hex()
     ), "mismatch for expected sighash post-op-codeseparator"
 
     # 0255a9626aebf5e29c0e6538428ba0d1dcf6ca98ffdf086aa8ced5e0d0215ea465 private key
@@ -444,21 +404,27 @@ def test_p2wsh_1():
         "86bf2ed75935a0cbef03b89d72034bb4c189d381037a5ac121a70016db8896ec"
     )
     signature_2 = bits.script.sig(
-        private_key_2, msg, sighash_flag=constants.SIGHASH_SINGLE, msg_preimage=True
+        private_key_2,
+        preimage,
+        sighash_flag=constants.SIGHASH_SINGLE,
+        msg_preimage=True,
     )
-    tx_ = bits.tx.tx(
+    signed_tx = bits.tx.tx(
         txins,
-        txouts,
-        version=deserialized_tx["version"],
-        locktime=deserialized_tx["locktime"],
+        unsigned_tx["txouts"],
+        version=unsigned_tx["version"],
+        locktime=unsigned_tx["locktime"],
         script_witnesses=[
             bits.script.script([], witness=True),
             bits.script.script(
-                [signature_2.hex(), signature_1.hex(), outpoint_witness_script.hex()],
+                [signature_2.hex(), signature_1.hex(), txin_witness_script.hex()],
                 witness=True,
             ),
         ],
     )
+    # signed_tx differs slightly from expected in BIP since signatures are different
+    # i suppose this is because signatures are non-deterministic?
+    # so we insert the signatures we derived below
     expected_signed_tx = bytes.fromhex(
         "01000000"
         + "00"
@@ -487,15 +453,19 @@ def test_p2wsh_1():
         + "00000000"
     )
     assert (
-        tx_.hex() == expected_signed_tx.hex()
+        signed_tx.hex() == expected_signed_tx.hex()
     ), "mismatch for expected signed transaction"
 
 
 def test_p2wsh_2():
-    unsigned_tx = bytes.fromhex(
-        "0100000002e9b542c5176808107ff1df906f46bb1f2583b16112b95ee5380665ba7fcfc0010000000000ffffffff80e68831516392fcd100d186b3c2c7b95c80b53c77e77c35ba03a66b429a2a1b0000000000ffffffff0280969800000000001976a914de4b231626ef508c9a74a8517e6783c0546d6b2888ac80969800000000001976a9146648a8cd4531e1ec47f35916de8e259237294d1e88ac00000000"
+    # Second example from https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki#native-p2wsh
+    # "This example shows how unexecuted OP_CODESEPARATOR is processed, and SINGLE|ANYONECANPAY does not commit to the input index"
+    unsigned_tx = Tx(
+        bytes.fromhex(
+            "0100000002e9b542c5176808107ff1df906f46bb1f2583b16112b95ee5380665ba7fcfc0010000000000ffffffff80e68831516392fcd100d186b3c2c7b95c80b53c77e77c35ba03a66b429a2a1b0000000000ffffffff0280969800000000001976a914de4b231626ef508c9a74a8517e6783c0546d6b2888ac80969800000000001976a9146648a8cd4531e1ec47f35916de8e259237294d1e88ac00000000"
+        )
     )
-    deserialized_tx, _ = bits.tx.tx_deser(unsigned_tx)
+
     """
     The first input comes from a native P2WSH witness program:
         scriptPubKey: 0020ba468eea561b26301e4cf69fa34bde4ad60c81e70f059f045ca9a79931004a4d value: 0.16777215
@@ -508,18 +478,6 @@ def test_p2wsh_2():
                         1 IF CODESEPARATOR ENDIF <0392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98> CHECKSIG
     """
 
-    txins = [
-        bits.tx.txin(
-            bits.tx.outpoint(bytes.fromhex(ti["txid"]), ti["vout"]),
-            b"",
-            sequence=ti["sequence"].to_bytes(4, "little"),
-        )
-        for ti in deserialized_tx["txins"]
-    ]
-    txouts = [
-        bits.tx.txout(to["value"], bytes.fromhex(to["scriptpubkey"]))
-        for to in deserialized_tx["txouts"]
-    ]
     txin_0_witness_script = bytes.fromhex(
         "0063ab68210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98ac"
     )
@@ -531,30 +489,30 @@ def test_p2wsh_2():
     #  '0392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98',
     #  'OP_CHECKSIG']
     scriptcode = bits.script.script([txin_0_witness_script.hex()])
-    msg = bip143.witness_message(
-        txins,
+    preimage = bits.script.v0_witness_preimage(
+        unsigned_tx,
         0,
-        int(0.16777215e8),
+        int(0.16777215 * constants.COIN),
         scriptcode,
-        txouts,
-        sighash_flag=constants.SIGHASH_SINGLE | constants.SIGHASH_ANYONECANPAY,
+        constants.SIGHASH_SINGLE | constants.SIGHASH_ANYONECANPAY,
     )
-    expected_hash_preimage = bytes.fromhex(
+    expected_preimage = bytes.fromhex(
         "0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e9b542c5176808107ff1df906f46bb1f2583b16112b95ee5380665ba7fcfc00100000000270063ab68210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98acffffff0000000000ffffffffb258eaf08c39fbe9fbac97c15c7e7adeb8df142b0df6f83e017f349c2b6fe3d20000000083000000"
     )
     assert (
-        msg.hex() == expected_hash_preimage.hex()
-    ), "mismatch for expected hash pre-image - 1st txin"
+        preimage.hex() == expected_preimage.hex()
+    ), "mismatch for expected pre-image - 1st txin"
+    sighash = bits.crypto.hash256(preimage)
     expected_sighash = bytes.fromhex(
         "e9071e75e25b8a1e298a72f0d2e9f4f95a0f5cdf86a533cda597eb402ed13b3a"
     )
     assert (
-        bip143.witness_digest(msg).hex() == expected_sighash.hex()
+        sighash.hex() == expected_sighash.hex()
     ), "mismatch for expected sighash - 1st txin"
     txin_0_private_key = bytes.fromhex(
         "f52b3484edd96598e02a9c89c4492e9c1e2031f471c49fd721fe68b3ce37780d"
     )
-    signature_0 = bits.script.sig(txin_0_private_key, msg, msg_preimage=True)
+    signature_0 = bits.script.sig(txin_0_private_key, preimage, msg_preimage=True)
 
     decoded_txin_0_witness_script = decoded_txin_0_witness_script[
         decoded_txin_0_witness_script.index("OP_CODESEPARATOR") + 1 :
@@ -565,32 +523,42 @@ def test_p2wsh_2():
     txin_1_witness_script = bytes.fromhex(
         "5163ab68210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98ac"
     )
-    # scriptcode should actually come from txin1 witness script after codeseparator? 🤷‍♂️
-    # in this example actually makes no difference
-    msg = bip143.witness_message(
-        txins,
-        1,
-        int(0.16777215e8),
-        scriptcode,
-        txouts,
-        sighash_flag=constants.SIGHASH_SINGLE | constants.SIGHASH_ANYONECANPAY,
+    decoded_txin_1_witness_script = bits.script.decode_script(txin_1_witness_script)
+    decoded_txin_1_witness_script_prime = decoded_txin_1_witness_script[
+        decoded_txin_1_witness_script.index("OP_CODESEPARATOR") + 1 :
+    ]
+    scriptcode = bits.script.script(
+        [bits.script.script(decoded_txin_1_witness_script_prime).hex()]
     )
-    expected_hash_preimage = bytes.fromhex(
+    # should scriptcode come from txin1 witness script after codeseparator? 🤷‍♂️
+    # in this example actually makes no difference
+
+    preimage = bits.script.v0_witness_preimage(
+        unsigned_tx,
+        1,
+        int(0.16777215 * constants.COIN),
+        scriptcode,
+        constants.SIGHASH_SINGLE | constants.SIGHASH_ANYONECANPAY,
+    )
+    expected_preimage = bytes.fromhex(
         "010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080e68831516392fcd100d186b3c2c7b95c80b53c77e77c35ba03a66b429a2a1b000000002468210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98acffffff0000000000ffffffff91ea93dd77f702b738ebdbf3048940a98310e869a7bb8fa2c6cb3312916947ca0000000083000000"
     )
     assert (
-        msg.hex() == expected_hash_preimage.hex()
-    ), "mismatch for expected hash pre-image - 2nd txin"
+        preimage.hex() == expected_preimage.hex()
+    ), "mismatch for expected pre-image - 2nd txin"
     expected_sighash = bytes.fromhex(
         "cd72f1f1a433ee9df816857fad88d8ebd97e09a75cd481583eb841c330275e54"
     )
+    sighash = bits.crypto.hash256(preimage)
     assert (
-        bip143.witness_digest(msg).hex() == expected_sighash.hex()
+        sighash.hex() == expected_sighash.hex()
     ), "mismatch for expected sighash - 2nd txin"
-    signature_1 = bits.script.sig(txin_0_private_key, msg, msg_preimage=True)
+    signature_1 = bits.script.sig(
+        txin_0_private_key, preimage, msg_preimage=True
+    )  # uses same private key
     signed_tx = bits.tx.tx(
-        txins,
-        txouts,
+        unsigned_tx["txins"],
+        unsigned_tx["txouts"],
         script_witnesses=[
             bits.script.script(
                 [signature_0.hex(), txin_0_witness_script.hex()], witness=True
@@ -599,8 +567,8 @@ def test_p2wsh_2():
                 [signature_1.hex(), txin_1_witness_script.hex()], witness=True
             ),
         ],
-        version=deserialized_tx["version"],
-        locktime=deserialized_tx["locktime"],
+        version=unsigned_tx["version"],
+        locktime=unsigned_tx["locktime"],
     )
     expected_signed_tx = bytes.fromhex(
         "01000000"
@@ -639,11 +607,14 @@ def test_p2wsh_2():
 
 
 def test_p2sh_p2wsh():
+    # https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki#p2sh-p2wsh
     # 6 of 6 multisig
-    unsigned_tx = bytes.fromhex(
-        "010000000136641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e0100000000ffffffff0200e9a435000000001976a914389ffce9cd9ae88dcc0631e88a821ffdbe9bfe2688acc0832f05000000001976a9147480a33f950689af511e6e84c138dbbd3c3ee41588ac00000000"
+    unsigned_tx = Tx(
+        bytes.fromhex(
+            "010000000136641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e0100000000ffffffff0200e9a435000000001976a914389ffce9cd9ae88dcc0631e88a821ffdbe9bfe2688acc0832f05000000001976a9147480a33f950689af511e6e84c138dbbd3c3ee41588ac00000000"
+        )
     )
-    deserialized_tx, _ = bits.tx.tx_deser(unsigned_tx)
+
     """
     The input comes from a P2SH-P2WSH 6-of-6 multisig witness program:
         scriptPubKey : a9149993a429037b5d912407a71c252019287b8d27a587, value: 9.87654321
@@ -655,17 +626,18 @@ def test_p2sh_p2wsh():
     )
     txins = [
         bits.tx.txin(
-            bits.tx.outpoint(
-                bytes.fromhex(deserialized_tx["txins"][0]["txid"]),
-                deserialized_tx["txins"][0]["vout"],
-            ),
+            unsigned_tx["txins"][0]["outpoint"],
             bits.script.script([txin_0_redeem_script.hex()]),
         )
     ]
-    txouts = [
-        bits.tx.txout(to["value"], bytes.fromhex(to["scriptpubkey"]))
-        for to in deserialized_tx["txouts"]
-    ]
+    tx_ = Tx(
+        bits.tx.tx(
+            txins,
+            unsigned_tx["txouts"],
+            version=unsigned_tx["version"],
+            locktime=unsigned_tx["locktime"],
+        )
+    )
     txin_0_witness_script = bytes.fromhex(
         "56210307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba32103b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b21034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a21033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f42103a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac162102d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b56ae"
     )
@@ -758,30 +730,27 @@ def test_p2sh_p2wsh():
             ),
         ),
     ]:
-        msg = bip143.witness_message(
-            txins,
+        preimage = bits.script.v0_witness_preimage(
+            tx_,
             0,
-            int(9.87654321e8),
+            int(9.87654321 * constants.COIN),
             scriptcode,
-            txouts,
-            version=deserialized_tx["version"],
-            locktime=deserialized_tx["locktime"],
-            sighash_flag=sh_flag,
+            sh_flag,
         )
         assert (
-            msg.hex() == expected_preimage.hex()
+            preimage.hex() == expected_preimage.hex()
         ), f"mismatch for preimage - sighash flag {format(sh_flag, '02x')}"
         assert (
-            bip143.witness_digest(msg).hex() == expected_sighash.hex()
+            bits.crypto.hash256(preimage).hex() == expected_sighash.hex()
         ), f"mismatch for sighash - sighash flag {format(sh_flag, '02x')}"
         signature = bits.script.sig(
-            private_key, msg, sighash_flag=sh_flag, msg_preimage=True
+            private_key, preimage, sighash_flag=sh_flag, msg_preimage=True
         )
         signatures.append(signature)
 
     signed_tx = bits.tx.tx(
         txins,
-        txouts,
+        unsigned_tx["txouts"],
         script_witnesses=[
             bits.script.script(
                 ["OP_0"]
@@ -795,8 +764,8 @@ def test_p2sh_p2wsh():
             # regarding OP_PUSHDATA1
             # does that imply max data push is 0xff ?
         ],
-        version=deserialized_tx["version"],
-        locktime=deserialized_tx["locktime"],
+        version=unsigned_tx["version"],
+        locktime=unsigned_tx["locktime"],
     )
     expected_signed_tx = bytes.fromhex(
         "01000000"
@@ -824,10 +793,12 @@ def test_p2sh_p2wsh():
 
 
 def test_no_find_and_delete():
-    unsigned_tx = bytes.fromhex(
-        "010000000169c12106097dc2e0526493ef67f21269fe888ef05c7a3a5dacab38e1ac8387f14c1d000000ffffffff0101000000000000000000000000"
+    # https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki#no-findanddelete
+    unsigned_tx = Tx(
+        bytes.fromhex(
+            "010000000169c12106097dc2e0526493ef67f21269fe888ef05c7a3a5dacab38e1ac8387f14c1d000000ffffffff0101000000000000000000000000"
+        )
     )
-    deserialized_tx, _ = bits.tx.tx_deser(unsigned_tx)
 
     """
     The input comes from a P2WSH witness program:
@@ -835,14 +806,7 @@ def test_no_find_and_delete():
         redeemScript : OP_CHECKSIGVERIFY <0x30450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e01>
                         ad4830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e01
     """
-    txins = [
-        bits.tx.txin(bits.tx.outpoint(bytes.fromhex(ti["txid"]), ti["vout"]), b"")
-        for ti in deserialized_tx["txins"]
-    ]
-    txouts = [
-        bits.tx.txout(to["value"], bytes.fromhex(to["scriptpubkey"]))
-        for to in deserialized_tx["txouts"]
-    ]
+
     txin_0_redeem_script = bytes.fromhex(
         "ad4830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e01"
     )
@@ -850,25 +814,22 @@ def test_no_find_and_delete():
     signature = bytes.fromhex(decoded_txin_0_redeem_script[-1])
 
     scriptcode = bits.script.script([txin_0_redeem_script.hex()])
-    msg = bip143.witness_message(
-        txins,
+    preimage = bits.script.v0_witness_preimage(
+        unsigned_tx,
         0,
-        int(200000),
+        int(0.002 * constants.COIN),
         scriptcode,
-        txouts,
-        version=deserialized_tx["version"],
-        locktime=deserialized_tx["locktime"],
-        sighash_flag=constants.SIGHASH_ALL,
+        constants.SIGHASH_ALL,
     )
     expected_preimage = bytes.fromhex(
         "01000000b67c76d200c6ce72962d919dc107884b9d5d0e26f2aea7474b46a1904c53359f3bb13029ce7b1f559ef5e747fcac439f1455a2ec7c5f09b72290795e7066504469c12106097dc2e0526493ef67f21269fe888ef05c7a3a5dacab38e1ac8387f14c1d00004aad4830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e01400d030000000000ffffffffe5d196bfb21caca9dbd654cafb3b4dc0c4882c8927d2eb300d9539dd0b9342280000000001000000"
     )
-    assert msg.hex() == expected_preimage.hex(), "mismatch for pre-image"
+    assert preimage.hex() == expected_preimage.hex(), "mismatch for pre-image"
     expected_sighash = bytes.fromhex(
         "71c9cd9b2869b9c70b01b1f0360c148f42dee72297db312638df136f43311f23"
     )
     assert (
-        bip143.witness_digest(msg).hex() == expected_sighash.hex()
+        bits.crypto.hash256(preimage).hex() == expected_sighash.hex()
     ), "mismatch for sighash"
 
     # # pubkey recovery
@@ -879,20 +840,20 @@ def test_no_find_and_delete():
         "02a9781d66b61fb5a7ef00ac5ad5bc6ffc78be7b44a566e3c87870e1079368df4c"
     )
     assert bits.script.sig_verify(
-        signature, pubkey_, bip143.witness_digest(msg), msg_preimage=True
+        signature, pubkey_, bits.crypto.hash256(preimage), msg_preimage=True
     ), "signature verification for recovered pubkey failed"
 
     signed_tx = bits.tx.tx(
-        txins,
-        txouts,
+        unsigned_tx["txins"],
+        unsigned_tx["txouts"],
         script_witnesses=[
             bits.script.script(
                 [signature.hex(), pubkey_.hex(), txin_0_redeem_script.hex()],
                 witness=True,
             )
         ],
-        version=deserialized_tx["version"],
-        locktime=deserialized_tx["locktime"],
+        version=unsigned_tx["version"],
+        locktime=unsigned_tx["locktime"],
     )
     expected_signed_tx = bytes.fromhex(
         "0100000000010169c12106097dc2e0526493ef67f21269fe888ef05c7a3a5dacab38e1ac8387f14c1d000000ffffffff01010000000000000000034830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e012102a9781d66b61fb5a7ef00ac5ad5bc6ffc78be7b44a566e3c87870e1079368df4c4aad4830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e0100000000"

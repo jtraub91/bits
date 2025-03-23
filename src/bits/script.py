@@ -2,10 +2,12 @@ import typing
 from collections import deque
 
 import bits.base58
+import bits.constants
 import bits.crypto
 import bits.ecmath
 import bits.pem
-import bits.constants
+import bits.tx
+from bits.tx import Tx
 
 
 def scriptpubkey(data: bytes) -> bytes:
@@ -605,3 +607,83 @@ def sig_verify(
     except AssertionError as err:
         return err.args[0]
     return "OK"
+
+
+def v0_witness_preimage(
+    tx_: Tx, txin_index: int, txin_value: int, scriptcode: bytes, sighash_type: int
+) -> bytes:
+    """
+    Preimage for v0 witness signatures
+    per BIP 143,
+    https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki#specification
+
+    Double SHA256 of the serialization of:
+        1. nVersion of the transaction (4-byte little endian)
+        2. hashPrevouts (32-byte hash)
+        3. hashSequence (32-byte hash)
+        4. outpoint (32-byte hash + 4-byte little endian)
+        5. scriptCode of the input (serialized as scripts inside CTxOuts)
+        6. value of the output spent by this input (8-byte little endian)
+        7. nSequence of the input (4-byte little endian)
+        8. hashOutputs (32-byte hash)
+        9. nLocktime of the transaction (4-byte little endian)
+        10. sighash type of the signature (4-byte little endian)
+
+    Args:
+        tx_: Tx, transaction
+        txin_index: int, index of the tx input we are signing for
+        txin_value: int, value of the tx input we are signing for (i.e. corresponding to txin_index)
+        scriptcode: bytes, scriptcode of the tx input we are signing for (i.e. corresponding to txin_index)
+        sighash_type: int, sighash type
+    Returns:
+        bytes, hash of witness preimage
+    """
+    prev_outpoints = b""
+    prev_sequence = b""
+    for txin_ in tx_["txins"]:
+        prev_outpoints += txin_["outpoint"]
+        prev_sequence += txin_["sequence"].to_bytes(4, "little")
+
+    if sighash_type & bits.constants.SIGHASH_ANYONECANPAY:
+        hash_prevouts = b"\x00" * 32
+    else:
+        hash_prevouts = bits.crypto.hash256(prev_outpoints)
+
+    if (
+        sighash_type & bits.constants.SIGHASH_ANYONECANPAY
+        or (sighash_type & 0x1F) == bits.constants.SIGHASH_NONE
+        or (sighash_type & 0x1F) == bits.constants.SIGHASH_SINGLE
+    ):
+        hash_sequence = b"\x00" * 32
+    else:
+        hash_sequence = bits.crypto.hash256(prev_sequence)
+
+    outpoint = tx_["txins"][txin_index]["outpoint"]
+
+    hash_outputs = b""
+    if (sighash_type & 0x1F) != bits.constants.SIGHASH_SINGLE and (
+        sighash_type & 0x1F
+    ) != bits.constants.SIGHASH_NONE:
+        for txout_ in tx_["txouts"]:
+            hash_outputs += txout_
+            print(txout_.hex())
+        hash_outputs = bits.crypto.hash256(hash_outputs)
+    elif (sighash_type & 0x1F) == bits.constants.SIGHASH_SINGLE and txin_index < len(
+        tx_["txouts"]
+    ):
+        hash_outputs = bits.crypto.hash256(tx_["txouts"][txin_index])
+    else:
+        hash_outputs = b"\x00" * 32
+
+    return (
+        tx_["version"].to_bytes(4, "little")
+        + hash_prevouts
+        + hash_sequence
+        + outpoint
+        + scriptcode
+        + txin_value.to_bytes(8, "little")
+        + tx_["txins"][txin_index]["sequence"].to_bytes(4, "little")
+        + hash_outputs
+        + tx_["locktime"].to_bytes(4, "little")
+        + sighash_type.to_bytes(4, "little")
+    )
