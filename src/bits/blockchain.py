@@ -67,7 +67,7 @@ def target_threshold(nBits: bytes) -> int:
     Calculate target threshold from compact nBits
     # https://developer.bitcoin.org/reference/block_chain.html#target-nbits
     Args:
-        nBits: bytes, internal byte order
+        nBits: bytes, little endian byte order
     >>> target = target_threshold(bytes.fromhex("207fffff")[::-1])
     >>> hex(target)
     '0x7fffff0000000000000000000000000000000000000000000000000000000000'
@@ -194,7 +194,7 @@ def block_header(
     Args:
         version: int, block version
         prev_blockheaderhash: str, hash of previous block header (rpc byte order)
-        merkle_root_hash: str, merkle root hash (rpc byte order)
+        merkle_root_hash: str, merkle root hash (big endian byte order)
         ntime: int, Unix epoch time
         nBits: str, nBits encoding of target threshold (rpc byte order)
         nNonce: int, arbitrary number
@@ -222,7 +222,7 @@ def merkle_root(txns: List[bytes]) -> bytes:
     https://developer.bitcoin.org/reference/block_chain.html#merkle-trees
 
     Args:
-        txns: list[bytes], list of txids in internal byte order
+        txns: list[bytes], list of txids in little endian byte order
 
     >>> # genesis block 0
     >>> txn_ids = ["4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"]
@@ -389,7 +389,7 @@ def block_header_deser(blk_hdr: bytes) -> dict:
     }
 
 
-def block_deser(block: bytes) -> dict:
+def block_deser(block: bytes, json_serializable: bool = False) -> dict:
     """
     Deserialize block data
 
@@ -399,16 +399,21 @@ def block_deser(block: bytes) -> dict:
 
     Args:
         block: bytes, block data
+        json_serializable: bool, set True to return txin and txouts as dicts instead of TxIn and TxOut objects, respectively
     Returns:
         dict, block dictionary
     """
     header = block[:80]
     number_of_txns, block_prime = bits.parse_compact_size_uint(block[80:])
     txns = []
-    coinbase_tx_deser, block_prime = bits.tx.tx_deser(block_prime)
+    coinbase_tx_deser, block_prime = bits.tx.tx_deser(
+        block_prime, json_serializable=json_serializable
+    )
     txns.append(coinbase_tx_deser)
     while block_prime:
-        deserialized_tx, block_prime = bits.tx.tx_deser(block_prime)
+        deserialized_tx, block_prime = bits.tx.tx_deser(
+            block_prime, json_serializable=json_serializable
+        )
         txns.append(deserialized_tx)
     assert (
         len(txns) == number_of_txns
@@ -565,12 +570,3 @@ def median_time(times: List[int]) -> Union[int | None]:
     else:
         median = (times[len(times) // 2 - 1] + times[len(times) // 2]) // 2
     return median
-
-
-def block_reward(blockheight: int) -> int:
-    """
-    get the block reward for a given blockheight
-    """
-    reward = 50 * bits.constants.COIN
-    reward >>= int(blockheight / 210000)
-    return reward

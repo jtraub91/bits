@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "bits"
 version = "0.2.2"
 authors = [{name = "Jason Traub", email = "jtraub91@gmail.com"}]
-description = "bits is a cli tool and pure Python library for Bitcoin"
+description = "bits is a pure Python implementation of Bitcoin"
 readme="README.md"
 requires-python = ">=3.7"
 classifiers = [

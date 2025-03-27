@@ -161,11 +161,12 @@ def tx_ser(tx_: dict) -> bytes:
     )
 
 
-def tx_deser(tx_: bytes) -> Tuple[dict, bytes]:
+def tx_deser(tx_: bytes, json_serializable: bool = False) -> Tuple[dict, bytes]:
     """
     Deserialize tx data
     Args:
         tx_: bytes, tx data
+        json_serializable: bool, set True to return txin and txouts as dicts instead of TxIn and TxOut objects, respectively
     Returns:
         tuple[dict, bytes], deserialized tx, leftover bytes
     """
@@ -182,6 +183,8 @@ def tx_deser(tx_: bytes) -> Tuple[dict, bytes]:
     txins = []
     for _ in range(number_of_inputs):
         txin_, tx_prime = TxIn.from_bytestream(tx_prime)
+        if json_serializable:
+            txin_ = txin_.dict()
         txins.append(txin_)
     deserialized_tx["txins"] = txins
 
@@ -189,6 +192,8 @@ def tx_deser(tx_: bytes) -> Tuple[dict, bytes]:
     txouts = []
     for _ in range(number_of_outputs):
         txout_, tx_prime = TxOut.from_bytestream(tx_prime)
+        if json_serializable:
+            txout_ = txout_.dict()
         txouts.append(txout_)
     deserialized_tx["txouts"] = txouts
 
@@ -216,15 +221,18 @@ def coinbase_txin(
     block_height: Optional[int] = None,
 ) -> bytes:
     """
-    Create coinbase txin
+    Create coinbase txin with
+        BIP34 blockheight prepended to coinbase script as minimally encoded serialized CScript,
+        if blockheight is specified
     Args:
         coinbase_script: bytes, arbitrary data not exceeding 100 bytes
-        block_height: bytes, block height of this block in script language
-            (now required per BIP34)
+        sequence: bytes, sequence (little endian byte order)
+        block_height: Optional[bytes], block height of this block
     """
     if block_height is not None:
         # "minimally encoded serialized CScript"
         if block_height <= 16:
+            # TODO: wtf is this about?
             op = getattr(bits.constants, f"OP_{block_height}")
             coinbase_script = op.to_bytes(1, "big") + coinbase_script
         else:

@@ -4,6 +4,8 @@ network="mainnet"
 datadir=""
 seeds=[]
 
+miner_wallet_address=""
+
 bind="0.0.0.0:10101"
 max_outgoing_peers=10
 max_incoming_peers=25

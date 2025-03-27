@@ -11,6 +11,7 @@ import json
 import logging
 import logging.handlers
 import os
+import random
 import sqlite3
 import time
 import traceback
@@ -22,6 +23,7 @@ from ipaddress import ip_address
 from threading import Thread, Lock
 from typing import List, Optional, Tuple, Union
 
+import bits
 import bits.blockchain
 import bits.crypto
 import bits.ordinals
@@ -204,6 +206,9 @@ def version_payload(
     relay: bool = True,
     user_agent: bytes = BITS_USER_AGENT,
 ) -> bytes:
+    """
+    https://developer.bitcoin.org/reference/p2p_networking.html#version
+    """
     timestamp = int(time.time())
     addr_recv_services = 0x00
     addr_recv_ip_addr = "::ffff:127.0.0.1"
@@ -501,6 +506,9 @@ class Peer:
         self._pending_getdata_requests = deque([])
         self._pending_getblocks_request = None
         self._pending_getheaders_request = None
+        self._pending_ping_requests: List[dict] = []  # [{nonce, time}]
+
+        self.type: str = None  # incoming or outgoing
 
         self.exit_event = Event()
 
@@ -585,12 +593,15 @@ class Node:
         services: int = NODE_NETWORK,
         relay: bool = True,
         user_agent: bytes = BITS_USER_AGENT,
-        max_outgoing_peers: int = 2,
+        max_incoming_peers: int = 3,
+        max_outgoing_peers: int = 3,
         connection_timeout: int = 5,
         download_headers: bool = True,
         download_blocks: bool = True,
         index_ordinals: bool = False,
         assumevalid: int = 0,
+        miner_wallet_address: str = "",
+        bind: str = "",
     ):
         """
         bits P2P node
@@ -604,10 +615,18 @@ class Node:
             relay: bool
             user_agent: bytes
         """
+        if bind:
+            addr, port = bind.split(":")
+            port = int(port)
+            self._bind = (addr, port)
+        else:
+            self._bind = None
+        self._miner_wallet_address = miner_wallet_address
         self._assumevalid = assumevalid
         self._index_ordinals = index_ordinals
         self.download_headers = download_headers
         self.download_blocks = download_blocks
+        self.max_incoming_peers = max_incoming_peers
         self.max_outgoing_peers = max_outgoing_peers
         self.connection_timeout = connection_timeout
         self.seeds = seeds
@@ -619,6 +638,9 @@ class Node:
         if not os.path.exists(blocksdir):
             os.mkdir(blocksdir)
         self.blocksdir = blocksdir
+        self.requests_dir = os.path.join(self.datadir, "requests")
+        if not os.path.exists(self.requests_dir):
+            os.mkdir(self.requests_dir)
         self.protocol_version = protocol_version
         self.services = services
         self.relay = relay
@@ -675,7 +697,7 @@ class Node:
                     genesis_coinbase_tx["txid"],
                     0,
                     1,
-                    [(0, bits.blockchain.block_reward(0) - 1)],
+                    [(0, bits.block_reward(0) - 1)],
                     index_ordinals=self._index_ordinals,
                 )
 
@@ -694,8 +716,12 @@ class Node:
         self.peers: list[Peer] = []
 
         self.exit_event = Event()
+        self.peer_inactivity_timeout = 5400  # 90 minutes
 
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=5)
+
+    def get_mempool_txns(self):
+        return [tx_.hex() for tx_ in self._mempool]
 
     ### handlers ###
     def handle_feefilter_command(self, peer: Peer, command: bytes, payload: bytes):
@@ -839,6 +865,22 @@ class Node:
         log.warning(f"no action taken for getheader command with payload {payload}")
         # await peer.send_command(b"headers")
 
+    def handle_pong_command(self, peer: Peer, command: bytes, payload: bytes):
+        ping_payload = parse_ping_payload(payload)
+        pending_ping_req = [
+            req
+            for req in peer._pending_ping_requests
+            if req["nonce"] == ping_payload["nonce"]
+        ]
+        if pending_ping_req:
+            pending_ping_req = pending_ping_req[0]
+            peer._pending_ping_requests.remove(pending_ping_req)
+            log.info(
+                f"{peer} responded to ping in {time.time() - pending_ping_req['time']} seconds"
+            )
+        else:
+            log.warning(f"{peer} sent pong without matching ping request")
+
     async def handle_ping_command(self, peer: Peer, command: bytes, payload: bytes):
         """
         Handle ping command by sending a 'pong' message
@@ -859,7 +901,10 @@ class Node:
         if timeout is None:
             timeout = self.connection_timeout
         for peer in peers:
-            if len(self.peers) >= self.max_outgoing_peers:
+            if (
+                len([peer for peer in self.peers if peer.type == "outgoing"])
+                >= self.max_outgoing_peers
+            ):
                 log.warning(
                     f"connect_peers loop exit. max_outgoing_peers already reached"
                 )
@@ -917,10 +962,8 @@ class Node:
                     f"UPDATE peer SET protocol_version={version_data['protocol_version']}, services={version_data['services']}, user_agent='{version_data['user_agent']}', start_height='{version_data['start_height']}' WHERE id={peer._id};"
                 )
                 self.db._conn.commit()
-                log.info(f"version data for {peer} saved to db")
-                cursor.execute(f"UPDATE peer SET is_connected=1 WHERE id={peer._id};")
-                self.db._conn.commit()
                 cursor.close()
+                log.info(f"version data for {peer} saved to db")
                 self.peers.append(peer)
                 connected_peers.append(peer)
                 asyncio.create_task(self.outgoing_peer_recv_loop(peer))
@@ -940,7 +983,7 @@ class Node:
         trans_sock = peer.writer.transport.get_extra_info("socket")
         local_host, local_port = trans_sock.getsockname()
         versionp = version_payload(
-            0,
+            self.db.get_blockchain_height(),
             peer.port,
             local_port,
             protocol_version=self.protocol_version,
@@ -968,23 +1011,57 @@ class Node:
         log.info(f"connection handshake established for {peer}")
         return version_data
 
-    async def outgoing_peer_recv_loop(self, peer: Peer, msg_timeout: int = 15):
+    async def connect_from_peer(self, peer: Peer):
+        # wait for version message
+        start_bytes, command, payload = await peer.recv_msg()
+        assert command == b"version", f"expected version command not {command}"
+
+        # save version payload peer data
+        version_data = parse_payload(command, payload)
+        log.info(f"parsed version payload for {peer}")
+
+        # send version
+        trans_sock = peer.writer.transport.get_extra_info("socket")
+        local_host, local_port = trans_sock.getsockname()
+        versionp = version_payload(
+            self.db.get_blockchain_height(),
+            peer.port,
+            local_port,
+            protocol_version=self.protocol_version,
+            services=self.services,
+            relay=self.relay,
+            user_agent=self.user_agent,
+        )
+        await peer.send_command(b"version", versionp)
+
+        # send verack
+        await peer.send_command(b"verack")
+
+        # wait for verack message
+        start_bytes, command, payload = await peer.recv_msg()
+        assert command == b"verack", f"expected verack command, not {command}"
+
+        log.info(f"connection handshake established for {peer}")
+        return version_data
+
+    async def outgoing_peer_recv_loop(self, peer: Peer, msg_timeout: int = 5):
         """
         Args:
             msg_timeout: int, sec to wait before timing out recv_msg and looping until exit_event has been set
         """
         loop = asyncio.get_running_loop()
-        PEER_INACTIVITY_TIMEOUT = 5400  # 90 minutes
         while not peer.exit_event.is_set():
             try:
                 start_bytes, command, payload = await asyncio.wait_for(
                     peer.recv_msg(), int(msg_timeout)
                 )
             except asyncio.TimeoutError as err:
-                if time.time() - peer._last_recv_msg_time > PEER_INACTIVITY_TIMEOUT:
+                if (
+                    time.time() - peer._last_recv_msg_time
+                    > self.peer_inactivity_timeout
+                ):
                     peer.exit_event.set()
                     log.info(f"peer inactivity timeout reached. {peer} exit event set.")
-                log.trace(f"{peer} recv_msg timeout.")
             except ShutdownException as err:
                 log.info(f"shutdown except raised during recv_msg for {peer} - {err}")
             else:
@@ -994,32 +1071,141 @@ class Node:
         await peer.close()
         log.info(f"{peer} socket is closed.")
         self.peers.remove(peer)
-        await loop.run_in_executor(
-            self._thread_pool_executor, self.set_peer_connected, peer._id, False
-        )
 
-    def set_peer_connected(self, peer_id: int, is_connected: bool):
-        """
-        Set peer is_connected to True or False
-        Args:
-            peer_id: int
-            is_connected: bool
-        """
-        with self._thread_lock:
+    async def handle_incoming_peer(self, reader: StreamReader, writer: StreamWriter):
+        host, port = writer.get_extra_info("peername")
+        log.info(f"incoming peer connection from {host}:{port}")
+        if (
+            len([peer for peer in self.peers if peer.type == "incoming"])
+            >= self.max_incoming_peers
+        ):
+            log.warning(
+                f"max incoming peers reached. closing new connection from {host}:{port} ..."
+            )
+            writer.close()
+            return
+        peer = Peer(host, port, self.network, self.datadir)
+        peer.reader = reader
+        peer.writer = writer
+        peer.type = "incoming"
+        # TODO: this logic seems like it could be simplified, and is used also in connect_peers
+        peer_id = self.db.get_peer(peer.host, peer.port)
+        if not peer_id:
+            peer_id = self.db.save_peer(peer.host, peer.port)
+            # save hardcoded genesis block to blockheader table for peer
+            genesis_blockheader = Blockheader(genesis_block(network=self.network)[:80])
+            with self._thread_lock:
+                self.db.save_blockheader(
+                    0,
+                    genesis_blockheader["blockheaderhash"],
+                    genesis_blockheader["version"],
+                    genesis_blockheader["prev_blockheaderhash"],
+                    genesis_blockheader["merkle_root_hash"],
+                    genesis_blockheader["nTime"],
+                    genesis_blockheader["nBits"],
+                    genesis_blockheader["nNonce"],
+                    bits.blockchain.new_chainwork("0", genesis_blockheader["nBits"]),
+                    peer_id,
+                )
+            peer._id = peer_id
+            log.info(f"{peer} saved to db.")
+        peer._id = peer_id
+        try:
+            connect_from_peer_task = asyncio.create_task(self.connect_from_peer(peer))
+            await asyncio.wait_for(connect_from_peer_task, self.connection_timeout)
+        except Exception as err:
+            log.error(
+                f"exception while attempting to complete connection handshake for {peer} - {err}"
+            )
+            self.db
+            log.info(f"{peer} removed from db")
+        else:
+            version_data = connect_from_peer_task.result()
+            log.debug(f"{peer} version payload: {version_data}")
+            self.db.save_peer_data(peer._id, {"version": version_data})
             cursor = self.db._conn.cursor()
             cursor.execute(
-                f"UPDATE peer SET is_connected={1 if is_connected else 0} WHERE id={peer_id};"
+                f"UPDATE peer SET protocol_version={version_data['protocol_version']}, services={version_data['services']}, user_agent='{version_data['user_agent']}', start_height='{version_data['start_height']}' WHERE id={peer._id};"
             )
             self.db._conn.commit()
             cursor.close()
+            log.info(f"version data for {peer} saved to db")
+            self.peers.append(peer)
+            asyncio.create_task(self.outgoing_peer_recv_loop(peer))
 
-    def handle_incoming_peer(self):
-        return
-
-    async def incoming_peer_server(self):
-        server = await asyncio.start_server(self.handle_incoming_peer, "0.0.0.0", 10101)
+    async def incoming_peer_server(self, bind_address: str, bind_port: int):
+        server = await asyncio.start_server(
+            self.handle_incoming_peer, bind_address, bind_port
+        )
+        log.info(f"incoming peer server started @ {bind_address}:{bind_port}")
         async with server:
-            await server.serve_forever()
+            try:
+                await server.serve_forever()
+            except asyncio.CancelledError:
+                log.debug(f"incoming peer server task cancelled")
+        log.trace("incoming peer server exit")
+
+    async def main_loop(self):
+        """
+        This is the main loop task, that controls the control operation of the node,
+        i.e. sending ping messages, relaying blocks and txns, etc.
+        """
+        loop = asyncio.get_running_loop()
+        while not self.exit_event.is_set():
+
+            # if no msg recv from peer within 2 min, send ping
+            for peer in self.peers:
+                if (
+                    peer._last_recv_msg_time
+                    < time.time() - self.peer_inactivity_timeout
+                ):
+                    peer.exit_event.set()
+                    log.info(f"peer inactivity timeout reached. {peer} exit event set.")
+                    continue
+                if (
+                    peer._last_recv_msg_time < time.time() - 120
+                    and not peer._pending_ping_requests
+                ):
+                    # https://github.com/bitcoin/bips/blob/master/bip-0031.mediawiki
+                    nonce = random.getrandbits(64)
+                    peer._pending_ping_requests.append(
+                        {"nonce": nonce, "time": time.time()}
+                    )
+                    await peer.send_command(b"ping", ping_payload(nonce))
+                await asyncio.sleep(0)
+
+            # check for external requests in datdir/requests
+            request_files = [
+                req
+                for req in os.listdir(self.requests_dir)
+                if req.endswith("_request.json")
+            ]
+            for request_file in request_files:
+                timestamp = request_file.split("_")[0]
+                response_filepath = os.path.join(
+                    self.requests_dir, f"{timestamp}_response.json"
+                )
+                if not os.path.exists(response_filepath):
+                    # process request
+                    with open(
+                        os.path.join(self.datadir, "requests", request_file), "r"
+                    ) as request_json:
+                        request = json.load(request_json)
+                        method = request["method"]
+                        args = request["args"]
+                        kwargs = request["kwargs"]
+                        ret = await loop.run_in_executor(
+                            self._thread_pool_executor,
+                            getattr(self, method),
+                            *args,
+                            **kwargs,
+                        )
+                        request["return"] = ret
+                        with open(response_filepath, "w") as response_json:
+                            json.dump(request, response_json)
+                await asyncio.sleep(0)
+            await asyncio.sleep(1)
+        log.trace("main loop exit")
 
     async def message_handler_loop(self):
         loop = asyncio.get_running_loop()
@@ -1176,12 +1362,23 @@ class Node:
                 if self.download_blocks:
                     asyncio.create_task(self.request_block_inventories(sync_node))
                     asyncio.create_task(self.request_blocks(sync_node))
-                    asyncio.create_task(self.process_blocks())
 
-            asyncio.create_task(self.message_handler_loop())
             # asyncio.create_task(self.request_tx(sync_node))
         else:
-            log.error("couldn't connect to peers")
+            log.warning("no connected peers")
+
+        asyncio.create_task(self.message_handler_loop())
+        asyncio.create_task(self.process_blocks())
+        # asyncio.create_task(self.mine_blocks())
+        asyncio.create_task(self.main_loop())
+        if self._bind:
+            server_task = asyncio.create_task(
+                self.incoming_peer_server(self._bind[0], self._bind[1])
+            )
+
+            while not self.exit_event.is_set():
+                await asyncio.sleep(1)
+            server_task.cancel()
 
         tasks = asyncio.all_tasks()
         tasks.remove(asyncio.current_task())
@@ -1213,7 +1410,10 @@ class Node:
                 if (addr["host"], addr["port"]) not in existing_addrs_set
             ]
 
-            if len(self.peers) < self.max_outgoing_peers:
+            if (
+                len([peer for peer in self.peers if peer.type == "outgoing"])
+                < self.max_outgoing_peers
+            ):
                 for addr in addrs:
                     if (addr["host"], addr["port"]) in [
                         (peer_.host, peer_.port) for peer_ in self.peers
@@ -1236,7 +1436,7 @@ class Node:
                         )
                     else:
                         log.info(
-                            f"connected to {potential_peer}. total outgoing connected peers: {len(self.peers)}"
+                            f"connected to {potential_peer}. total outgoing connected peers: {len([peer for peer in self.peers if peer.type == 'outgoing'])}"
                         )
                         await loop.run_in_executor(
                             self._thread_pool_executor, self.save_addr, addr, peer._id
@@ -1747,7 +1947,7 @@ class Node:
         last_11_times = [block_index_["nTime"] for block_index_ in last_11_block_index_]
         return {
             "network": self.network,
-            "progress": float(format(blockheight / start_height, "0.8f"))
+            "progress": float(format((blockheight + 1) / (start_height + 1), "0.8f"))
             if start_height is not None
             else None,
             "difficulty": bits.blockchain.difficulty(
@@ -1767,27 +1967,172 @@ class Node:
             ).strftime("%Y-%m-%d %H:%M:%S %Z"),
         }
 
-    def get_node_info(self) -> Union[dict, None]:
-        cursor = self.db._conn.cursor()
-        peers = self.db.get_peers()
-        # pop off peer addrs info
-        for peer in peers:
-            addrs = peer.pop("addrs")
-            invs = peer.pop("invs")
-            data = peer.pop("data")
-            peer["addrs"] = len(addrs) if addrs else 0
-            num_blockheaders = cursor.execute(
-                f"SELECT COUNT(*) FROM blockheader WHERE peer_id={peer['id']};"
-            ).fetchone()[0]
-            peer["blockheaders"] = num_blockheaders
-            best_blockheader = self.db.get_blockheader(
-                peer["id"], blockheight=num_blockheaders - 1
+    async def mine_blocks(self):
+        loop = asyncio.get_running_loop()
+        while not self.exit_event.is_set():
+            block = await loop.run_in_executor(
+                self._thread_pool_executor, self.mine_block
             )
-            peer["bestblockheaderhash"] = best_blockheader["blockheaderhash"]
-            peer["bestblockheight"] = best_blockheader["blockheight"]
-            peer["totalchainwork"] = best_blockheader["chainwork"]
-        cursor.close()
-        return {"peers": peers}
+            log.debug(f"found block: {block.hex()}")
+        log.trace("mine_blocks exit")
+
+    def mine_block(self, version: int = 2):
+        """
+        Mine a block
+        Args:
+            version: int, version of block
+        Returns:
+            bytes, mined block
+        """
+        # get current block
+        current_blockheight = self.db.get_blockchain_height()
+        current_block_index_data = self.db.get_block(blockheight=current_blockheight)
+        current_block = Block(
+            self.get_block_data(
+                os.path.join(self.datadir, current_block_index_data["datafile"]),
+                current_block_index_data["datafile_offset"],
+            )
+        )
+
+        next_blockheight = current_blockheight + 1
+
+        # get mempool txns
+        mempool_txns = []
+
+        # create coinbase tx
+        scriptpubkey_ = bits.script.scriptpubkey(
+            self._miner_wallet_address.encode("utf8")
+        )
+        txins = [
+            bits.tx.coinbase_txin(
+                b"bits",
+                block_height=next_blockheight,
+            )
+        ]
+        txouts = [
+            bits.tx.txout(
+                bits.block_reward(next_blockheight),
+                scriptpubkey_,
+            )
+        ]
+        coinbase_tx = bits.tx.tx(txins, txouts)
+
+        block_txns = [coinbase_tx] + mempool_txns
+
+        merkle_root_ = bits.blockchain.merkle_root(block_txns)
+
+        target = bits.blockchain.target_threshold(
+            bytes.fromhex(current_block_index_data["nBits"])[::-1]
+        )
+
+        # # TODO: consolidate this logic with get_next_nbits
+        # if next_blockheight % 2016 == 0:
+        #     # difficulty adjustment block
+
+        #     # block 0 of difficulty adjustment period
+        #     block_0_index_data = self.db.get_block(blockheight=next_blockheight - 2016)
+
+        #     elapsed_time = current_block_index_data["nTime"] - block_0_index_data["nTime"]
+
+        #     if self.network == "testnet" and elapsed_time >= 1200:
+        #         next_nbits = "1d00ffff"
+        #     elif self.network == "testnet":
+        #         cursor = self.db._conn.cursor()
+        #         last_non_max_nbits_query = cursor.execute(
+        #             f"SELECT nBits FROM block WHERE nBits!='1d00ffff' AND blockheight>={current_blockheight - (current_blockheight % 2016)} AND blockheight<={current_blockheight} ORDER BY blockheight DESC;"
+        #         ).fetchone()
+        #         cursor.close()
+        #         next_nbits = last_non_max_nbits_query[0] if last_non_max_nbits_query else "1d00ffff"
+        #     else:
+        #         next_nbits = bits.blockchain.compact_nbits(
+        #             bits.blockchain.calculate_new_target(elapsed_time, target)
+        #         )[::-1].hex()
+        # else:
+        #     if self.network == "testnet" and elapsed_time >= 1200:
+        #         next_nbits = "1d00ffff"
+        #     next_nbits = current_block_index_data["nBits"]
+        next_nbits = current_block_index_data["nBits"]
+
+        nonce = 0
+        new_blockheader = bits.blockchain.block_header(
+            version,
+            current_block["blockheaderhash"],
+            merkle_root_.hex(),
+            int(time.time()),
+            next_nbits,  # TODO: modify to get next nbits
+            nonce,
+        )
+        hash_start = time.time()
+        new_blockheaderhash = bits.crypto.hash256(new_blockheader)
+        while (
+            int.from_bytes(new_blockheaderhash, "little") > target
+            and not self.exit_event.is_set()
+        ):
+            nonce += 1
+            new_blockheader = bits.blockchain.block_header(
+                version,
+                current_block["blockheaderhash"],
+                merkle_root_.hex(),
+                int(time.time()),
+                next_nbits,
+                nonce,
+            )
+            new_blockheaderhash = bits.crypto.hash256(new_blockheader)
+            if nonce % 1000 == 0:
+                log.info(
+                    f"mining block {next_blockheight} - {format(nonce/(time.time() - hash_start), '0.2f')} hashes/sec"
+                )
+
+        new_block = bits.blockchain.block_ser(
+            new_blockheader,
+            block_txns,
+        )
+
+        return new_block.hex()
+
+    def get_node_info(self) -> Union[dict, None]:
+        ret = {"incoming": [], "outgoing": []}
+        for peer in self.peers:
+            peer_data = {"id": peer._id}
+            cursor = self.db._conn.cursor()
+            query = cursor.execute(
+                f"SELECT host, port, protocol_version, services, user_agent, start_height, feefilter_feerate, sendcmpct_announce, sendcmpct_version FROM peer WHERE id={peer._id}"
+            ).fetchall()
+            cursor.close()
+            if query:
+                query = query[0]
+                peer_data.update(
+                    {
+                        "host": query[0],
+                        "port": query[1],
+                        "protocol_version": query[2],
+                        "services": query[3],
+                        "user_agent": query[4],
+                        "start_height": query[5],
+                        "feefilter_feerate": query[6],
+                        "sendcmpct_announce": query[7],
+                        "sendcmpct_version": query[8],
+                    }
+                )
+            cursor = self.db._conn.cursor()
+            query = cursor.execute(
+                f"SELECT COUNT(*) FROM blockheader WHERE peer_id={peer._id};"
+            ).fetchone()
+            cursor.close()
+            if query:
+                peer_data.update({"blockheaders": query[0]})
+                best_blockheader = self.db.get_blockheader(
+                    peer._id, blockheight=peer_data["blockheaders"] - 1
+                )
+                peer_data.update(
+                    {
+                        "bestblockheaderhash": best_blockheader["blockheaderhash"],
+                        "bestblockheight": best_blockheader["blockheight"],
+                        "totalchainwork": best_blockheader["chainwork"],
+                    }
+                )
+            ret[peer.type].append(peer_data)
+        return ret
 
     def rebuild_index(self):
         """
@@ -2102,7 +2447,7 @@ class Node:
                 (
                     bits.ordinals.from_decimal(f"{current_blockheight}.0"),
                     bits.ordinals.from_decimal(f"{current_blockheight}.0")
-                    + bits.blockchain.block_reward(current_blockheight)
+                    + bits.block_reward(current_blockheight)
                     - 1,
                 )
             ]
@@ -2267,9 +2612,7 @@ class Node:
                     )
             block_ordinal_ranges += tx_ordinal_ranges
 
-        max_block_reward = (
-            bits.blockchain.block_reward(current_blockheight) + miner_tips
-        )
+        max_block_reward = bits.block_reward(current_blockheight) + miner_tips
         if coinbase_tx_txouts_total_value > max_block_reward:
             raise ConnectBlockError(
                 f"block {current_block['blockheaderhash']} coinbase tx spends more than the max block reward"
@@ -3124,35 +3467,6 @@ class Db:
         ).fetchone()
         cursor.close()
         return result[0] if result else None
-
-    def get_peers(self, is_connected: Optional[bool] = None) -> List[dict]:
-        cursor = self._conn.cursor()
-        if is_connected is None:
-            res = cursor.execute("SELECT * FROM peer;")
-        else:
-            res = cursor.execute(
-                f"SELECT * FROM peer WHERE is_connected={1 if is_connected else 0};"
-            )
-        results = res.fetchall()
-        cursor.close()
-        return [
-            {
-                "id": result[0],
-                "host": result[1],
-                "port": result[2],
-                "data": json.loads(result[3]),
-                "addrs": json.loads(result[4]) if result[4] else None,
-                "invs": result[5],
-                "protocol_version": result[6],
-                "services": result[7],
-                "user_agent": result[8],
-                "start_height": result[9],
-                "feefilter_feerate": result[10],
-                "sendcmpct_announce": result[11],
-                "sendcmpct_version": result[12],
-            }
-            for result in results
-        ]
 
     def remove_peer(self, peer_id: int):
         cursor = self._conn.cursor()

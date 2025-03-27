@@ -3,7 +3,7 @@ per ordinal theory, see https://github.com/ordinals/ord/blob/master/bip.mediawik
 """
 from typing import Tuple, Union
 
-from bits.blockchain import block_reward
+from bits import block_reward
 
 chars = "abcdefghijklmnopqrstuvwxyz"
 

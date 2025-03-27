@@ -8,6 +8,7 @@ import sys
 import typing
 
 import bits.base58
+import bits.constants
 import bits.crypto
 import bits.ecmath
 import bits.keys
@@ -457,6 +458,16 @@ def wif_decode(
         return decoded
     else:
         return version, key_, addtl_data
+
+
+def block_reward(blockheight: int) -> int:
+    """
+    get the block reward for a given blockheight
+    """
+    # TODO: regtest blocks per halving == 150, not yet implemented
+    reward = 50 * bits.constants.COIN
+    reward >>= int(blockheight / 210000)
+    return reward
 
 
 class Bytes(bytes):

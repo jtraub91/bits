@@ -7,6 +7,7 @@ import os
 import secrets
 import signal
 import sys
+import time
 from datetime import datetime, timezone
 from getpass import getpass
 
@@ -62,6 +63,7 @@ def add_common_arguments(
 ):
     parser.add_argument(
         "--config-dir",
+        "-c",
         type=str,
         action=ExplicitOption,
         help="Directory to look for optional config file (config.toml or config.json). "
@@ -1272,7 +1274,37 @@ def main():
         )
         bits.write_bytes(sig, args.out_file, output_format=config.output_format)
     elif args.subcommand == "mine":
-        raise NotImplementedError  # yet
+        p2p_node = bits.p2p.Node(
+            config.seeds,
+            config.datadir,
+            config.network,
+            config.log_level,
+            max_outgoing_peers=config.max_outgoing_peers,
+            # download_headers=download_headers,
+            # download_blocks=download_blocks,
+            # assumevalid=args.assumevalid,
+            miner_wallet_address=config.miner_wallet_address,
+            bind=config.bind,
+        )
+        timestamp = int(time.time() * 1000)
+        with open(
+            os.path.join(p2p_node.requests_dir, f"{timestamp}_request.json"), "w"
+        ) as request_json:
+            json.dump({"method": "mine_block", "args": [], "kwargs": {}}, request_json)
+        while not os.path.exists(
+            os.path.join(p2p_node.requests_dir, f"{timestamp}_response.json")
+        ):
+            time.sleep(1)
+        with open(
+            os.path.join(p2p_node.requests_dir, f"{timestamp}_response.json"), "r"
+        ) as response_json:
+            response = json.load(response_json)
+        bits.write_bytes(
+            bytes.fromhex(response.get("return", "")),
+            args.out_file,
+            output_format=config.output_format,
+        )
+        return
     elif args.subcommand == "p2p":
         if args.headers_only and args.blocks_only:
             log.error("only one of --headers-only or --blocks-only may be supplied")
@@ -1292,10 +1324,26 @@ def main():
             download_headers=download_headers,
             download_blocks=download_blocks,
             assumevalid=args.assumevalid,
+            miner_wallet_address=config.miner_wallet_address,
+            bind=config.bind,
         )
         if args.info:
-            node_info = p2p_node.get_node_info()
-            print(json.dumps(node_info))
+            timestamp = int(time.time() * 1000)
+            with open(
+                os.path.join(p2p_node.requests_dir, f"{timestamp}_request.json"), "w"
+            ) as request_json:
+                json.dump(
+                    {"method": "get_node_info", "args": [], "kwargs": {}}, request_json
+                )
+            while not os.path.exists(
+                os.path.join(p2p_node.requests_dir, f"{timestamp}_response.json")
+            ):
+                time.sleep(1)
+            with open(
+                os.path.join(p2p_node.requests_dir, f"{timestamp}_response.json"), "r"
+            ) as response_json:
+                response = json.load(response_json)
+            print(json.dumps(response.get("return", {})))
             return
         if args.reindex:
             key = input(f"reindex from blockheight 0? (y/n) ")
@@ -1362,7 +1410,7 @@ def main():
             )
             header = block[:80]
         if args.decode:
-            block = bits.blockchain.block_deser(block)
+            block = bits.blockchain.block_deser(block, json_serializable=True)
             header = bits.blockchain.block_header_deser(header)
             print(json.dumps(header if args.header_only else block))
             return
