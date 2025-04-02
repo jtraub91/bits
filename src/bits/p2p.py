@@ -15,13 +15,13 @@ import random
 import sqlite3
 import time
 import traceback
-from asyncio import Event, StreamReader, StreamWriter
+from asyncio import Event, StreamReader, StreamWriter, AbstractEventLoop
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from ipaddress import ip_address
 from threading import Thread, Lock
-from typing import List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import bits
 import bits.blockchain
@@ -108,6 +108,18 @@ class AcceptBlockError(Exception):
 
 
 class CheckBlockError(Exception):
+    pass
+
+
+class CheckTxError(Exception):
+    pass
+
+
+class AcceptTxError(Exception):
+    pass
+
+
+class PossibleOrphanTxError(Exception):
     pass
 
 
@@ -473,15 +485,70 @@ def parse_payload(command, payload) -> Union[bytes, dict]:
         return payload
 
 
+def make_request(
+    node_requests_path: str,
+    method: str,
+    args: Tuple = (),
+    kwargs: dict = {},
+    timeout: int = 10,
+    archive_request: bool = False,
+) -> Any:
+    """
+    Make request to running P2P Node and wait for response
+
+    Uses file based IPC approach, i.e.
+    writes request to a json file in Node._requests_dir,
+    and waits for a response json in the same directory.
+
+    request / response json files are cleaned up by the running Node, and this function, respectively,
+    upon request servicing, and response receipt, respectively (or on error).
+
+    # TODO: allow option for archiving past requests
+
+    Args:
+        node_requests_path: str, path to Node requests directory
+        method: str, method to call on Node
+        args: Tuple, method args
+        kwargs: dict, method kwargs
+        timeout: int, request timeout
+        archive_request: bool, True to archive request/response after completion
+    """
+    timestamp = int(time.time() * 1000)
+    request = {
+        "method": method,
+        "args": args,
+        "kwargs": kwargs,
+    }
+    request_filename = f"{timestamp}_request.json"
+    request_filepath = os.path.join(node_requests_path, request_filename)
+    log.debug(f"writing {request_filename} ...")
+    with open(request_filepath, "w") as f:
+        json.dump(request, f)
+    response_filename = f"{timestamp}_response.json"
+    response_filepath = os.path.join(node_requests_path, response_filename)
+    time_start = time.time()
+    while not os.path.exists(response_filepath):
+        if time.time() - time_start > timeout:
+            os.remove(request_filepath)
+            raise TimeoutError(f"timeout waiting for response from Node")
+        time.sleep(0.01)
+    log.debug(f"reading {response_filename} ...")
+    with open(response_filepath, "r") as f:
+        response = json.load(f)
+    os.remove(response_filepath)
+    log.debug(f"removed {response_filename}.")
+    return response["return"]
+
+
 class Peer:
     def __init__(self, host: Union[str, bytes], port: int, network: str, datadir: str):
         self.host = host
         self.port = port
         self.datadir = datadir
 
-        self._id: Union[int | None] = None
+        self._is_seed = False
 
-        self._ibd = False
+        self._id: Union[int | None] = None
 
         if network.lower() == "mainnet":
             self.magic_start_bytes = bits.constants.MAINNET_START
@@ -493,6 +560,7 @@ class Peer:
             raise ValueError(f"network not recognized: {network}")
 
         self._last_recv_msg_time: float = None
+        self._last_recv_pong_time: float = None
 
         self.reader: StreamReader = None
         self.writer: StreamWriter = None
@@ -508,7 +576,7 @@ class Peer:
         self._pending_getheaders_request = None
         self._pending_ping_requests: List[dict] = []  # [{nonce, time}]
 
-        self.type: str = None  # incoming or outgoing
+        self.type: str = "outgoing"  # incoming or outgoing
 
         self.exit_event = Event()
 
@@ -574,7 +642,6 @@ class Peer:
             self.writer.write(message_bytes)
             await self.writer.drain()
             log.info(f"sent {command} and {len(payload)} payload bytes to {self}.")
-            log.trace(f"raw message bytes: {message_bytes.hex()}")
         except ConnectionResetError as err:
             log.error(err)
             log.info(f"connection reset while sending {command} to {self}.")
@@ -585,7 +652,7 @@ class Peer:
 class Node:
     def __init__(
         self,
-        seeds: List[str],
+        seeds: List[Tuple[str, int]],
         datadir: str,
         network: str,
         log_level: str = "debug",
@@ -596,8 +663,6 @@ class Node:
         max_incoming_peers: int = 3,
         max_outgoing_peers: int = 3,
         connection_timeout: int = 5,
-        download_headers: bool = True,
-        download_blocks: bool = True,
         index_ordinals: bool = False,
         assumevalid: int = 0,
         miner_wallet_address: str = "",
@@ -607,7 +672,7 @@ class Node:
         bits P2P node
 
         Args:
-            seeds: list[str], list of seed nodes to connect to, <host:port> e.g. ["127.0.0.1:18443",]
+            seeds: list[Tuple[str, int]], list of seed nodes to connect to, (host, port) e.g. [("127.0.0.1", 18443),]
             datadir: str, data directory, block data will be stored in <datadir>/blocks
             network: str, network, e.g. "mainnet", "testnet", or "regtest", sets magic start bytes
             protocol_version: int
@@ -621,11 +686,13 @@ class Node:
             self._bind = (addr, port)
         else:
             self._bind = None
+        self._incoming_peer_server_task = None
+        self._connect_seeds_task = None
+        self._connect_seeds_exit_event = Event()
+        self._connect_former_peers_task = None
         self._miner_wallet_address = miner_wallet_address
         self._assumevalid = assumevalid
         self._index_ordinals = index_ordinals
-        self.download_headers = download_headers
-        self.download_blocks = download_blocks
         self.max_incoming_peers = max_incoming_peers
         self.max_outgoing_peers = max_outgoing_peers
         self.connection_timeout = connection_timeout
@@ -638,9 +705,9 @@ class Node:
         if not os.path.exists(blocksdir):
             os.mkdir(blocksdir)
         self.blocksdir = blocksdir
-        self.requests_dir = os.path.join(self.datadir, "requests")
-        if not os.path.exists(self.requests_dir):
-            os.mkdir(self.requests_dir)
+        self._requests_dir = os.path.join(self.datadir, "_requests")
+        if not os.path.exists(self._requests_dir):
+            os.mkdir(self._requests_dir)
         self.protocol_version = protocol_version
         self.services = services
         self.relay = relay
@@ -702,9 +769,8 @@ class Node:
                 )
 
         self.message_queue = asyncio.Queue()
-        self._ibd: bool = False
 
-        self._block_processing_queue = deque([])
+        self._block_processing_queue = asyncio.Queue()
         self._block_cache: dict[str, dict] = {}
         # block cache e.g.
         # {"<blockheaderhash": {"time": <time:int>, "data": <block:Block>}, ...}
@@ -712,6 +778,7 @@ class Node:
         # and remove oldest entry if greater than MAX_BLOCK_CACHE_SIZE
 
         self._mempool = []
+        self._mempool_tx_processing_queue = deque([])
 
         self.peers: list[Peer] = []
 
@@ -749,9 +816,15 @@ class Node:
     async def handle_addr_command(self, peer: Peer, command: bytes, payload: bytes):
         payload = parse_addr_payload(payload)
         addrs = payload["addrs"]
-        await peer._addr_processing_queue.put(addrs)
+        for addr in addrs:
+            peer._addr_processing_queue.put_nowait(addr)
         log.debug(
             f"{len(addrs)} network addrs to queue for {peer}. queue size: {peer._addr_processing_queue.qsize()}"
+        )
+
+    def handle_getaddr_command(self, peer: Peer, command: bytes, payload: bytes):
+        log.warning(
+            f"no action taken for {command} command from {peer} with {len(payload)} payload bytes"
         )
 
     def handle_inv_command(self, peer: Peer, command: bytes, payload: bytes):
@@ -759,9 +832,7 @@ class Node:
         count = parsed_payload["count"]
         inventories = parsed_payload["inventory"]
 
-        if self._ibd:
-            # ignore non msg_block inventories during ibd
-            inventories = [inv for inv in inventories if inv["type_id"] == "MSG_BLOCK"]
+        inventories = [inv for inv in inventories if inv["type_id"] == "MSG_BLOCK"]
 
         peer_inventories = peer.inventories
 
@@ -790,24 +861,15 @@ class Node:
         )
 
     def handle_tx_command(self, peer: Peer, command: bytes, payload: bytes):
-        tx = Tx(payload)
-
-        tx_in_mempool = next(
-            filter(
-                lambda tx_: tx_["txid"] == tx["txid"],
-                self._mempool,
-            ),
-            None,
+        tx_ = Tx(payload)
+        self._mempool_tx_processing_queue.append(tx_)
+        log.debug(
+            f"added {tx_['txid']} to mempool processing queue. total txns in queue: {len(self._mempool_tx_processing_queue)}"
         )
-        if not tx_in_mempool:
-            self._mempool.append(tx)
-            log.info(
-                f"tx(txid={tx['txid']}) added to mempool. total mempool txns: {len(self._mempool)}"
-            )
 
         pending_getdata_request_match = next(
             filter(
-                lambda inv: inv["type_id"] == "MSG_TX" and inv["hash"] == tx["txid"],
+                lambda inv: inv["type_id"] == "MSG_TX" and inv["hash"] == tx_["txid"],
                 peer._pending_getdata_requests,
             ),
             None,
@@ -818,12 +880,12 @@ class Node:
             pending_getdata_request_match.pop("retries")
             peer.inventories.remove(pending_getdata_request_match)
 
-    def handle_block_command(self, peer: Peer, command: bytes, payload: bytes):
+    async def handle_block_command(self, peer: Peer, command: bytes, payload: bytes):
         block = Block(payload)
 
-        self._block_processing_queue.append(block)
+        await self._block_processing_queue.put(block)
         log.debug(
-            f"block {block['blockheaderhash']} from {peer} added to processing queue. total blocks in queue: {len(self._block_processing_queue)}"
+            f"block {block['blockheaderhash']} from {peer} added to processing queue. total blocks in queue: {self._block_processing_queue.qsize()}"
         )
 
         pending_getdata_request_match = next(
@@ -875,6 +937,7 @@ class Node:
         if pending_ping_req:
             pending_ping_req = pending_ping_req[0]
             peer._pending_ping_requests.remove(pending_ping_req)
+            peer._last_recv_pong_time = time.time()
             log.info(
                 f"{peer} responded to ping in {time.time() - pending_ping_req['time']} seconds"
             )
@@ -888,7 +951,7 @@ class Node:
         payload = parse_ping_payload(payload)
         await peer.send_command(b"pong", ping_payload(payload["nonce"]))
 
-    async def connect_peers(self, peers: List[Peer], timeout: int = None):
+    async def connect_peers(self, peers: List[Peer], timeout: int = None) -> List[Peer]:
         """
         Connect peers and schedule tasks
         Args:
@@ -897,6 +960,7 @@ class Node:
         Returns:
             peers which were successfully connected w successful version handshake
         """
+
         connected_peers = []
         if timeout is None:
             timeout = self.connection_timeout
@@ -965,10 +1029,27 @@ class Node:
                 cursor.close()
                 log.info(f"version data for {peer} saved to db")
                 self.peers.append(peer)
+                if len(self.peers) == 1:
+                    blockheight = self.db.get_blockchain_height()
+                    # choose a peer as sync node
+                    # if blockchain is 144 blocks behind peer (~24 hr) enter ibd
+                    sync_node = self.peers[0]
+                    sync_node_version_data = self.db.get_peer_data(
+                        sync_node._id, "version"
+                    )
+                    self.sync_node_start_height = sync_node_version_data["start_height"]
+                    if sync_node_version_data["start_height"] - blockheight > 144:
+                        log.info(
+                            f"local blockchain is behind sync node {sync_node} by {sync_node_version_data['start_height'] - blockheight} blocks. Entering IBD..."
+                        )
+                        asyncio.create_task(self.request_block_inventories(sync_node))
+                        asyncio.create_task(self.request_blocks(sync_node))
+
+                # asyncio.create_task(self.request_tx(sync_node))
                 connected_peers.append(peer)
                 asyncio.create_task(self.outgoing_peer_recv_loop(peer))
-                # asyncio.create_task(peer.send_command(b"getaddr"))
-                # asyncio.create_task(self.process_addrs(peer))
+                asyncio.create_task(peer.send_command(b"getaddr"))
+                asyncio.create_task(self.process_addrs(peer))
         return connected_peers
 
     async def connect_to_peer(self, peer: Peer) -> dict:
@@ -1056,21 +1137,47 @@ class Node:
                     peer.recv_msg(), int(msg_timeout)
                 )
             except asyncio.TimeoutError as err:
-                if (
-                    time.time() - peer._last_recv_msg_time
-                    > self.peer_inactivity_timeout
-                ):
-                    peer.exit_event.set()
-                    log.info(f"peer inactivity timeout reached. {peer} exit event set.")
+                timestamp = time.time()
+
+                if timestamp - peer._last_recv_msg_time > self.peer_inactivity_timeout:
+                    log.info(f"peer inactivity timeout reached")
+                    break
+
+                if peer._pending_ping_requests:
+                    compare_time_ = peer._pending_ping_requests[-1]["time"]
+                else:
+                    compare_time_ = peer._last_recv_msg_time
+                if timestamp - compare_time_ > 120 + random.uniform(-2, 2):
+                    nonce = random.getrandbits(64)
+                    peer._pending_ping_requests.append(
+                        {"nonce": nonce, "time": time.time()}
+                    )
+                    await peer.send_command(b"ping", ping_payload(nonce))
+
+                if peer._last_recv_pong_time:
+                    if timestamp - peer._last_recv_pong_time > 1200:
+                        log.info(f"peer pong timeout reached")
+                        break
+                elif peer._pending_ping_requests:
+                    if timestamp - peer._pending_ping_requests[0]["time"] > 1200:
+                        log.info(f"peer pong timeout reached")
+                        break
+
             except ShutdownException as err:
                 log.info(f"shutdown except raised during recv_msg for {peer} - {err}")
             else:
                 await self.message_queue.put((peer, command, payload))
             await asyncio.sleep(0)
-        log.info(f"exiting peer recv loop for {peer}")
-        await peer.close()
-        log.info(f"{peer} socket is closed.")
+        log.info(f"closing connection to {peer} ...")
+        try:
+            await peer.close()
+            log.info(f"{peer} socket closed")
+        except BrokenPipeError as err:
+            log.warning(f"broken pipe error closing {peer} socket - {err}")
+        except Exception as err:
+            log.error(f"unexpected exception closing {peer} socket - {err}")
         self.peers.remove(peer)
+        log.debug(f"{peer} removed from self.peers")
 
     async def handle_incoming_peer(self, reader: StreamReader, writer: StreamWriter):
         host, port = writer.get_extra_info("peername")
@@ -1080,7 +1187,7 @@ class Node:
             >= self.max_incoming_peers
         ):
             log.warning(
-                f"max incoming peers reached. closing new connection from {host}:{port} ..."
+                f"max incoming already peers reached. closing new connection from {host}:{port} ..."
             )
             writer.close()
             return
@@ -1132,6 +1239,8 @@ class Node:
             log.info(f"version data for {peer} saved to db")
             self.peers.append(peer)
             asyncio.create_task(self.outgoing_peer_recv_loop(peer))
+            asyncio.create_task(peer.send_command(b"getaddr"))
+            asyncio.create_task(self.process_addrs(peer))
 
     async def incoming_peer_server(self, bind_address: str, bind_port: int):
         server = await asyncio.start_server(
@@ -1141,8 +1250,8 @@ class Node:
         async with server:
             try:
                 await server.serve_forever()
-            except asyncio.CancelledError:
-                log.debug(f"incoming peer server task cancelled")
+            except asyncio.CancelledError as err:
+                log.warning(err)
         log.trace("incoming peer server exit")
 
     async def main_loop(self):
@@ -1153,59 +1262,79 @@ class Node:
         loop = asyncio.get_running_loop()
         while not self.exit_event.is_set():
 
-            # if no msg recv from peer within 2 min, send ping
-            for peer in self.peers:
-                if (
-                    peer._last_recv_msg_time
-                    < time.time() - self.peer_inactivity_timeout
-                ):
-                    peer.exit_event.set()
-                    log.info(f"peer inactivity timeout reached. {peer} exit event set.")
-                    continue
-                if (
-                    peer._last_recv_msg_time < time.time() - 120
-                    and not peer._pending_ping_requests
-                ):
-                    # https://github.com/bitcoin/bips/blob/master/bip-0031.mediawiki
-                    nonce = random.getrandbits(64)
-                    peer._pending_ping_requests.append(
-                        {"nonce": nonce, "time": time.time()}
-                    )
-                    await peer.send_command(b"ping", ping_payload(nonce))
-                await asyncio.sleep(0)
-
             # check for external requests in datdir/requests
             request_files = [
                 req
-                for req in os.listdir(self.requests_dir)
+                for req in os.listdir(self._requests_dir)
                 if req.endswith("_request.json")
             ]
-            for request_file in request_files:
-                timestamp = request_file.split("_")[0]
-                response_filepath = os.path.join(
-                    self.requests_dir, f"{timestamp}_response.json"
+            if request_files:
+                log.debug(
+                    f"{len(request_files)} requests found in {self._requests_dir}"
                 )
-                if not os.path.exists(response_filepath):
-                    # process request
-                    with open(
-                        os.path.join(self.datadir, "requests", request_file), "r"
-                    ) as request_json:
-                        request = json.load(request_json)
-                        method = request["method"]
-                        args = request["args"]
-                        kwargs = request["kwargs"]
-                        ret = await loop.run_in_executor(
-                            self._thread_pool_executor,
-                            getattr(self, method),
-                            *args,
-                            **kwargs,
-                        )
-                        request["return"] = ret
-                        with open(response_filepath, "w") as response_json:
-                            json.dump(request, response_json)
-                await asyncio.sleep(0)
-            await asyncio.sleep(1)
+                for request_file in request_files:
+                    await loop.run_in_executor(
+                        self._thread_pool_executor,
+                        self.service_request,
+                        request_file,
+                        loop,
+                    )
+            await asyncio.sleep(0)
         log.trace("main loop exit")
+        if self._incoming_peer_server_task:
+            self._incoming_peer_server_task.cancel()
+            log.trace("incoming_peer_server task cancelled")
+        if self._connect_seeds_task:
+            self._connect_seeds_task.cancel()
+            log.trace("connect_seeds task cancelled")
+        if self._connect_former_peers_task:
+            self._connect_former_peers_task.cancel()
+            log.trace("connect_former_peers task cancelled")
+
+    def service_request(
+        self, request_filename: str, loop_: Optional[AbstractEventLoop] = None
+    ):
+        """
+        Service a request from the requests directory
+
+        Upon receipt of a request, the request is deleted (always),
+        and processed if the response does not already exist.
+
+        Note: the requested method must return a json serializable type
+        Args:
+            request_filename: str, request json filename to be serviced from Node._requests_dir
+            loop_: Optional[AbstractEventLoop], event loop to run in for async methods
+        """
+        log.debug(f"processing {request_filename} ...")
+        timestamp = request_filename.split("_")[0]
+        with open(os.path.join(self._requests_dir, request_filename), "r") as f:
+            request = json.load(f)
+        os.remove(os.path.join(self._requests_dir, request_filename))
+        log.debug(f"removed {request_filename}.")
+
+        response_filename = f"{timestamp}_response.json"
+        response_filepath = os.path.join(self._requests_dir, response_filename)
+        if not os.path.exists(response_filepath):
+            # process request
+            method = request["method"]
+            args = request["args"]
+            kwargs = request["kwargs"]
+            log.debug(f"executing {method} with args: {args}, kwargs: {kwargs} ...")
+            fn = getattr(self, method)
+            try:
+                if asyncio.iscoroutinefunction(fn):
+                    future = asyncio.run_coroutine_threadsafe(
+                        fn(*args, **kwargs), loop_
+                    )
+                    ret = future.result()
+                else:
+                    ret = fn(*args, **kwargs)
+            except Exception as err:
+                log.error(f"an error occurred while processing request - {err}")
+            log.debug(f"writing {response_filename} ...")
+            request["return"] = ret
+            with open(response_filepath, "w") as f:
+                json.dump(request, f)
 
     async def message_handler_loop(self):
         loop = asyncio.get_running_loop()
@@ -1224,13 +1353,87 @@ class Node:
                 )
             elif command == b"addr":
                 asyncio.create_task(self.handle_addr_command(peer, command, payload))
+            elif command == b"block":
+                asyncio.create_task(self.handle_block_command(peer, command, payload))
             else:
-                handler = getattr(self, f"handle_{command.decode('utf8')}_command")
-                await loop.run_in_executor(
-                    self._thread_pool_executor, handler, peer, command, payload
+                handler = getattr(
+                    self, f"handle_{command.decode('utf8')}_command", None
                 )
+                if handler is None:
+                    log.warning(f"no handler for {command} command")
+                else:
+                    await loop.run_in_executor(
+                        self._thread_pool_executor, handler, peer, command, payload
+                    )
             await asyncio.sleep(0)
         log.trace("message handler loop exited")
+
+    # async def process_mempool_txns(self):
+    #     loop = asyncio.get_running_loop()
+    #     while not self.exit_event.is_set():
+    #         if self._mempool_tx_processing_queue:
+    #             tx_ = self._mempool_tx_processing_queue.popleft()
+    #             await loop.run_in_executor(
+    #                 self._thread_pool_executor, self.accept_mempool_tx, tx_
+    #             )
+    #         await asyncio.sleep(0)
+    #     log.trace("exit process_mempool_txns")
+
+    # def accept_mempool_tx(self, tx_: Union[Tx, Bytes, bytes]):
+    #     """
+    #     Validate and accept transaction to mempool
+    #     Args:
+    #         tx_: Tx | bytes, transaction data
+    #     Throws:
+    #         CheckTxError: if tx fails context independent checks
+    #         AcceptTxError: if tx fails context dependent checks
+    #         PossibleOrphanTxError: if tx is potential orphan
+    #     """
+    #     if not isinstance(tx_, Tx):
+    #         tx_ = Tx(tx_)
+
+    #     if not bits.blockchain.check_tx(tx_):
+    #         raise CheckTxError(f"tx {tx_['txid']} failed context independent checks")
+
+    #     # Check tx is not already in mempool
+    #     if tx_["txid"] in [tx["txid"] for tx in self._mempool]:
+    #         raise AcceptTxError(f"tx {tx_['txid']} already in mempool")
+
+    #     # Check tx is not already in blockchain
+    #     if self.db.get_tx(tx_["txid"]):
+    #         raise AcceptTxError(f"tx {tx_['txid']} already in blockchain")
+
+    #     # Check inputs exist in UTXO set or mempool
+    #     for txin in tx_["txins"]:
+    #         prev_tx = None
+    #         # Check if input exists in mempool
+    #         for mempool_tx in self._mempool:
+    #             if mempool_tx["txid"] == txin["prev_txid"]:
+    #                 prev_tx = mempool_tx
+    #                 break
+
+    #         # If not in mempool, check UTXO set
+    #         if not prev_tx:
+    #             if not self.db.find_blockheaderhash_for_utxo(txin["prev_txid"]):
+    #                 raise PossibleOrphanTxError(
+    #                     f"tx {tx_['txid']} input {txin['prev_txid']} not found"
+    #                 )
+
+    #     # Check for double spends against mempool
+    #     for txin in tx_["txins"]:
+    #         for mempool_tx in self._mempool:
+    #             for mempool_txin in mempool_tx["txins"]:
+    #                 if (
+    #                     txin["prev_txid"] == mempool_txin["prev_txid"]
+    #                     and txin["prev_tx_output_n"] == mempool_txin["prev_tx_output_n"]
+    #                 ):
+    #                     raise AcceptTxError(
+    #                         f"tx {tx_['txid']} double spends input from tx {mempool_tx['txid']}"
+    #                     )
+
+    #     # If all checks pass, add to mempool
+    #     self._mempool.append(tx_)
+    #     log.info(f"tx {tx_['txid']} accepted to mempool")
 
     def get_size(self):
         """
@@ -1318,72 +1521,125 @@ class Node:
         else:
             self.startup_checks()
 
-        # parse seeds into list of (host, port)
-        seed_addrs = [
-            (seed.split(":")[0], int(seed.split(":")[1])) for seed in self.seeds
-        ]
-
-        # gather peer addrs we've connected to before
-        formerly_connected_peer_addrs = [
-            (addr["host"], addr["port"]) for addr in self.db.get_peer_addrs(None)
-        ]
-        # peer_id None is implied to mean peer_addrs that our Node has actually connected to
-
-        former_peer_addr_candidates = list(
-            set(formerly_connected_peer_addrs) - set(seed_addrs)
-        )
-        peer_candidates = [
-            Peer(addr[0], addr[1], self.network, self.datadir)
-            for addr in seed_addrs + former_peer_addr_candidates
-        ]
-
-        connected_peers = await self.connect_peers(peer_candidates)
-        # connected peers have been appended to self.peers,
-        # headers_sync, outgoing_peer_recv_loop tasks created, etc.
-
-        if connected_peers:
-            blockheight = self.db.get_blockchain_height()
-
-            # choose a peer as sync node
-            # if blockchain is 144 blocks behind peer (~24 hr) enter ibd
-            sync_node = self.peers[0]
-            sync_node_version_data = self.db.get_peer_data(sync_node._id, "version")
-            self.sync_node_start_height = sync_node_version_data["start_height"]
-            if sync_node_version_data["start_height"] - blockheight > 144:
-                log.info(
-                    f"local blockchain is behind sync node {sync_node} by {sync_node_version_data['start_height'] - blockheight} blocks. Entering IBD..."
-                )
-                self._ibd = True
-                if self.download_headers:
-                    for peer in connected_peers:
-                        peer._ibd = True
-                        asyncio.create_task(self.request_headers(peer))
-                        asyncio.create_task(self.process_headers(peer))
-                if self.download_blocks:
-                    asyncio.create_task(self.request_block_inventories(sync_node))
-                    asyncio.create_task(self.request_blocks(sync_node))
-
-            # asyncio.create_task(self.request_tx(sync_node))
-        else:
-            log.warning("no connected peers")
-
-        asyncio.create_task(self.message_handler_loop())
-        asyncio.create_task(self.process_blocks())
-        # asyncio.create_task(self.mine_blocks())
-        asyncio.create_task(self.main_loop())
         if self._bind:
-            server_task = asyncio.create_task(
+            self._incoming_peer_server_task = asyncio.create_task(
                 self.incoming_peer_server(self._bind[0], self._bind[1])
             )
 
-            while not self.exit_event.is_set():
-                await asyncio.sleep(1)
-            server_task.cancel()
+        self._connect_seeds_task = asyncio.create_task(self.connect_seeds())
+        self._connect_former_peers_task = asyncio.create_task(
+            self.connect_former_peers()
+        )
+        asyncio.create_task(self.message_handler_loop())
+        asyncio.create_task(self.process_blocks())
+        # asyncio.create_task(self.process_mempool_txns())
+        # asyncio.create_task(self.mine_blocks())
+        asyncio.create_task(self.main_loop())
 
         tasks = asyncio.all_tasks()
         tasks.remove(asyncio.current_task())
+        if self._incoming_peer_server_task:
+            await self._incoming_peer_server_task
+        await self._connect_seeds_task
+        await self._connect_former_peers_task
         await asyncio.gather(*tasks)
         log.trace("main exit")
+
+    async def connect_seeds(self):
+        """
+        Connect to seeds in self.seeds
+        """
+        CONNECT_SEEDS_TIMEOUT = 600  # 10 min
+
+        if not self.seeds:
+            log.warning("no seeds to connect to")
+            self._connect_seeds_exit_event.set()
+            return
+
+        peer_candidates = [
+            Peer(seed[0], seed[1], self.network, self.datadir) for seed in self.seeds
+        ]
+        time_start = time.time()
+        while peer_candidates:
+            try:
+                connected_peers = await self.connect_peers(peer_candidates)
+            except asyncio.CancelledError as err:
+                log.warning(f"connect_seeds cancelled - {err}")
+                break
+            log.info(f"connected to {len(connected_peers)} seeds")
+            for peer in connected_peers:
+                peer._is_seed = True
+            connected_peer_addrs = [
+                (peer.host, peer.port) for peer in self.peers if peer._is_seed
+            ]
+            peer_candidates = [
+                Peer(seed[0], seed[1], self.network, self.datadir)
+                for seed in self.seeds
+                if seed not in connected_peer_addrs
+            ]
+            log.info(f"{len(peer_candidates)} seed candidate(s) remaining.")
+            if not peer_candidates:
+                log.info("all seeds connected")
+                break
+            time_elapsed = time.time() - time_start
+            if time_elapsed > CONNECT_SEEDS_TIMEOUT:
+                log.info(f"connect seeds timeout reached. exiting ...")
+                break
+            log.info("retrying in 5 sec ...")
+            try:
+                await asyncio.sleep(5)
+            except asyncio.CancelledError as err:
+                log.warning(f"connect_seeds cancelled - {err}")
+                break
+        self._connect_seeds_exit_event.set()
+        log.debug("connect_seeds exit")
+
+    async def connect_former_peers(self) -> List[Peer]:
+        """
+        Attempt to connect to formerly connected peers, respecting max_outgoing_peers limit.
+
+        Waits for seed_connect task to exit before proceeding.
+        """
+        outgoing_peers = [peer for peer in self.peers if peer.type == "outgoing"]
+        if len(outgoing_peers) >= self.max_outgoing_peers:
+            log.debug(f"connect_former_peers exit. max_outgoing_peers already reached")
+            return []
+
+        log.debug("connect_outgoing_peers - waiting for connect_seeds_task to exit ...")
+        try:
+            await self._connect_seeds_exit_event.wait()
+        except asyncio.CancelledError as err:
+            log.warning(f"connect_outgoing_peers cancelled - {err}")
+            return
+
+        outgoing_peers = [peer for peer in self.peers if peer.type == "outgoing"]
+        if len(outgoing_peers) >= self.max_outgoing_peers:
+            log.debug(f"connect_former_peers exit. max_outgoing_peers already reached")
+            return []
+
+        formerly_connected_peers = self.db.get_peer_addrs(None)
+        formerly_connected_peer_addrs = [
+            (peer["host"], peer["port"]) for peer in formerly_connected_peers
+        ]
+        log.debug(
+            f"{len(formerly_connected_peer_addrs)} formerly connected peer addrs found in db"
+        )
+        connected_peer_addrs = [(peer.host, peer.port) for peer in self.peers]
+        peer_candidates = [
+            Peer(addr[0], addr[1], self.network, self.datadir)
+            for addr in formerly_connected_peer_addrs
+            if addr not in connected_peer_addrs
+        ]
+        if not peer_candidates:
+            log.info("no peer candidates")
+            return []
+
+        try:
+            newly_connected_peers = await self.connect_peers(peer_candidates)
+            return newly_connected_peers
+        except asyncio.CancelledError as err:
+            log.warning(f"connect_former_peers cancelled - {err}")
+            return []
 
     async def process_addrs(self, peer: Peer):
         """
@@ -1391,68 +1647,104 @@ class Node:
           by attempting to connect if applicable, then saving to db
         """
         loop = asyncio.get_running_loop()
-        while not self.exit_event.is_set():
+        while True:
             try:
-                addrs = await asyncio.wait_for(peer._addr_processing_queue.get(), 1.0)
-            except asyncio.TimeoutError:
+                log.debug(f"waiting for addr processing queue for {peer} ...")
+                addr = await peer._addr_processing_queue.get()
+                log.debug(f"processing {addr} from {peer} ...")
+            except asyncio.CancelledError as err:
+                log.warning(f"process_addrs cancelled - {err}")
+                return
+
+            cursor = self.db._conn.cursor()
+            existing_addr = cursor.execute(
+                f"SELECT * from addr WHERE host='{addr['host']}' AND port='{addr['port']}' AND peer_id={peer._id};"
+            ).fetchone()
+            cursor.close()
+            if existing_addr:
+                log.debug(
+                    f"addr {addr} already exists in db for peer {peer._id}. continuing ..."
+                )
                 continue
 
-            # remove addrs that have already been added to db for this peer
-            existing_addrs_set = set(
-                [
-                    (addr["host"], addr["port"])
-                    for addr in self.db.get_peer_addrs(peer._id)
-                ]
-            )
-            addrs = [
-                addr
-                for addr in addrs
-                if (addr["host"], addr["port"]) not in existing_addrs_set
-            ]
+            outgoing_peers = [peer for peer in self.peers if peer.type == "outgoing"]
 
-            if (
-                len([peer for peer in self.peers if peer.type == "outgoing"])
-                < self.max_outgoing_peers
-            ):
-                for addr in addrs:
-                    if (addr["host"], addr["port"]) in [
-                        (peer_.host, peer_.port) for peer_ in self.peers
-                    ]:
-                        # don't connect to peers we've already connected to
-                        # just save to db for this peer
-                        await loop.run_in_executor(
-                            self._thread_pool_executor, self.save_addr, addr, peer._id
-                        )
-                        continue
-                    potential_peer = Peer(
-                        addr["host"], addr["port"], self.network, self.datadir
-                    )
-
-                    connected_peers = await self.connect_peers([potential_peer])
-                    if not connected_peers:
-                        log.debug(f"failed to connect to {potential_peer}")
-                        await loop.run_in_executor(
-                            self._thread_pool_executor, self.save_addr, addr, peer._id
-                        )
-                    else:
-                        log.info(
-                            f"connected to {potential_peer}. total outgoing connected peers: {len([peer for peer in self.peers if peer.type == 'outgoing'])}"
-                        )
-                        await loop.run_in_executor(
-                            self._thread_pool_executor, self.save_addr, addr, peer._id
-                        )
-                        addr["time"] = int(time.time())
-                        await loop.run_in_executor(
-                            self._thread_pool_executor, self.save_addr, addr, None
-                        )
-            else:
+            if len(outgoing_peers) >= self.max_outgoing_peers:
                 # if we're already at max outgoing peers, just save to db
-                for addr in addrs:
+                await loop.run_in_executor(
+                    self._thread_pool_executor, self.save_addr, addr, peer._id
+                )
+                continue
+
+            connected_peer_addrs = [(peer.host, peer.port) for peer in self.peers]
+            if (addr["host"], addr["port"]) in connected_peer_addrs:
+                # don't connect to peers we've already connected to
+                # just save to db for this peer
+                try:
                     await loop.run_in_executor(
                         self._thread_pool_executor, self.save_addr, addr, peer._id
                     )
-            await asyncio.sleep(0)
-        log.trace(f"process_addrs loop exit for {peer}")
+                    continue
+                except asyncio.CancelledError as err:
+                    log.warning(
+                        f"process_addrs cancelled while saving {addr} to db for {peer} - {err}"
+                    )
+                    return
+
+            potential_peer = Peer(
+                addr["host"], addr["port"], self.network, self.datadir
+            )
+
+            try:
+                new_peer = await self.connect_peers([potential_peer])
+            except asyncio.CancelledError as err:
+                log.warning(
+                    f"process_addrs cancelled while attempting to connect to {potential_peer} - {err}"
+                )
+            if not new_peer:
+                log.warning(f"failed to connect to {potential_peer}.")
+                log.info(f"saving {addr} to db for {peer} ...")
+                try:
+                    await loop.run_in_executor(
+                        self._thread_pool_executor, self.save_addr, addr, peer._id
+                    )
+                except asyncio.CancelledError as err:
+                    log.warning(
+                        f"process_addrs cancelled while saving {addr} to db for {peer} - {err}"
+                    )
+                    return
+            else:
+                log.info(f"connected to {new_peer}.")
+                outgoing_peers = [
+                    peer for peer in self.peers if peer.type == "outgoing"
+                ]
+                log.debug(f"total outgoing connected peers: {len(outgoing_peers)}")
+                log.debug(f"saving {addr} to db for {peer} ...")
+                try:
+                    await loop.run_in_executor(
+                        self._thread_pool_executor, self.save_addr, addr, peer._id
+                    )
+                except asyncio.CancelledError as err:
+                    log.error(
+                        f"process_addrs cancelled while saving {addr} to db for {peer} - {err}"
+                    )
+                    return
+                log.debug(f"saving {addr} to db for self (peer id None) ...")
+                addr["time"] = int(time.time())
+                try:
+                    await loop.run_in_executor(
+                        self._thread_pool_executor, self.save_addr, addr, None
+                    )
+                except asyncio.CancelledError as err:
+                    log.error(
+                        f"process_addrs cancelled while saving {addr} to db for self (peer id None) - {err}"
+                    )
+                    return
+            try:
+                await asyncio.sleep(1)
+            except asyncio.CancelledError as err:
+                log.warning(f"process_addrs cancelled during sleep - {err}")
+                return
 
     def save_addr(self, addr: dict, peer_id: int):
         time_ = addr["time"]
@@ -1481,9 +1773,7 @@ class Node:
         )
 
     async def request_headers(self, peer: Peer):
-        while (
-            peer._ibd and not self.exit_event.is_set() and not peer.exit_event.is_set()
-        ):
+        while not self.exit_event.is_set() and not peer.exit_event.is_set():
             if (
                 not peer._pending_getheaders_request
                 and not peer._header_processing_queue
@@ -1644,13 +1934,13 @@ class Node:
 
         Expected response of 2000 inventories until we get current
         """
-        while self._ibd and not self.exit_event.is_set():
+        while not self.exit_event.is_set():
             block_inventories = list(
                 filter(lambda inv: inv["type_id"] == "MSG_BLOCK", peer.inventories)
             )
             if (
                 not block_inventories
-                and not self._block_processing_queue
+                and self._block_processing_queue.qsize() == 0
                 and not peer._pending_getblocks_request
             ):
                 current_block_height = self.db.get_blockchain_height()
@@ -1679,7 +1969,7 @@ class Node:
                 peer._pending_getblocks_request = None
             else:
                 log.trace(
-                    f"request_block_inventories skip. len(block_inventories)={len(block_inventories)}, len(block_processsing_queue)={len(self._block_processing_queue)}, pending_getblocks_request={peer._pending_getblocks_request} "
+                    f"request_block_inventories skip. len(block_inventories)={len(block_inventories)}, block_processing_queue.qsize()={self._block_processing_queue.qsize()}, pending_getblocks_request={peer._pending_getblocks_request} "
                 )
             await asyncio.sleep(1)
         log.trace("request_block_inventories loop exit")
@@ -1689,7 +1979,7 @@ class Node:
         Request blocks via 'getdata' from peer, during IBD
         """
         MAX_BLOCKS_IN_QUEUE = 128
-        while self._ibd and not self.exit_event.is_set():
+        while not self.exit_event.is_set():
             block_inventories = list(
                 filter(lambda inv: inv["type_id"] == "MSG_BLOCK", peer.inventories)
             )
@@ -1700,12 +1990,12 @@ class Node:
                 )
             )
             if (
-                len(self._block_processing_queue) < MAX_BLOCKS_IN_QUEUE
+                self._block_processing_queue.qsize() < MAX_BLOCKS_IN_QUEUE
                 and block_inventories
                 and not pending_getdata_requests
             ):
                 inventory_list = block_inventories[
-                    : MAX_BLOCKS_IN_QUEUE - len(self._block_processing_queue)
+                    : MAX_BLOCKS_IN_QUEUE - self._block_processing_queue.qsize()
                 ]
 
                 current_time = int(time.time())
@@ -1753,11 +2043,15 @@ class Node:
     async def process_blocks(self):
         loop = asyncio.get_running_loop()
         while not self.exit_event.is_set():
-            if self._block_processing_queue:
-                block = self._block_processing_queue.popleft()
+            try:
+                block = await asyncio.wait_for(
+                    self._block_processing_queue.get(), timeout=1
+                )
                 await loop.run_in_executor(
                     self._thread_pool_executor, self.process_block, block
                 )
+            except asyncio.TimeoutError:
+                pass
             await asyncio.sleep(0)
         log.trace("exit process_blocks")
 
@@ -1773,7 +2067,7 @@ class Node:
             # best_peer = self.get_best_peer()
             # TODO: switch sync node to best peer, and rollback to common ancestor, if necessary
         except (CheckBlockError, AcceptBlockError) as err:
-            raise err
+            log.error(err)
         except ConnectBlockError as err:
             log.error(err)
             # revert
@@ -1967,19 +2261,43 @@ class Node:
             ).strftime("%Y-%m-%d %H:%M:%S %Z"),
         }
 
+    async def submit_block(self, block: str):
+        """
+        Submit block to network
+        Args:
+            block: str, hex encoded block
+        """
+        block = Block(bytes.fromhex(block))
+        await self._block_processing_queue.put(block)
+        log.debug(
+            f"block {block['blockheaderhash']} added to processing queue. total blocks in queue: {self._block_processing_queue.qsize()}"
+        )
+        for peer in self.peers:
+            await peer.send_command(b"block", block)
+
+    async def submit_tx(self, tx_: str):
+        tx_ = Tx(bytes.fromhex(tx_))
+        return
+
     async def mine_blocks(self):
         loop = asyncio.get_running_loop()
         while not self.exit_event.is_set():
             block = await loop.run_in_executor(
-                self._thread_pool_executor, self.mine_block
+                self._thread_pool_executor,
+                self.mine_block,
+                self._miner_wallet_address.encode("utf8"),
             )
             log.debug(f"found block: {block.hex()}")
         log.trace("mine_blocks exit")
 
-    def mine_block(self, version: int = 2):
+    def mine_block(self, recv_addr: str, version: int = 2):
         """
-        Mine a block
+        Mine a block, with single coinbase txout paying block reward to recv_addr
+
+        Note: recv_addr can be a pubkey, base58check, or segwit address (as accepted by bits.script.scriptpubkey)
+
         Args:
+            recv_addr: str, address to pay coinbase txout to
             version: int, version of block
         Returns:
             bytes, mined block
@@ -2000,9 +2318,7 @@ class Node:
         mempool_txns = []
 
         # create coinbase tx
-        scriptpubkey_ = bits.script.scriptpubkey(
-            self._miner_wallet_address.encode("utf8")
-        )
+        scriptpubkey_ = bits.script.scriptpubkey(recv_addr.encode("utf8"))
         txins = [
             bits.tx.coinbase_txin(
                 b"bits",
@@ -2018,8 +2334,9 @@ class Node:
         coinbase_tx = bits.tx.tx(txins, txouts)
 
         block_txns = [coinbase_tx] + mempool_txns
+        block_txids = [bits.crypto.hash256(tx_) for tx_ in block_txns]
 
-        merkle_root_ = bits.blockchain.merkle_root(block_txns)
+        merkle_root_ = bits.blockchain.merkle_root(block_txids)
 
         target = bits.blockchain.target_threshold(
             bytes.fromhex(current_block_index_data["nBits"])[::-1]
@@ -2057,9 +2374,9 @@ class Node:
         new_blockheader = bits.blockchain.block_header(
             version,
             current_block["blockheaderhash"],
-            merkle_root_.hex(),
+            merkle_root_[::-1].hex(),
             int(time.time()),
-            next_nbits,  # TODO: modify to get next nbits
+            next_nbits,
             nonce,
         )
         hash_start = time.time()
@@ -2072,7 +2389,7 @@ class Node:
             new_blockheader = bits.blockchain.block_header(
                 version,
                 current_block["blockheaderhash"],
-                merkle_root_.hex(),
+                merkle_root_[::-1].hex(),
                 int(time.time()),
                 next_nbits,
                 nonce,
@@ -2091,7 +2408,7 @@ class Node:
         return new_block.hex()
 
     def get_node_info(self) -> Union[dict, None]:
-        ret = {"incoming": [], "outgoing": []}
+        ret = {"peers": {"incoming": [], "outgoing": []}}
         for peer in self.peers:
             peer_data = {"id": peer._id}
             cursor = self.db._conn.cursor()
@@ -2131,7 +2448,7 @@ class Node:
                         "totalchainwork": best_blockheader["chainwork"],
                     }
                 )
-            ret[peer.type].append(peer_data)
+            ret["peers"][peer.type].append(peer_data)
         return ret
 
     def rebuild_index(self):

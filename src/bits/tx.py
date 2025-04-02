@@ -134,7 +134,7 @@ def tx(
 
 def txid(tx_: bytes) -> str:
     """
-    Returns txid from tx bytes in rpc byte order
+    Returns txid from tx bytes in big endian byte order
     """
     return bits.crypto.hash256(tx_)[::-1].hex()
 

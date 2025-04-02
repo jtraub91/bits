@@ -7,9 +7,9 @@ import os
 import secrets
 import signal
 import sys
-import time
 from datetime import datetime, timezone
 from getpass import getpass
+from threading import Event
 
 import bits.base58
 import bits.blockchain
@@ -25,6 +25,7 @@ from bits.bips import bip173
 from bits.bips import bip32
 from bits.bips import bip39
 from bits.config import Config
+from bits.p2p import make_request
 
 
 class RawDescriptionDefaultsHelpFormatter(
@@ -58,29 +59,19 @@ def send_fraction(f):
 
 def add_common_arguments(
     parser: argparse.ArgumentParser,
-    include_network: bool = True,
+    include_config: bool = True,
     include_log_level: bool = True,
 ):
-    parser.add_argument(
-        "--config-dir",
-        "-c",
-        type=str,
-        action=ExplicitOption,
-        help="Directory to look for optional config file (config.toml or config.json). "
-        + "TOML will take precedence over JSON if both files are defined, "
-        + "but TOML is only available for python 3.11+ ",
-        default=os.path.join(os.path.expanduser("~"), ".bits"),
-    )
-    if include_network:
+    if include_config:
         parser.add_argument(
-            "--network",
-            "-N",
-            metavar="NETWORK",
+            "--config-dir",
+            "-c",
             type=str,
-            default="mainnet",
             action=ExplicitOption,
-            choices=["mainnet", "testnet", "regtest"],
-            help="network, e.g. 'mainnet', 'testnet', or 'regtest'",
+            help="Directory to look for optional config file (config.toml or config.json). "
+            + "TOML will take precedence over JSON if both files are defined, "
+            + "but TOML is only available for python 3.11+ ",
+            default=os.path.join(os.path.expanduser("~"), ".bits"),
         )
     if include_log_level:
         parser.add_argument(
@@ -198,7 +189,7 @@ Examples:
     parser.add_argument(
         "-R", "--reverse-bytes", action="store_true", help="reverse byte order"
     )
-    add_common_arguments(parser, include_network=False)
+    add_common_arguments(parser)
     add_input_arguments(parser)
     add_output_arguments(parser)
 
@@ -219,7 +210,6 @@ This command support PEM encoded EC private key output, via the --output-format 
 for compatibility with external tools, e.g. openssl, if needed.""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    add_common_arguments(key_parser, include_network=False)
     add_output_arguments(key_parser, include_output_format=False)
     key_parser.add_argument(
         "-0",
@@ -247,7 +237,6 @@ for compatibility with external tools, e.g. openssl, if needed.""",
     pubkey_parser.add_argument(
         "-X", "--compressed", action="store_true", help="output compressed pubkey"
     )
-    add_common_arguments(pubkey_parser, include_network=False)
     add_input_arguments(pubkey_parser)
     add_output_arguments(pubkey_parser, include_output_format=False)
     pubkey_parser.add_argument(
@@ -336,11 +325,20 @@ Byte definitions:
         type=bytes.fromhex,
         help="additional data (hex) to append to WIF key before base58check encoding",
     )
+    wif_parser.add_argument(
+        "--network",
+        "-N",
+        metavar="NETWORK",
+        type=str,
+        default="mainnet",
+        action=ExplicitOption,
+        choices=["mainnet", "testnet", "regtest"],
+        help="network, e.g. 'mainnet', 'testnet', or 'regtest'",
+    )
     wif_parser.add_argument("--decode", action="store_true", help="decode wif")
     wif_parser.add_argument(
         "--print", "-P", action="store_true", help="print newline at end"
     )
-    add_common_arguments(wif_parser)
     add_input_arguments(wif_parser, in_file_help="input private key data")
     add_output_arguments(
         wif_parser,
@@ -384,7 +382,16 @@ Use of this option implies a Segwit address and addr_type (-T) is ignored.""",
     addr_parser.add_argument(
         "--print", "-P", action="store_true", help="print newline at end"
     )
-    add_common_arguments(addr_parser)
+    addr_parser.add_argument(
+        "--network",
+        "-N",
+        metavar="NETWORK",
+        type=str,
+        default="mainnet",
+        action=ExplicitOption,
+        choices=["mainnet", "testnet", "regtest"],
+        help="network, e.g. 'mainnet', 'testnet', or 'regtest'",
+    )
     add_input_arguments(addr_parser)
     add_output_arguments(
         addr_parser,
@@ -477,7 +484,6 @@ Examples:
     mnemonic_parser.add_argument(
         "--print", "-P", action="store_true", help="print newline at end"
     )
-    add_common_arguments(mnemonic_parser)
     add_input_arguments(mnemonic_parser)
     add_output_arguments(mnemonic_parser)
 
@@ -510,7 +516,6 @@ Use --dump to deserialize & decode the derived key, and output json object to st
     hd_parser.add_argument(
         "--print", "-P", action="store_true", help="print newline at end"
     )
-    add_common_arguments(hd_parser, include_network=False)
     add_input_arguments(
         hd_parser,
         in_file_help="input data file - raw binary",
@@ -581,7 +586,6 @@ Standard transaction scripts:
         action="store_true",
         help="Use this flag to indicate this is a witness script and to follow witness script encoding / decoding semantics.",
     )
-    add_common_arguments(script_parser, include_network=False)
 
     sig_parser = sub_parser.add_parser(
         "sig",
@@ -634,7 +638,6 @@ Examples:
         action="store_true",
         help="indicates msg is pre-image, i.e. already has 4-byte sighash_flag appended. msg is still hashed, signed, then single-byte sighash_flag appended",
     )
-    add_common_arguments(sig_parser, include_network=False)
     add_input_arguments(sig_parser)
     add_output_arguments(sig_parser)
 
@@ -644,14 +647,12 @@ Examples:
         help="ripemd160(data)",
         description="""Calculate ripemd160 of input data""",
     )
-    add_common_arguments(ripemd160_parser, include_network=False)
     add_input_arguments(ripemd160_parser)
     add_output_arguments(ripemd160_parser)
 
     sha256_parser = sub_parser.add_parser(
         "sha256", help="sha256(data)", description="""Calculate sha256 of input data"""
     )
-    add_common_arguments(sha256_parser, include_network=False)
     add_input_arguments(sha256_parser)
     add_output_arguments(sha256_parser)
 
@@ -660,7 +661,6 @@ Examples:
         help="HASH160(data)",
         description="Calculate HASH160 of input data, i.e. ripemd160(sha256(data))",
     )
-    add_common_arguments(hash160_parser, include_network=False)
     add_input_arguments(hash160_parser)
     add_output_arguments(hash160_parser)
 
@@ -669,7 +669,6 @@ Examples:
         help="HASH256(data)",
         description="Calculate HASH256 of input data, i.e. sha256(sha256(data))",
     )
-    add_common_arguments(hash256_parser, include_network=False)
     add_input_arguments(hash256_parser)
     add_output_arguments(hash256_parser)
 
@@ -690,7 +689,6 @@ Examples:
     base58_parser.add_argument(
         "--print", "-P", action="store_true", help="print newline at end"
     )
-    add_common_arguments(base58_parser, include_network=False)
     add_input_arguments(base58_parser)
     add_output_arguments(
         base58_parser,
@@ -721,7 +719,6 @@ Examples:
     bech32_parser.add_argument(
         "--print", "-P", action="store_true", help="print newline at end"
     )
-    add_common_arguments(bech32_parser, include_network=False)
     add_input_arguments(bech32_parser)
     add_output_arguments(bech32_parser)
 
@@ -794,7 +791,6 @@ Examples:
     tx_parser.add_argument(
         "--decode", action="store_true", help="decode raw tx to JSON from input file"
     )
-    add_common_arguments(tx_parser, include_network=False)
     add_input_arguments(tx_parser)
     add_output_arguments(tx_parser)
 
@@ -820,26 +816,21 @@ Examples:
         help="reindex block indexes from blockheight 0",
     )
     p2p_parser.add_argument(
-        "--headers-only",
-        "-H",
-        action="store_true",
-        default=False,
-        help="only download headers for IBD",
-    )
-    p2p_parser.add_argument(
-        "--blocks-only",
-        "-B",
-        action="store_true",
-        default=False,
-        help="only download blocks for IBD",
-    )
-    p2p_parser.add_argument(
         "--assumevalid",
         type=int,
         default=0,
         help="assume block tx input scripts are valid, i.e. skip script verification, before blockheight",
     )
-    add_common_arguments(p2p_parser)
+    p2p_parser.add_argument(
+        "--network",
+        "-N",
+        metavar="NETWORK",
+        type=str,
+        default="mainnet",
+        action=ExplicitOption,
+        choices=["mainnet", "testnet", "regtest"],
+        help="network, e.g. 'mainnet', 'testnet', or 'regtest'",
+    )
 
     block_parser = sub_parser.add_parser(
         "block",
@@ -890,7 +881,9 @@ Examples:
         "--header-only", "-H", action="store_true", help="output block header only"
     )
     block_parser.add_argument("--decode", action="store_true", help="decode block")
-    add_common_arguments(block_parser)
+    block_parser.add_argument(
+        "--submit", action="store_true", help="submit block to network"
+    )
     add_input_arguments(block_parser)
     add_output_arguments(block_parser)
 
@@ -938,7 +931,6 @@ Examples:
         type=int,
         help="third, the 4th integer per degree notation, i.e. index of sat in block",
     )
-    add_common_arguments(satoshi_parser)
 
     mine_parser = sub_parser.add_parser(
         "mine",
@@ -951,7 +943,7 @@ Mine blocks.
     mine_parser.add_argument(
         "--recv-addr",
         dest="recv_addr",
-        type=os.fsencode,
+        type=str,
         required=True,
         help="""Address to send block reward to.""",
     )
@@ -960,7 +952,6 @@ Mine blocks.
         type=int,
         help="Set a limit of the number of blocks to mine before exit. Useful in regtest mode for generating a set number of blocks",
     )
-    add_common_arguments(mine_parser, include_network=False)
     return parser
 
 
@@ -1280,70 +1271,56 @@ def main():
             config.network,
             config.log_level,
             max_outgoing_peers=config.max_outgoing_peers,
-            # download_headers=download_headers,
-            # download_blocks=download_blocks,
-            # assumevalid=args.assumevalid,
-            miner_wallet_address=config.miner_wallet_address,
-            bind=config.bind,
         )
-        timestamp = int(time.time() * 1000)
-        with open(
-            os.path.join(p2p_node.requests_dir, f"{timestamp}_request.json"), "w"
-        ) as request_json:
-            json.dump({"method": "mine_block", "args": [], "kwargs": {}}, request_json)
-        while not os.path.exists(
-            os.path.join(p2p_node.requests_dir, f"{timestamp}_response.json")
-        ):
-            time.sleep(1)
-        with open(
-            os.path.join(p2p_node.requests_dir, f"{timestamp}_response.json"), "r"
-        ) as response_json:
-            response = json.load(response_json)
-        bits.write_bytes(
-            bytes.fromhex(response.get("return", "")),
-            args.out_file,
-            output_format=config.output_format,
-        )
+
+        stop_event = Event()
+
+        def stop(*args):
+            log.info("keyboard interrupt received. stopping ...")
+            stop_event.set()
+            log.debug("stop_event set")
+
+        signal.signal(signal.SIGINT, stop)
+        signal.signal(signal.SIGTERM, stop)
+
+        blocks_mined = 0
+        while not stop_event.is_set():
+            try:
+                block = make_request(
+                    p2p_node._requests_dir, "mine_block", (args.recv_addr,)
+                )
+            except TimeoutError:
+                log.error("mine_block request timed out. is p2p node running?")
+                stop_event.set()
+                continue
+            try:
+                make_request(p2p_node._requests_dir, "submit_block", (block,))
+            except TimeoutError:
+                log.error("submit_block request timed out. is p2p node running?")
+                stop_event.set()
+                continue
+            blocks_mined += 1
+            if args.limit and blocks_mined >= args.limit:
+                stop_event.set()
+
+        log.info(f"mined {blocks_mined} blocks with reward sent to {args.recv_addr}")
         return
     elif args.subcommand == "p2p":
-        if args.headers_only and args.blocks_only:
-            log.error("only one of --headers-only or --blocks-only may be supplied")
-            return
-        elif args.headers_only or args.blocks_only:
-            download_headers = True if args.headers_only else False
-            download_blocks = True if args.blocks_only else False
-        else:
-            download_blocks = True
-            download_headers = True
+        seeds = [seed.split(":") for seed in config.seeds]
+        seeds = [(host, int(port)) for host, port in seeds]
         p2p_node = bits.p2p.Node(
-            config.seeds,
+            seeds,
             config.datadir,
             config.network,
             config.log_level,
             max_outgoing_peers=config.max_outgoing_peers,
-            download_headers=download_headers,
-            download_blocks=download_blocks,
             assumevalid=args.assumevalid,
             miner_wallet_address=config.miner_wallet_address,
             bind=config.bind,
         )
         if args.info:
-            timestamp = int(time.time() * 1000)
-            with open(
-                os.path.join(p2p_node.requests_dir, f"{timestamp}_request.json"), "w"
-            ) as request_json:
-                json.dump(
-                    {"method": "get_node_info", "args": [], "kwargs": {}}, request_json
-                )
-            while not os.path.exists(
-                os.path.join(p2p_node.requests_dir, f"{timestamp}_response.json")
-            ):
-                time.sleep(1)
-            with open(
-                os.path.join(p2p_node.requests_dir, f"{timestamp}_response.json"), "r"
-            ) as response_json:
-                response = json.load(response_json)
-            print(json.dumps(response.get("return", {})))
+            ret = make_request(p2p_node._requests_dir, "get_node_info")
+            print(json.dumps(ret))
             return
         if args.reindex:
             key = input(f"reindex from blockheight 0? (y/n) ")
@@ -1372,6 +1349,16 @@ def main():
         if args.block is None:
             block = bits.read_bytes(args.in_file, input_format=config.input_format)
             header = block[:80]
+            if args.submit:
+                node = bits.p2p.Node(
+                    config.seeds,
+                    config.datadir,
+                    config.network,
+                    config.log_level,
+                    max_outgoing_peers=config.max_outgoing_peers,
+                )
+                make_request(node._requests_dir, "submit_block", (block.hex(),))
+                return
         else:
             node = bits.p2p.Node(
                 config.seeds,

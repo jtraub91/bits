@@ -1,5 +1,6 @@
 import typing
 from collections import deque
+from typing import Union
 
 import bits.base58
 import bits.constants
@@ -10,13 +11,13 @@ import bits.tx
 from bits.tx import Tx
 
 
-def scriptpubkey(data: bytes) -> bytes:
+def scriptpubkey(data: Union[bytes, str]) -> bytes:
     """
     Create scriptpubkey by inferring input data type
     Supports data as pubkey, base58check, or segwit
 
     Args:
-        data: bytes, pubkey, base58check, or segwit address
+        data: Union[bytes, str], pubkey, base58check, or segwit address
 
     >>> # p2pk
     >>> scriptpubkey(bytes.fromhex("025a058ec9fb35845ce07b6ec4929b443132b2fce2bb154e3aa66c19b851b0c449")).hex()
@@ -31,6 +32,12 @@ def scriptpubkey(data: bytes) -> bytes:
     >>> scriptpubkey(b"bc1qvduqal3pk4x5vtfendx9hxgzydd22u8v0pzd7h").hex()
     '001463780efe21b54d462d399b4c5b9902235aa570ec'
     """
+    if isinstance(data, str):
+        try:
+            data = bytes.fromhex(data)
+        except ValueError:
+            data = data.encode("utf8")
+
     if bits.ecmath.is_point(data):
         return p2pk_script_pubkey(data)
     elif bits.base58.is_base58check(data):
