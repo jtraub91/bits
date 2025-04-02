@@ -533,8 +533,8 @@ For encoding, script_args shall either be OP_* or data. The script
 will be properly encoded with data push opcodes, as necessary, but since these are implied, 
 they should not be specified in script_args.
 
-For decoding, use the --decode flag. In this mode, script_args shall be any number of 
-hex-encoded scripts, and will be decoded to to opcodes / data.
+For decoding, use the --decode flag. In this mode, script_args should be empty, and 
+script should be provided via the input file / arguments, and will be decoded to opcodes / data.
 
 Use --witness to indicate witness script encoding / decoding and to follow witness 
 script semantics (i.e. include stack size push and difference in handling data push bytes) 
@@ -574,18 +574,19 @@ Standard transaction scripts:
     script_parser.add_argument(
         "script_args",
         nargs="*",
-        help="Script arguments, e.g. OP_* or <data>. Or, hex-encoded script(s) when using --decode",
+        help="Script arguments, e.g. OP_* or <data>, to encode",
     )
     script_parser.add_argument(
         "--decode",
         action="store_true",
-        help="Use this flag to decode hex-encoded script to opcodes / data.",
+        help="Use this flag to decode input script to opcodes / data.",
     )
     script_parser.add_argument(
         "--witness",
         action="store_true",
         help="Use this flag to indicate this is a witness script and to follow witness script encoding / decoding semantics.",
     )
+    add_input_arguments(script_parser)
 
     sig_parser = sub_parser.add_parser(
         "sig",
@@ -1229,14 +1230,13 @@ def main():
         bits.write_bytes(tx_, args.out_file, output_format=args.output_format)
     elif args.subcommand == "script":
         if args.decode:
-            decoded = []
-            for script in args.script_args:
-                script_bytes = bytes.fromhex(script)
-                script_decoded = bits.script.decode_script(
-                    script_bytes, witness=args.witness
-                )
-                decoded.append(script_decoded)
-            print(json.dumps(decoded))
+            script_bytes = bits.read_bytes(
+                args.in_file, input_format=config.input_format
+            )
+            script_decoded = bits.script.decode_script(
+                script_bytes, witness=args.witness
+            )
+            print(json.dumps(script_decoded))
             return
         bits.write_bytes(
             bits.script.script(args.script_args, witness=args.witness),
@@ -1284,25 +1284,22 @@ def main():
         signal.signal(signal.SIGTERM, stop)
 
         blocks_mined = 0
-        while not stop_event.is_set():
+        while True:
             try:
                 block = make_request(
                     p2p_node._requests_dir, "mine_block", (args.recv_addr,)
                 )
             except TimeoutError:
                 log.error("mine_block request timed out. is p2p node running?")
-                stop_event.set()
-                continue
+                break
             try:
                 make_request(p2p_node._requests_dir, "submit_block", (block,))
             except TimeoutError:
                 log.error("submit_block request timed out. is p2p node running?")
-                stop_event.set()
-                continue
+                break
             blocks_mined += 1
             if args.limit and blocks_mined >= args.limit:
-                stop_event.set()
-
+                break
         log.info(f"mined {blocks_mined} blocks with reward sent to {args.recv_addr}")
         return
     elif args.subcommand == "p2p":

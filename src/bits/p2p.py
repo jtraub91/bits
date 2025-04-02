@@ -529,8 +529,13 @@ def make_request(
     time_start = time.time()
     while not os.path.exists(response_filepath):
         if time.time() - time_start > timeout:
-            os.remove(request_filepath)
-            raise TimeoutError(f"timeout waiting for response from Node")
+            try:
+                os.remove(request_filepath)
+                log.debug(f"removed {request_filename}.")
+            except FileNotFoundError:
+                pass
+            log.error(f"timeout waiting for response from Node")
+            raise TimeoutError("timeout waiting for response from Node")
         time.sleep(0.01)
     log.debug(f"reading {response_filename} ...")
     with open(response_filepath, "r") as f:
