@@ -19,7 +19,7 @@ class Config(object):
         self.seeds = kwargs.get("seeds", [])
         self.max_outgoing_peers = kwargs.get("max_outgoing_peers", 5)
         self.miner_wallet_address = kwargs.get("miner_wallet_address", "")
-        self.bind = kwargs.get("bind", "")
+        self.bind = kwargs.get("bind", None)
 
         self.input_format = kwargs.get("input_format", "hex")
         self.output_format = kwargs.get("output_format", "hex")

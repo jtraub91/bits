@@ -671,7 +671,7 @@ class Node:
         index_ordinals: bool = False,
         assumevalid: int = 0,
         miner_wallet_address: str = "",
-        bind: str = "",
+        bind: Optional[Tuple[str, int]] = None,
     ):
         """
         bits P2P node
@@ -686,15 +686,26 @@ class Node:
             user_agent: bytes
         """
         if bind:
-            addr, port = bind.split(":")
-            port = int(port)
-            self._bind = (addr, port)
+            self._bind = bind
+        elif network == "mainnet":
+            self._bind = ("0.0.0.0", 10101)
+        elif network == "testnet":
+            self._bind = ("0.0.0.0", 20202)
+        elif network == "regtest":
+            self._bind = ("0.0.0.0", 30303)
         else:
-            self._bind = None
+            raise ValueError(f"unknown network: {network}")
+
         self._incoming_peer_server_task = None
         self._connect_seeds_task = None
         self._connect_seeds_exit_event = Event()
         self._connect_former_peers_task = None
+
+        self._request_block_inventories_task = None
+        self._request_block_inventories_event = asyncio.Event()
+        self._request_blocks_task = None
+        self._request_blocks_event = asyncio.Event()
+
         self._miner_wallet_address = miner_wallet_address
         self._assumevalid = assumevalid
         self._index_ordinals = index_ordinals
@@ -775,7 +786,7 @@ class Node:
 
         self.message_queue = asyncio.Queue()
 
-        self._block_processing_queue = asyncio.Queue()
+        self._block_processing_queue = asyncio.Queue(maxsize=128)
         self._block_cache: dict[str, dict] = {}
         # block cache e.g.
         # {"<blockheaderhash": {"time": <time:int>, "data": <block:Block>}, ...}
@@ -799,7 +810,6 @@ class Node:
     def handle_feefilter_command(self, peer: Peer, command: bytes, payload: bytes):
         payload = parse_feefilter_payload(payload)
         with self._thread_lock:
-            self.db.save_peer_data(peer._id, {"feefilter": payload})
             cursor = self.db._conn.cursor()
             cursor.execute(
                 f"UPDATE peer SET feefilter_feerate={payload['feerate']} WHERE id={peer._id};"
@@ -809,7 +819,10 @@ class Node:
 
     def handle_sendheaders_command(self, peer: Peer, command: bytes, payload: bytes):
         with self._thread_lock:
-            self.db.save_peer_data(peer._id, {"sendheaders": 1})
+            cursor = self.db._conn.cursor()
+            cursor.execute(f"UPDATE peer SET sendheaders=1 WHERE id={peer._id};")
+            self.db._conn.commit()
+            cursor.close()
 
     def handle_reject_command(self, peer: Peer, command: bytes, payload: bytes):
         """
@@ -913,11 +926,15 @@ class Node:
             == block["prev_blockheaderhash"]
         ):
             peer._pending_getblocks_request = None
+            peer_block_inventories = [
+                inv for inv in peer.inventories if inv["type_id"] == "MSG_BLOCK"
+            ]
+            if not peer_block_inventories and self._block_processing_queue.qsize() == 0:
+                self._request_block_inventories_event.set()
 
     def handle_sendcmpct_command(self, peer: Peer, command: bytes, payload: bytes):
         payload = parse_sendcmpct_payload(payload)
         with self._thread_lock:
-            self.db.save_peer_data(peer._id, {"sendcmpct": payload})
             cursor = self.db._conn.cursor()
             cursor.execute(
                 f"UPDATE peer SET sendcmpct_announce={payload['announce']}, sendcmpct_version={payload['version']} WHERE id={peer._id};"
@@ -988,25 +1005,6 @@ class Node:
             peer_id = self.db.get_peer(peer.host, peer.port)
             if not peer_id:
                 peer_id = self.db.save_peer(peer.host, peer.port)
-                # save hardcoded genesis block to blockheader table for peer
-                genesis_blockheader = Blockheader(
-                    genesis_block(network=self.network)[:80]
-                )
-                with self._thread_lock:
-                    self.db.save_blockheader(
-                        0,
-                        genesis_blockheader["blockheaderhash"],
-                        genesis_blockheader["version"],
-                        genesis_blockheader["prev_blockheaderhash"],
-                        genesis_blockheader["merkle_root_hash"],
-                        genesis_blockheader["nTime"],
-                        genesis_blockheader["nBits"],
-                        genesis_blockheader["nNonce"],
-                        bits.blockchain.new_chainwork(
-                            "0", genesis_blockheader["nBits"]
-                        ),
-                        peer_id,
-                    )
                 peer._id = peer_id
                 log.info(f"{peer} saved to db.")
             peer._id = peer_id
@@ -1024,8 +1022,10 @@ class Node:
                 version_data = connect_to_peer_task.result()
                 # TODO: verify version data more rigorously?
                 # nonce, timestamp, recv / trans addrs services
+                # save all of it to db
+                # TODO: hydrate Peer class with db data, for easy retrieval, especially for items that don't change often
                 log.debug(f"{peer} version payload: {version_data}")
-                self.db.save_peer_data(peer._id, {"version": version_data})
+                peer._version_data = version_data
                 cursor = self.db._conn.cursor()
                 cursor.execute(
                     f"UPDATE peer SET protocol_version={version_data['protocol_version']}, services={version_data['services']}, user_agent='{version_data['user_agent']}', start_height='{version_data['start_height']}' WHERE id={peer._id};"
@@ -1034,27 +1034,23 @@ class Node:
                 cursor.close()
                 log.info(f"version data for {peer} saved to db")
                 self.peers.append(peer)
-                if len(self.peers) == 1:
-                    blockheight = self.db.get_blockchain_height()
-                    # choose a peer as sync node
-                    # if blockchain is 144 blocks behind peer (~24 hr) enter ibd
-                    sync_node = self.peers[0]
-                    sync_node_version_data = self.db.get_peer_data(
-                        sync_node._id, "version"
-                    )
-                    self.sync_node_start_height = sync_node_version_data["start_height"]
-                    if sync_node_version_data["start_height"] - blockheight > 144:
-                        log.info(
-                            f"local blockchain is behind sync node {sync_node} by {sync_node_version_data['start_height'] - blockheight} blocks. Entering IBD..."
-                        )
-                        asyncio.create_task(self.request_block_inventories(sync_node))
-                        asyncio.create_task(self.request_blocks(sync_node))
+                # if len(self.peers) == 1:
+                #     blockheight = self.db.get_blockchain_height()
+                #     # choose a peer as sync node
+                #     # if blockchain is 144 blocks behind peer (~24 hr) enter ibd
+                #     sync_node = self.peers[0]
+                #     if sync_node._version_data["start_height"] - blockheight > 144:
+                #         log.info(
+                #             f"local blockchain is behind sync node {sync_node} by {sync_node._version_data['start_height'] - blockheight} blocks. Entering IBD..."
+                #         )
+                #         asyncio.create_task(self.request_block_inventories(sync_node))
+                #         asyncio.create_task(self.request_blocks(sync_node))
 
                 # asyncio.create_task(self.request_tx(sync_node))
                 connected_peers.append(peer)
                 asyncio.create_task(self.outgoing_peer_recv_loop(peer))
-                asyncio.create_task(peer.send_command(b"getaddr"))
-                asyncio.create_task(self.process_addrs(peer))
+                # asyncio.create_task(peer.send_command(b"getaddr"))
+                # asyncio.create_task(self.process_addrs(peer))
         return connected_peers
 
     async def connect_to_peer(self, peer: Peer) -> dict:
@@ -1204,21 +1200,6 @@ class Node:
         peer_id = self.db.get_peer(peer.host, peer.port)
         if not peer_id:
             peer_id = self.db.save_peer(peer.host, peer.port)
-            # save hardcoded genesis block to blockheader table for peer
-            genesis_blockheader = Blockheader(genesis_block(network=self.network)[:80])
-            with self._thread_lock:
-                self.db.save_blockheader(
-                    0,
-                    genesis_blockheader["blockheaderhash"],
-                    genesis_blockheader["version"],
-                    genesis_blockheader["prev_blockheaderhash"],
-                    genesis_blockheader["merkle_root_hash"],
-                    genesis_blockheader["nTime"],
-                    genesis_blockheader["nBits"],
-                    genesis_blockheader["nNonce"],
-                    bits.blockchain.new_chainwork("0", genesis_blockheader["nBits"]),
-                    peer_id,
-                )
             peer._id = peer_id
             log.info(f"{peer} saved to db.")
         peer._id = peer_id
@@ -1234,7 +1215,7 @@ class Node:
         else:
             version_data = connect_from_peer_task.result()
             log.debug(f"{peer} version payload: {version_data}")
-            self.db.save_peer_data(peer._id, {"version": version_data})
+            peer._version_data = version_data
             cursor = self.db._conn.cursor()
             cursor.execute(
                 f"UPDATE peer SET protocol_version={version_data['protocol_version']}, services={version_data['services']}, user_agent='{version_data['user_agent']}', start_height='{version_data['start_height']}' WHERE id={peer._id};"
@@ -1469,33 +1450,49 @@ class Node:
         return number_of_blocks_on_disk
 
     def startup_checks(self):
-        # check datadir for internal consistency
-        dat_filenames = sorted(
+        """
+        Run basic startup checks comparing block data on disk with block data in index db
+        """
+        blockheight = self.db.get_blockchain_height()
+        last_block_index_data = self.db.get_block(blockheight=blockheight)
+
+        dat_files = sorted(
             [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
         )
-        dat_filename = dat_filenames[-1]
-        blocks = self.parse_dat_file(os.path.join(self.blocksdir, dat_filename))
-        if not blocks:
-            raise AssertionError(f"{dat_filename} is empty")
-        last_block = blocks[-1]
-
-        number_of_blocks_on_disk = self.count_blocks()
-        number_of_blocks_in_index = self.db.count_blocks()
-
-        if number_of_blocks_on_disk != number_of_blocks_in_index:
-            raise AssertionError(
-                f"number of blocks on disk ({number_of_blocks_on_disk}) does not equal the number of blocks in index ({number_of_blocks_in_index})."
+        last_dat_filepath = os.path.join(self.blocksdir, dat_files[-1])
+        last_dat_file_relpath = os.path.relpath(last_dat_filepath, start=self.datadir)
+        if not os.path.getsize(os.path.join(self.datadir, last_dat_file_relpath)):
+            raise ValueError(
+                f"last dat file found on disk ({last_dat_file_relpath}) is empty"
             )
 
-        else:
-            # block on disk == blocks in index,
-            # do further sanity checks
-            blockheight = self.db.get_blockchain_height()
-            last_block_index = self.db.get_block(blockheight=blockheight)
-            blockheaderhash_calc = bits.crypto.hash256(last_block[:80])[::-1].hex()
-            if blockheaderhash_calc != last_block_index["blockheaderhash"]:
-                raise AssertionError(
-                    "last blockheaderhash in index does not match last block on disk"
+        if last_dat_file_relpath != last_block_index_data["datafile"]:
+            raise ValueError(
+                f"last block index entry datafile ({last_block_index_data['datafile']}) does not match last dat file found on disk ({last_dat_file_relpath})"
+            )
+
+        with open(
+            os.path.join(self.datadir, last_block_index_data["datafile"]), "rb"
+        ) as dat_file:
+            dat_file.seek(last_block_index_data["datafile_offset"])
+            _ = dat_file.read(4)
+            length = int.from_bytes(dat_file.read(4), "little")
+            _ = dat_file.read(length)
+            more_data = dat_file.read()
+        if more_data:
+            raise ValueError(
+                "more data found on disk, after last block as indicated in index db"
+            )
+
+        for i in range(6):
+            block_index_data = self.db.get_block(blockheight=blockheight - i)
+            block = self.get_block_data(
+                os.path.join(self.datadir, block_index_data["datafile"]),
+                block_index_data["datafile_offset"],
+            )
+            if block_index_data["blockheaderhash"] != block["blockheaderhash"]:
+                raise ValueError(
+                    f"blockheaderhash in index db for block {blockheight - i} ({block_index_data['blockheaderhash']}) does not match calculated blockheaderhash for block data on disk ({block['blockheaderhash']})"
                 )
 
     def run(self, reindex: bool = False):
@@ -1518,36 +1515,78 @@ class Node:
         if not os.path.exists(self.index_db_filepath):
             reindex = True
         if reindex:
+            log.debug("removing index db ...")
             self.db._conn.close()
             os.remove(self.index_db_filepath)
             self.db = Db(self.index_db_filepath)
+            log.debug("creating tables...")
             self.db.create_tables()
+            log.debug("rebuilding index...")
             self.rebuild_index()
         else:
+            log.debug("running startup checks...")
             self.startup_checks()
-
-        if self._bind:
-            self._incoming_peer_server_task = asyncio.create_task(
-                self.incoming_peer_server(self._bind[0], self._bind[1])
-            )
 
         self._connect_seeds_task = asyncio.create_task(self.connect_seeds())
         self._connect_former_peers_task = asyncio.create_task(
             self.connect_former_peers()
         )
-        asyncio.create_task(self.message_handler_loop())
-        asyncio.create_task(self.process_blocks())
+        message_handler_loop_task = asyncio.create_task(self.message_handler_loop())
+        process_blocks_task = asyncio.create_task(self.process_blocks())
         # asyncio.create_task(self.process_mempool_txns())
         # asyncio.create_task(self.mine_blocks())
-        asyncio.create_task(self.main_loop())
+        main_loop_task = asyncio.create_task(self.main_loop())
 
-        tasks = asyncio.all_tasks()
-        tasks.remove(asyncio.current_task())
-        if self._incoming_peer_server_task:
-            await self._incoming_peer_server_task
         await self._connect_seeds_task
         await self._connect_former_peers_task
-        await asyncio.gather(*tasks)
+        cursor = self.db._conn.cursor()
+        cursor.execute(
+            "SELECT id, start_height FROM peer ORDER BY start_height DESC LIMIT 1;"
+        )
+        result = cursor.fetchone()
+        cursor.close()
+        if result:
+            start_height = result[1]
+            blockheight = self.db.get_blockchain_height()
+            if blockheight < start_height:
+                sync_node = next(filter(lambda p: p._id == result[0], self.peers), None)
+                if sync_node:
+                    log.debug(f"{sync_node} chosen as sync_node")
+                    self._request_block_inventories_event = asyncio.Event()
+                    self._request_block_inventories_event.set()
+                    self._request_block_inventories_task = asyncio.create_task(
+                        self.request_block_inventories(sync_node)
+                    )
+                    self._request_blocks_task = asyncio.create_task(
+                        self.request_blocks(sync_node)
+                    )
+
+        self._incoming_peer_server_task = asyncio.create_task(
+            self.incoming_peer_server(self._bind[0], self._bind[1])
+        )
+
+        tasks = [
+            message_handler_loop_task,
+            process_blocks_task,
+            main_loop_task,
+            self._incoming_peer_server_task,
+        ]
+        if self._request_block_inventories_task:
+            tasks.append(self._request_block_inventories_task)
+        if self._request_blocks_task:
+            tasks.append(self._request_blocks_task)
+
+        def handle_task_exception(task):
+            try:
+                task.result()
+            except Exception as err:
+                log.error(f"task failed: {err}")
+                raise err
+
+        for task in tasks:
+            task.add_done_callback(handle_task_exception)
+
+        await asyncio.wait(tasks)
         log.trace("main exit")
 
     async def connect_seeds(self):
@@ -1811,14 +1850,16 @@ class Node:
         log.info(f"process_headers loop exit for {peer}")
 
     def process_header(self, peer: Peer, blockheader: Union[Blockheader, Bytes, bytes]):
+        # TODO: refactor, blockheader table removed
         cursor = self.db._conn.cursor()
         current_blockheader_height = cursor.execute(
             f"SELECT blockheight FROM blockheader WHERE peer_id='{peer._id}' ORDER BY blockheight DESC LIMIT 1;"
         ).fetchone()[0]
         cursor.close()
-        current_blockheader_index_data = self.db.get_blockheader(
-            peer._id, blockheight=current_blockheader_height
-        )
+        # current_blockheader_index_data = self.db.get_blockheader(
+        #     peer._id, blockheight=current_blockheader_height
+        # )
+        current_blockheader_index_data = {"data": "TODO"}
 
         blockheader_height = current_blockheader_height + 1
 
@@ -1827,9 +1868,11 @@ class Node:
                 f"blockheader {blockheader['blockheaderhash']} from {peer} check failed"
             )
 
-        if self.db.get_blockheader(
-            peer._id, blockheaderhash=blockheader["blockheaderhash"]
-        ):
+        # blockheader_ = self.db.get_blockheader(
+        #     peer._id, blockheaderhash=blockheader["blockheaderhash"]
+        # )
+        blockheader_ = "TODO"
+        if blockheader_:
             raise AcceptBlockError(
                 f"blockheader hash {blockheader['blockheaderhash']} already found in current blockheaders for {peer}"
             )
@@ -1867,21 +1910,22 @@ class Node:
                 f"blockheader {blockheader['blockheaderhash']} from {peer} nTime {blockheader['nTime']} is more than two hours in the future {current_time + 7200}"
             )
 
-        with self._thread_lock:
-            new_blockheader_index_data = self.db.save_blockheader(
-                blockheader_height,
-                blockheader["blockheaderhash"],
-                blockheader["version"],
-                blockheader["prev_blockheaderhash"],
-                blockheader["merkle_root_hash"],
-                blockheader["nTime"],
-                blockheader["nBits"],
-                blockheader["nNonce"],
-                bits.blockchain.new_chainwork(
-                    current_blockheader_index_data["chainwork"], blockheader["nBits"]
-                ),
-                peer._id,
-            )
+        ## TODO: save to somewhere else (in memory?)
+        # with self._thread_lock:
+        #     new_blockheader_index_data = self.db.save_blockheader(
+        #         blockheader_height,
+        #         blockheader["blockheaderhash"],
+        #         blockheader["version"],
+        #         blockheader["prev_blockheaderhash"],
+        #         blockheader["merkle_root_hash"],
+        #         blockheader["nTime"],
+        #         blockheader["nBits"],
+        #         blockheader["nNonce"],
+        #         bits.blockchain.new_chainwork(
+        #             current_blockheader_index_data["chainwork"], blockheader["nBits"]
+        #         ),
+        #         peer._id,
+        #     )
         log.info(f"added blockheader {blockheader_height} to header chain for {peer}")
 
     async def request_tx(self, peer: Peer):
@@ -1983,7 +2027,6 @@ class Node:
         """
         Request blocks via 'getdata' from peer, during IBD
         """
-        MAX_BLOCKS_IN_QUEUE = 128
         while not self.exit_event.is_set():
             block_inventories = list(
                 filter(lambda inv: inv["type_id"] == "MSG_BLOCK", peer.inventories)
@@ -1995,12 +2038,14 @@ class Node:
                 )
             )
             if (
-                self._block_processing_queue.qsize() < MAX_BLOCKS_IN_QUEUE
+                self._block_processing_queue.qsize()
+                < self._block_processing_queue.maxsize
                 and block_inventories
                 and not pending_getdata_requests
             ):
                 inventory_list = block_inventories[
-                    : MAX_BLOCKS_IN_QUEUE - self._block_processing_queue.qsize()
+                    : self._block_processing_queue.maxsize
+                    - self._block_processing_queue.qsize()
                 ]
 
                 current_time = int(time.time())
@@ -2436,23 +2481,6 @@ class Node:
                         "sendcmpct_version": query[8],
                     }
                 )
-            cursor = self.db._conn.cursor()
-            query = cursor.execute(
-                f"SELECT COUNT(*) FROM blockheader WHERE peer_id={peer._id};"
-            ).fetchone()
-            cursor.close()
-            if query:
-                peer_data.update({"blockheaders": query[0]})
-                best_blockheader = self.db.get_blockheader(
-                    peer._id, blockheight=peer_data["blockheaders"] - 1
-                )
-                peer_data.update(
-                    {
-                        "bestblockheaderhash": best_blockheader["blockheaderhash"],
-                        "bestblockheight": best_blockheader["blockheight"],
-                        "totalchainwork": best_blockheader["chainwork"],
-                    }
-                )
             ret["peers"][peer.type].append(peer_data)
         return ret
 
@@ -2462,9 +2490,6 @@ class Node:
 
         Assumes that the blocks on disk are ordered by blockheight.
         """
-        # block_i is our counter for the blockheight as indicated by the order of block data on disk
-        block_i = 0
-
         log.info("rebuilding index...")
         dat_filenames = sorted(
             [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
@@ -3013,9 +3038,11 @@ class Node:
                 f"SELECT blockheight FROM blockheader WHERE peer_id='{peer_id}' ORDER BY blockheight DESC LIMIT 1;"
             ).fetchone()[0]
             cursor.close()
-            current_block_index_data = self.db.get_blockheader(
-                peer_id, blockheight=current_blockheight
-            )
+            # TODO: refactor this with blockheader table removed
+            # current_block_index_data = self.db.get_blockheader(
+            #     peer_id, blockheight=current_blockheight
+            # )
+            current_block_index_data = {"data": "TODO"}
         else:
             next_block = Block(next_block)
             current_blockheight = self.db.get_blockchain_height()
@@ -3077,9 +3104,11 @@ class Node:
                     current_blockheight - 2015
                 )  # first block of difficulty period
             elif isinstance(next_block, Blockheader):
-                block_0_index_data = self.db.get_blockheader(
-                    peer_id, current_blockheight - 2015
-                )
+                # TODO: refactor this with blockheader table removed
+                # block_0_index_data = self.db.get_blockheader(
+                #     peer_id, current_blockheight - 2015
+                # )
+                block_0_index_data = {"data": "TODO"}
 
             elapsed_time = (
                 current_block_index_data["nTime"] - block_0_index_data["nTime"]
@@ -3111,7 +3140,6 @@ class Db:
 
     def create_tables(self):
         self.create_block_table()
-        self.create_blockheader_table()
         self.create_utxoset_table()
         self.create_ordinal_range_table()
         self.create_peer_table()
@@ -3204,43 +3232,6 @@ class Db:
             self._conn.commit()
         cursor.close()
 
-    def create_blockheader_table(self):
-        cursor = self._conn.cursor()
-        query = cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='blockheader';"
-        ).fetchone()
-        if not query:
-            cursor.execute("BEGIN TRANSACTION;")
-            cursor.execute(
-                """
-                CREATE TABLE blockheader (
-                    id INTEGER PRIMARY KEY,
-                    blockheight INTEGER,
-
-                    blockheaderhash TEXT,
-                    version INTEGER,
-                    prev_blockheaderhash TEXT,
-                    merkle_root_hash TEXT,
-                    nTime INTEGER,
-                    nBits TEXT,
-                    nNonce INTEGER,
-
-                    chainwork TEXT,
-
-                    peer_id INTEGER,
-                    FOREIGN KEY(peer_id) REFERENCES peer(id)
-                )
-                """
-            )
-            cursor.execute(
-                "CREATE INDEX blockheader_blockheaderhash_index ON blockheader(blockheaderhash, peer_id);"
-            )
-            cursor.execute(
-                "CREATE INDEX blockheader_blockheight_index ON blockheader(blockheight, peer_id);"
-            )
-            self._conn.commit()
-        cursor.close()
-
     def create_ordinal_range_table(self):
         cursor = self._conn.cursor()
         query = cursor.execute(
@@ -3256,9 +3247,9 @@ class Db:
                     end INTEGER,
 
                     utxoset_id INTEGER,
-                    revert_block_id INTEGER,
+                    revert_id INTEGER,
                     FOREIGN KEY(utxoset_id) REFERENCES utxoset(id) ON DELETE SET NULL,
-                    FOREIGN KEY(revert_block_id) REFERENCES revert(id) ON DELETE SET NULL
+                    FOREIGN KEY(revert_id) REFERENCES revert(id) ON DELETE SET NULL
                 );
                 """
             )
@@ -3266,7 +3257,7 @@ class Db:
                 "CREATE INDEX ordinal_range_utxoset_id_index ON ordinal_range(utxoset_id);"
             )
             cursor.execute(
-                "CREATE INDEX ordinal_range_revert_block_id_index ON ordinal_range(revert_block_id);"
+                "CREATE INDEX ordinal_range_revert_id_index ON ordinal_range(revert_id);"
             )
             self._conn.commit()
         cursor.close()
@@ -3283,9 +3274,6 @@ class Db:
                     id INTEGER PRIMARY KEY,
                     host TEXT,
                     port INTEGER,
-                    data TEXT,
-                    addrs TEXT,
-                    invs TEXT,
 
                     protocol_version INTEGER,
                     services INTEGER,
@@ -3295,8 +3283,7 @@ class Db:
                     feefilter_feerate INTEGER,
                     sendcmpct_announce BOOLEAN,
                     sendcmpct_version INTEGER,
-
-                    is_connected BOOLEAN
+                    sendheaders BOOLEAN DEFAULT 0
                 );
             """
             )
@@ -3359,102 +3346,6 @@ class Db:
             self._conn.commit()
         cursor.close()
 
-    def save_blockheader(
-        self,
-        blockheight: int,
-        blockheaderhash: str,
-        version: int,
-        prev_blockheaderhash: str,
-        merkle_root_hash: str,
-        nTime: int,
-        nBits: str,
-        nNonce: int,
-        chainwork: str,
-        peer_id: int,
-    ) -> dict:
-        cursor = self._conn.cursor()
-        cursor.execute(
-            f"""
-            INSERT INTO blockheader (
-                blockheight, blockheaderhash, version, prev_blockheaderhash, merkle_root_hash, nTime, nBits, nNonce, chainwork, peer_id
-            ) VALUES (
-                {blockheight},
-                '{blockheaderhash}',
-                {version},
-                '{prev_blockheaderhash}',
-                '{merkle_root_hash}',
-                {nTime},
-                '{nBits}',
-                {nNonce},
-                '{chainwork}',
-                {peer_id}
-            );
-        """
-        )
-        self._conn.commit()
-        cursor.close()
-        new_blockheader_dict = self.get_blockheader(peer_id, blockheight=blockheight)
-        return new_blockheader_dict
-
-    def get_blockheader(
-        self,
-        peer_id: int,
-        blockheight: Optional[int] = None,
-        blockheaderhash: Optional[str] = None,
-    ) -> Union[dict, None]:
-        """
-        Get the blockheader row data, as a dictionary, from the db
-
-        NOTE: only 1 of blockheight or blockheaderhash can be provided as argument,
-            but not both, or else ValueError will be thrown
-
-        Args:
-            peer_id: int, peer id that this blockheader is associated with
-            blockheight: int, blockheight
-            blockheaderhash: str, blockheaderhash
-        Returns:
-            dict, blockheader index db data, or
-            None, if not found
-        """
-
-        if blockheight is not None and blockheaderhash is not None:
-            raise ValueError(
-                "both blockheight and blockheaderhash should not be specified"
-            )
-        elif blockheight is None and blockheaderhash is None:
-            raise ValueError("blockheight or blockheaderhash must be provided")
-        elif blockheight is not None:
-            cursor = self._conn.cursor()
-            res = cursor.execute(
-                f"SELECT * FROM blockheader WHERE blockheight='{blockheight}' AND peer_id='{peer_id}';"
-            )
-        else:
-            # blockheaderhash is not None
-            cursor = self._conn.cursor()
-            res = cursor.execute(
-                f"SELECT * FROM blockheader WHERE blockheaderhash='{blockheaderhash}' AND peer_id='{peer_id}';"
-            )
-
-        result = res.fetchone()
-        cursor.close()
-        return (
-            {
-                "id": int(result[0]),
-                "blockheight": int(result[1]),
-                "blockheaderhash": result[2],
-                "version": int(result[3]),
-                "prev_blockheaderhash": result[4],
-                "merkle_root_hash": result[5],
-                "nTime": int(result[6]),
-                "nBits": result[7],
-                "nNonce": int(result[8]),
-                "chainwork": result[9],
-                "peer_id": int(result[10]),
-            }
-            if result
-            else None
-        )
-
     def save_addr(
         self,
         addr: dict,
@@ -3506,18 +3397,6 @@ class Db:
             }
             for result in results
         ]
-
-    def save_peer_addrs(self, peer_id: int, addrs: List[dict]):
-        existing_addrs = self.get_peer_addrs(peer_id)
-        updated_addrs = existing_addrs + addrs
-        cursor = self._conn.cursor()
-        cursor.execute(
-            f"""
-            UPDATE peer SET addrs='{json.dumps(updated_addrs)}' WHERE id={peer_id};
-        """
-        )
-        self._conn.commit()
-        cursor.close()
 
     def add_tx(
         self,
@@ -3783,6 +3662,14 @@ class Db:
         return result[0] if result else None
 
     def get_peer(self, host: str, port: int) -> Union[int, None]:
+        """
+        Get peer id from db for a given host and port
+        Args:
+            host: str, host
+            port: int, port
+        Returns:
+            int, peer id primary key or None if not found
+        """
         cursor = self._conn.cursor()
         result = cursor.execute(
             f"SELECT id FROM peer WHERE host='{host}' AND port={port};"
@@ -3792,8 +3679,6 @@ class Db:
 
     def remove_peer(self, peer_id: int):
         cursor = self._conn.cursor()
-        cursor.execute("BEGIN TRANSACTION;")
-        cursor.execute(f"DELETE FROM blockheader WHERE peer_id={peer_id};")
         cursor.execute(f"DELETE FROM peer WHERE id={peer_id};")
         self._conn.commit()
         cursor.close()
@@ -3809,32 +3694,6 @@ class Db:
         cursor.close()
         return peer_id
 
-    def save_peer_data(self, peer_id: int, data: dict):
-        cursor = self._conn.cursor()
-        res = cursor.execute(f"SELECT data from peer WHERE id='{peer_id}';")
-        peer_data = res.fetchone()[0]
-        peer_data = json.loads(peer_data) if peer_data else {}
-        peer_data.update(data)
-        peer_data = json.dumps(peer_data)
-        cursor.execute(f"UPDATE peer SET data='{peer_data}' WHERE id='{peer_id}';")
-        self._conn.commit()
-        cursor.close()
-
-    def get_peer_data(
-        self, peer_id: int, key: Optional[str] = None
-    ) -> Union[None, str, list, dict, int, float]:
-        cursor = self._conn.cursor()
-        res = cursor.execute(f"SELECT data FROM peer WHERE id='{peer_id}';")
-        result = res.fetchone()
-        cursor.close()
-        if result:
-            data = json.loads(result[0]) if result[0] else {}
-        else:
-            data = None
-        if key and result:
-            return data.get(key)
-        return data
-
     def get_block_revert(self, block_id: int):
         """
         Get the revert table entries for a block
@@ -3847,6 +3706,7 @@ class Db:
         rows = cursor.execute(
             f"SELECT * FROM revert WHERE block_id={block_id} ORDER BY id DESC;"
         ).fetchall()
+
         cursor.close()
         return [
             {
@@ -3854,8 +3714,8 @@ class Db:
                 "revert": row[1],
                 "txid": row[2],
                 "vout": row[3],
-                "ordinal_ranges": json.loads(row[4]) if row[4] else None,
-                "block_id": row[5],
+                "block_id": row[4],
+                "ordinal_ranges": [],  # TODO: implement ordinal ranges for block revert
             }
             for row in rows
         ]
