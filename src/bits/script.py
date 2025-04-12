@@ -301,6 +301,8 @@ def decode_script(
     decoded = []
     if witness:
         witness_stack_len, scriptbytes = bits.parse_compact_size_uint(scriptbytes)
+        if witness_stack_len == 0:
+            return decoded, scriptbytes
 
     while scriptbytes:
         if witness:
