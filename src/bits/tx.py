@@ -9,6 +9,7 @@ from typing import List, Optional, Tuple, Union
 import bits.constants
 import bits.crypto
 import bits.keys
+import bits.script
 from bits import Bytes
 
 log = logging.getLogger(__name__)
@@ -146,7 +147,7 @@ def tx_ser(tx_: dict) -> bytes:
     return tx(
         [
             txin(
-                outpoint(bytes.fromhex(txin_["txid"]), txin_["vout"]),
+                outpoint(bytes.fromhex(txin_["txid"])[::-1], txin_["vout"]),
                 bytes.fromhex(txin_["scriptsig"]),
                 sequence=txin_["sequence"].to_bytes(4, "little"),
             )
@@ -158,6 +159,7 @@ def tx_ser(tx_: dict) -> bytes:
         ],
         version=tx_["version"],
         locktime=tx_["locktime"],
+        script_witnesses=tx_.get("witnesses", []),
     )
 
 
@@ -210,7 +212,10 @@ def tx_deser(tx_: bytes, json_serializable: bool = False) -> Tuple[dict, bytes]:
     tx_ = tx_.split(tx_prime)[0] if tx_prime else tx_
 
     # re-serialize without witness for txid
-    tx_dict = {"txid": txid(tx_), "wtxid": txid(tx_)}
+    legacy_tx = tx_ser(
+        {key: value for key, value in deserialized_tx.items() if key != "witnesses"}
+    )
+    tx_dict = {"txid": txid(legacy_tx), "wtxid": txid(tx_)}
     tx_dict.update(deserialized_tx)
     return tx_dict, tx_prime
 

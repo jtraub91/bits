@@ -1,6 +1,5 @@
-import typing
 from collections import deque
-from typing import Union
+from typing import List, Optional, Tuple, Union
 
 import bits.base58
 import bits.constants
@@ -116,7 +115,7 @@ def p2sh_script_pubkey(script_hash: bytes) -> bytes:
     )
 
 
-def p2sh_script_sig(sigs: typing.List[bytes], redeem_script: bytes) -> bytes:
+def p2sh_script_sig(sigs: List[bytes], redeem_script: bytes) -> bytes:
     """
     https://github.com/bitcoin/bips/blob/master/bip-0016.mediawiki#specification
 
@@ -128,7 +127,7 @@ def p2sh_script_sig(sigs: typing.List[bytes], redeem_script: bytes) -> bytes:
     return script_sig
 
 
-def multisig_script_pubkey(m: int, pubkeys: typing.List[bytes]) -> bytes:
+def multisig_script_pubkey(m: int, pubkeys: List[bytes]) -> bytes:
     """
     m-of-n multisig, n implied by length of pubkeys list
     Args:
@@ -151,7 +150,7 @@ def multisig_script_pubkey(m: int, pubkeys: typing.List[bytes]) -> bytes:
     return script_pubkey
 
 
-def multisig_script_sig(sigs: typing.List[bytes]) -> bytes:
+def multisig_script_sig(sigs: List[bytes]) -> bytes:
     len_w_sigs = [len(sig).to_bytes(1, "big") + sig for sig in sigs]
     return bits.constants.OP_0.to_bytes(1, "big") + b"".join(len_w_sigs)
 
@@ -168,11 +167,11 @@ def null_data_script_pubkey(data: bytes) -> bytes:
     )
 
 
-def p2sh_multisig_script_pubkey(m: int, pubkeys: typing.List[bytes]) -> bytes:
+def p2sh_multisig_script_pubkey(m: int, pubkeys: List[bytes]) -> bytes:
     return p2sh_script_pubkey(bits.script_hash(multisig_script_pubkey(m, pubkeys)))
 
 
-def p2sh_multisig_script_sig(sigs: typing.List[bytes], redeem_script: bytes) -> bytes:
+def p2sh_multisig_script_sig(sigs: List[bytes], redeem_script: bytes) -> bytes:
     # return multisig_script_sig(sigs) + redeem_script
     sigs_str = [sig.hex() for sig in sigs]
     return script(["OP_0"] + sigs_str + [redeem_script.hex()])
@@ -240,7 +239,7 @@ def p2sh_p2wsh_script_sig(witness_script: bytes):
     return p2sh_script_sig([], witness_script)
 
 
-def script(args: typing.List[str], witness: bool = False) -> bytes:
+def script(args: List[str], witness: bool = False) -> bytes:
     """
     Generic script
     Args:
@@ -290,34 +289,27 @@ INT_OP_MAP = {value: key for key, value in OP_INT_MAP.items()}
 
 
 def decode_script(
-    scriptbytes: bytes, witness: bool = False, parse: bool = False
-) -> typing.Union[
-    typing.List[str], typing.Tuple[typing.Union[typing.List[str], bytes], bytes]
-]:
+    scriptbytes: bytes, witness: bool = False
+) -> Union[List[str], Tuple[List[str], bytes]]:
     """
-    Decode Script. Decode witness script by using witness=True. When witness=True,
-    you may use parse=True to parse first witness script instead of decoding.
+    Decode Script. Decode witness script by using witness=True
     """
     # TODO: maybe refactor this?
-    # logic is a little weird with the witness and parse flags,
-    # and script probably needs to be decoded during eval_script
+    # logic is a little weird with the witness flag,
+    # and script maybe needs to be decoded during eval_script
     # maybe this function is better to be refactored to "parse_script"
     decoded = []
     if witness:
         witness_stack_len, scriptbytes = bits.parse_compact_size_uint(scriptbytes)
-        parsed_bytes = bits.compact_size_uint(witness_stack_len)
 
     while scriptbytes:
         if witness:
-            push = scriptbytes[0]
-            data = scriptbytes[1 : 1 + push]
-            parsed_bytes += scriptbytes[: 1 + push]
+            push, scriptbytes = bits.parse_compact_size_uint(scriptbytes)
+            data = scriptbytes[:push]
             decoded.append(data.hex())
-            scriptbytes = scriptbytes[1 + push :]
+            scriptbytes = scriptbytes[push:]
             witness_stack_len -= 1
             if not witness_stack_len:
-                if parse:
-                    return parsed_bytes, scriptbytes
                 return decoded, scriptbytes
         elif scriptbytes[0] in range(1, 0x4C):
             push = scriptbytes[0]
@@ -342,11 +334,6 @@ def decode_script(
                 scriptbytes = scriptbytes[4 + push :]
             else:
                 decoded.append(op)
-            # below if is unreachable?
-            if witness:
-                witness_stack_len -= 1
-            if witness and not witness_stack_len:
-                return decoded, scriptbytes
     return decoded
 
 
@@ -557,7 +544,7 @@ def find_and_delete(sig_: bytes, scriptcode_: bytes) -> bytes:
 def sig(
     key: bytes,
     msg: bytes,
-    sighash_flag: typing.Optional[int] = None,
+    sighash_flag: Optional[int] = None,
     msg_preimage: bool = False,
 ) -> bytes:
     """

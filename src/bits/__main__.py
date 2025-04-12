@@ -187,7 +187,7 @@ Examples:
     )
     parser.add_argument("-v", "-V", "--version", action="version", version=__version__)
     parser.add_argument(
-        "-R", "--reverse-bytes", action="store_true", help="reverse byte order"
+        "-R", "--reverse-bytes", action="store_true", help="reverse output byte order"
     )
     add_common_arguments(parser)
     add_input_arguments(parser)
@@ -734,7 +734,7 @@ Examples:
 
     1. Create raw transaction
 
-        $ bits tx -txin '{"txid": "<txid>", "vout": <vout>, "scriptsig": "<scriptsig>"}' -txout '{"satoshis": <satoshis>, "scriptpubkey": "<scriptpubkey>"}'
+        $ bits tx -txin '{"txid": "<txid>", "vout": <vout>, "scriptsig": "<scriptsig>"}' -txout '{"value": <satoshis>, "scriptpubkey": "<scriptpubkey>"}'
 
     2. Decode raw transaction
 
@@ -771,7 +771,7 @@ Examples:
         type=json.loads,
         action="append",
         default=[],
-        help="Transaction output data provided as a dictionary with the following keys: satoshis, scriptpubkey",
+        help="Transaction output data provided as a dictionary with the following keys: value, scriptpubkey",
     )
     # # BIP 68 transaction version 2+
     # # https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki
@@ -871,12 +871,6 @@ Examples:
     )
     block_parser.add_argument(
         "--index", action="store_true", default=False, help="print index data for block"
-    )
-    block_parser.add_argument(
-        "--header-index",
-        action="store_true",
-        default=False,
-        help="print blockheader index data from best peer chain",
     )
     block_parser.add_argument(
         "--header-only", "-H", action="store_true", help="output block header only"
@@ -1143,28 +1137,36 @@ def main():
     elif args.subcommand == "ripemd160":
         data = bits.read_bytes(args.in_file, input_format=config.input_format)
         bits.write_bytes(
-            bits.crypto.ripemd160(data),
+            bits.crypto.ripemd160(data)[::-1]
+            if args.reverse_bytes
+            else bits.crypto.ripemd160(data),
             args.out_file,
             output_format=config.output_format,
         )
     elif args.subcommand == "sha256":
         data = bits.read_bytes(args.in_file, input_format=config.input_format)
         bits.write_bytes(
-            bits.crypto.sha256(data),
+            bits.crypto.sha256(data)[::-1]
+            if args.reverse_bytes
+            else bits.crypto.sha256(data),
             args.out_file,
             output_format=config.output_format,
         )
     elif args.subcommand == "hash160":
         data = bits.read_bytes(args.in_file, input_format=config.input_format)
         bits.write_bytes(
-            bits.crypto.hash160(data),
+            bits.crypto.hash160(data)[::-1]
+            if args.reverse_bytes
+            else bits.crypto.hash160(data),
             args.out_file,
             output_format=config.output_format,
         )
     elif args.subcommand == "hash256":
         data = bits.read_bytes(args.in_file, input_format=config.input_format)
         bits.write_bytes(
-            bits.crypto.hash256(data),
+            bits.crypto.hash256(data)[::-1]
+            if args.reverse_bytes
+            else bits.crypto.hash256(data),
             args.out_file,
             output_format=config.output_format,
         )
@@ -1208,7 +1210,7 @@ def main():
                 txins.append(txin_)
             txouts = [
                 bits.tx.txout(
-                    txout_dict["satoshis"], bytes.fromhex(txout_dict["scriptpubkey"])
+                    txout_dict["value"], bytes.fromhex(txout_dict["scriptpubkey"])
                 )
                 for txout_dict in args.txouts
             ]
@@ -1222,7 +1224,7 @@ def main():
         else:
             tx_ = bits.read_bytes(args.in_file, input_format=config.input_format)
         if args.decode:
-            decoded_tx, tx_prime = bits.tx.tx_deser(tx_)
+            decoded_tx, tx_prime = bits.tx.tx_deser(tx_, json_serializable=True)
             if tx_prime:
                 log.warning(f"leftover tx data after deserialization: {tx_prime.hex()}")
             print(json.dumps(decoded_tx))
@@ -1366,26 +1368,14 @@ def main():
             )
             if len(args.block) == 64:
                 # if provided arg is 64 digits, it is interpreted as a hash
-                if args.header_index:
-                    best_peer_id = node.get_best_peer()
-                    block_index_data = node.db.get_blockheader(
-                        best_peer_id, blockheaderhash=args.block
-                    )
-                else:
-                    block_index_data = node.db.get_block(blockheaderhash=args.block)
+                block_index_data = node.db.get_block(blockheaderhash=args.block)
             else:
                 # else a blockheight
-                if args.header_index:
-                    best_peer_id = node.get_best_peer()
-                    block_index_data = node.db.get_blockheader(
-                        best_peer_id, blockheight=int(args.block)
-                    )
-                else:
-                    block_index_data = node.db.get_block(blockheight=int(args.block))
+                block_index_data = node.db.get_block(blockheight=int(args.block))
             if not block_index_data:
                 log.error(f"no index data found for block {args.block}")
                 return
-            if args.index or args.header_index:
+            if args.index:
                 print(json.dumps(block_index_data))
                 return
             block = node.get_block_data(
