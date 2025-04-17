@@ -202,12 +202,11 @@ def tx_deser(tx_: bytes, json_serializable: bool = False) -> Tuple[dict, bytes]:
     if is_segwit:
         deserialized_tx["witnesses"] = []
         for _ in range(len(txins)):
-            witness_script, tx_prime = bits.script.decode_script(tx_prime, witness=True)
-            deserialized_tx["witnesses"].append(witness_script)
+            txin_witness_stack, tx_prime = bits.script.parse_witness(tx_prime)
+            deserialized_tx["witnesses"].append(txin_witness_stack)
 
     locktime = tx_prime[:4]
     deserialized_tx["locktime"] = int.from_bytes(locktime, "little")
-
     tx_prime = tx_prime[4:]
     tx_ = tx_.split(tx_prime)[0] if tx_prime else tx_
 

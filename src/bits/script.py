@@ -288,6 +288,24 @@ OP_INT_MAP = {
 INT_OP_MAP = {value: key for key, value in OP_INT_MAP.items()}
 
 
+def parse_witness(scriptbytes: bytes) -> Tuple[List[bytes], bytes]:
+    decoded = []
+    witness_stack_len, scriptbytes = bits.parse_compact_size_uint(scriptbytes)
+    for _ in range(witness_stack_len):
+        push, scriptbytes = bits.parse_compact_size_uint(scriptbytes)
+        data = scriptbytes[:push]
+        decoded.append(data)
+        scriptbytes = scriptbytes[push:]
+    return decoded, scriptbytes
+
+
+def witness_ser(witness_stack: List[bytes]) -> bytes:
+    witness_ = bits.compact_size_uint(len(witness_stack))
+    for data in witness_stack:
+        witness_ += bits.compact_size_uint(len(data)) + data
+    return witness_
+
+
 def decode_script(
     scriptbytes: bytes, witness: bool = False
 ) -> Union[List[str], Tuple[List[str], bytes]]:
