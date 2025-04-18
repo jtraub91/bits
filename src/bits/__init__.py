@@ -503,14 +503,16 @@ class Bytes(bytes):
             return ""
         return format(int.from_bytes(self, "big"), f"0{len(self) * 8}b")
 
-    def dict(self, refresh: bool = False) -> dict:
+    def dict(self, refresh: bool = False, json_serializable: bool = False) -> dict:
         if self._dict is None or refresh:
             if self._deserializer_fun is None:
                 raise RuntimeError(
                     "Cannot deserialize. _deserializer_fun is not defined"
                 )
-            self._dict = self._deserializer_fun(self)
+            self._dict = self._deserializer_fun(
+                self, json_serializable=json_serializable
+            )
         return self._dict
 
     def json(self, indent: int = None) -> str:
-        return json.dumps(self.dict(), indent=indent)
+        return json.dumps(self.dict(json_serializable=True), indent=indent)

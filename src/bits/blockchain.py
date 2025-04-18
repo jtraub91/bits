@@ -378,7 +378,7 @@ def block_ser(blk_hdr: bytes, txns: List[bytes], **kwargs) -> bytes:
     return blk_hdr + bits.compact_size_uint(len(txns)) + b"".join(txns)
 
 
-def block_header_deser(blk_hdr: bytes) -> dict:
+def block_header_deser(blk_hdr: bytes, **kwargs) -> dict:
     assert len(blk_hdr) == 80, "block header not length 80"
     return {
         "blockheaderhash": bits.crypto.hash256(blk_hdr)[::-1].hex(),

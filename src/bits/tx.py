@@ -50,7 +50,7 @@ def txin_ser(txin_: dict) -> bytes:
     )
 
 
-def txin_deser(txin_: bytes) -> Tuple[dict, bytes]:
+def txin_deser(txin_: bytes, **kwargs) -> Tuple[dict, bytes]:
     txid_ = txin_[:32]
     vout = txin_[32:36]
     scriptsig_len, txin_prime = bits.parse_compact_size_uint(txin_[36:])
@@ -88,7 +88,7 @@ def txout_ser(txout_: dict) -> bytes:
     )
 
 
-def txout_deser(txout_: bytes) -> Tuple[dict, bytes]:
+def txout_deser(txout_: bytes, **kwargs) -> Tuple[dict, bytes]:
     value = txout_[:8]
     scriptpubkey_len, txout_prime = bits.parse_compact_size_uint(txout_[8:])
     scriptpubkey = txout_prime[:scriptpubkey_len]
