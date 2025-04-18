@@ -306,32 +306,13 @@ def witness_ser(witness_stack: List[bytes]) -> bytes:
     return witness_
 
 
-def decode_script(
-    scriptbytes: bytes, witness: bool = False
-) -> Union[List[str], Tuple[List[str], bytes]]:
+def decode_script(scriptbytes: bytes) -> List[str]:
     """
-    Decode Script. Decode witness script by using witness=True
+    Decode Script
     """
-    # TODO: maybe refactor this?
-    # logic is a little weird with the witness flag,
-    # and script maybe needs to be decoded during eval_script
-    # maybe this function is better to be refactored to "parse_script"
     decoded = []
-    if witness:
-        witness_stack_len, scriptbytes = bits.parse_compact_size_uint(scriptbytes)
-        if witness_stack_len == 0:
-            return decoded, scriptbytes
-
     while scriptbytes:
-        if witness:
-            push, scriptbytes = bits.parse_compact_size_uint(scriptbytes)
-            data = scriptbytes[:push]
-            decoded.append(data.hex())
-            scriptbytes = scriptbytes[push:]
-            witness_stack_len -= 1
-            if not witness_stack_len:
-                return decoded, scriptbytes
-        elif scriptbytes[0] in range(1, 0x4C):
+        if scriptbytes[0] in range(1, 0x4C):
             push = scriptbytes[0]
             data = scriptbytes[1 : 1 + push]
             decoded.append(data.hex())
