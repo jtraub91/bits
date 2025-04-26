@@ -203,6 +203,8 @@ def tx_deser(tx_: bytes, json_serializable: bool = False) -> Tuple[dict, bytes]:
         deserialized_tx["witnesses"] = []
         for _ in range(len(txins)):
             txin_witness_stack, tx_prime = bits.script.parse_witness(tx_prime)
+            if json_serializable:
+                txin_witness_stack = [elem.hex() for elem in txin_witness_stack]
             deserialized_tx["witnesses"].append(txin_witness_stack)
 
     locktime = tx_prime[:4]
