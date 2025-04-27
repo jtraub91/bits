@@ -302,6 +302,8 @@ def parse_witness(scriptbytes: bytes) -> Tuple[List[bytes], bytes]:
 def witness_ser(witness_stack: List[bytes]) -> bytes:
     witness_ = bits.compact_size_uint(len(witness_stack))
     for data in witness_stack:
+        if type(data) is str:
+            data = bytes.fromhex(data)
         witness_ += bits.compact_size_uint(len(data)) + data
     return witness_
 

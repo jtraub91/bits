@@ -1235,9 +1235,10 @@ def main():
             script_bytes = bits.read_bytes(
                 args.in_file, input_format=config.input_format
             )
-            script_decoded = bits.script.decode_script(
-                script_bytes, witness=args.witness
-            )
+            if args.witness:
+                raise NotImplementedError("witness script decoding not yet implemented")
+            else:
+                script_decoded = bits.script.decode_script(script_bytes)
             print(json.dumps(script_decoded))
             return
         bits.write_bytes(

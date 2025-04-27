@@ -159,7 +159,10 @@ def tx_ser(tx_: dict) -> bytes:
         ],
         version=tx_["version"],
         locktime=tx_["locktime"],
-        script_witnesses=tx_.get("witnesses", []),
+        script_witnesses=[
+            bits.script.witness_ser(witness_stack)
+            for witness_stack in tx_.get("witnesses", [])
+        ],
     )
 
 
