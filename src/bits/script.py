@@ -7,7 +7,6 @@ import bits.crypto
 import bits.ecmath
 import bits.pem
 import bits.tx
-from bits.tx import Tx
 
 
 def scriptpubkey(data: Union[bytes, str]) -> bytes:
@@ -607,7 +606,7 @@ def sig_verify(
 
 
 def v0_witness_preimage(
-    tx_: Tx, txin_index: int, txin_value: int, scriptcode: bytes, sighash_type: int
+    tx_: dict, txin_index: int, txin_value: int, scriptcode: bytes, sighash_type: int
 ) -> bytes:
     """
     Preimage for v0 witness signatures
@@ -627,7 +626,7 @@ def v0_witness_preimage(
         10. sighash type of the signature (4-byte little endian)
 
     Args:
-        tx_: Tx, transaction
+        tx_: dict, transaction dictionary
         txin_index: int, index of the tx input we are signing for
         txin_value: int, value of the tx input we are signing for (i.e. corresponding to txin_index)
         scriptcode: bytes, scriptcode of the tx input we are signing for (i.e. corresponding to txin_index)
