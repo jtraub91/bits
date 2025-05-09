@@ -433,7 +433,7 @@ def check_tx(tx_: bytes) -> bool:
 
 class Tx(Bytes):
     def __new__(cls, data, **kwargs):
-        cls._deserializer_fun = lambda data: tx_deser(data)[0]
+        cls._deserializer_fun = lambda data, **kwargs: tx_deser(data, **kwargs)[0]
         cls._serializer_fun = tx_ser
         return super().__new__(cls, data, **kwargs)
 
