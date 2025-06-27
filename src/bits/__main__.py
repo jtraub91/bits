@@ -795,7 +795,24 @@ Examples:
     add_input_arguments(tx_parser)
     add_output_arguments(tx_parser)
 
-    p2p_parser = sub_parser.add_parser("p2p", help="start p2p node")
+    p2p_parser = sub_parser.add_parser(
+        "p2p",
+        help="start p2p node",
+        formatter_class=RawDescriptionDefaultsHelpFormatter,
+        description="""
+bits' peer to peer (P2P) node
+
+Examples:
+
+    1. Run p2p node
+
+        $ bits p2p
+
+    2. Get info from a running node
+
+        $ bits p2p --info
+""",
+    )
     p2p_parser.add_argument(
         "--info", "-I", action="store_true", default=False, help="get p2p node info"
     )
@@ -803,34 +820,13 @@ Examples:
         "--seeds",
         type=json.loads,
         action=ExplicitOption,
-        help="list of seed nodes host:port, e.g. '[\"127.0.0.1:18333\"]'",
+        help="list of seed nodes host:port, e.g. '[\"127.0.0.1:8333\"]'",
     )
     p2p_parser.add_argument(
         "--datadir",
         type=str,
         action=ExplicitOption,
         help="p2p node data directory",
-    )
-    p2p_parser.add_argument(
-        "--reindex",
-        action="store_true",
-        help="reindex block indexes from blockheight 0",
-    )
-    p2p_parser.add_argument(
-        "--assumevalid",
-        type=int,
-        default=0,
-        help="assume block tx input scripts are valid, i.e. skip script verification, before blockheight",
-    )
-    p2p_parser.add_argument(
-        "--network",
-        "-N",
-        metavar="NETWORK",
-        type=str,
-        default="mainnet",
-        action=ExplicitOption,
-        choices=["mainnet", "testnet", "regtest"],
-        help="network, e.g. 'mainnet', 'testnet', or 'regtest'",
     )
 
     block_parser = sub_parser.add_parser(
@@ -1314,7 +1310,6 @@ def main():
             config.network,
             config.log_level,
             max_outgoing_peers=config.max_outgoing_peers,
-            assumevalid=args.assumevalid,
             miner_wallet_address=config.miner_wallet_address,
             bind=config.bind,
         )
@@ -1322,12 +1317,7 @@ def main():
             ret = make_request(p2p_node._requests_dir, "get_node_info")
             print(json.dumps(ret))
             return
-        if args.reindex:
-            key = input(f"reindex from blockheight 0? (y/n) ")
-            if key != "y":
-                print("reindex cancelled")
-                return
-        p2p_node.start(reindex=args.reindex)
+        p2p_node.start()
 
         def shutdown(*args):
             p2p_node.stop()

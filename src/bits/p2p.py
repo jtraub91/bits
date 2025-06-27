@@ -25,6 +25,7 @@ from typing import Any, List, Optional, Tuple, Union
 
 import bits
 import bits.blockchain
+import bits.constants
 import bits.crypto
 import bits.ordinals
 import bits.script
@@ -552,6 +553,7 @@ class Peer:
         self.datadir = datadir
 
         self._is_seed = False
+        self._failed_connection_attempts = 0
 
         self._id: Union[int | None] = None
 
@@ -667,9 +669,7 @@ class Node:
         user_agent: bytes = BITS_USER_AGENT,
         max_incoming_peers: int = 3,
         max_outgoing_peers: int = 3,
-        connection_timeout: int = 5,
         index_ordinals: bool = False,
-        assumevalid: int = 0,
         miner_wallet_address: str = "",
         bind: Optional[Tuple[str, int]] = None,
     ):
@@ -699,7 +699,6 @@ class Node:
         self._incoming_peer_server_task = None
         self._connect_seeds_task = None
         self._connect_seeds_exit_event = Event()
-        self._connect_former_peers_task = None
 
         self._request_block_inventories_task = None
         self._request_block_inventories_event = asyncio.Event()
@@ -707,12 +706,10 @@ class Node:
         self._request_blocks_event = asyncio.Event()
 
         self._miner_wallet_address = miner_wallet_address
-        self._assumevalid = assumevalid
         self._index_ordinals = index_ordinals
         self.max_incoming_peers = max_incoming_peers
         self.max_outgoing_peers = max_outgoing_peers
-        self.connection_timeout = connection_timeout
-        self.seeds = seeds
+        self.seeds = [Peer(seed[0], seed[1], network, datadir) for seed in seeds]
         datadir = os.path.expanduser(datadir)
         if not os.path.exists(datadir):
             os.makedirs(datadir)
@@ -775,11 +772,11 @@ class Node:
             # update utxoset
             genesis_coinbase_tx = gb["txns"][0]
             with self._thread_lock:
-                self.db.add_tx(genesis_coinbase_tx["txid"], gb["blockheaderhash"], 0, 1)
+                self.db.add_tx(genesis_coinbase_tx["txid"], gb["blockheaderhash"], 0)
                 self.db.add_to_utxoset(
                     genesis_coinbase_tx["txid"],
                     0,
-                    1,
+                    gb["blockheaderhash"],
                     [(0, bits.block_reward(0) - 1)],
                     index_ordinals=self._index_ordinals,
                 )
@@ -796,7 +793,10 @@ class Node:
         self._mempool = []
         self._mempool_tx_processing_queue = deque([])
 
-        self.peers: list[Peer] = []
+        self.incoming_peers: List[Peer] = []
+        self.outgoing_peers: List[Peer] = []
+
+        self.peers: List[Peer] = []
 
         self.exit_event = Event()
         self.peer_inactivity_timeout = 5400  # 90 minutes
@@ -973,95 +973,41 @@ class Node:
         payload = parse_ping_payload(payload)
         await peer.send_command(b"pong", ping_payload(payload["nonce"]))
 
-    async def connect_peers(self, peers: List[Peer], timeout: int = None) -> List[Peer]:
-        """
-        Connect peers and schedule tasks
-        Args:
-            peers: list[Peer], list of outgoing peers to connect to
-            timeout: Optional[int], connection timeout, defaults to self.connection_timeout
-        Returns:
-            peers which were successfully connected w successful version handshake
-        """
-
-        connected_peers = []
-        if timeout is None:
-            timeout = self.connection_timeout
-        for peer in peers:
-            if (
-                len([peer for peer in self.peers if peer.type == "outgoing"])
-                >= self.max_outgoing_peers
-            ):
-                log.warning(
-                    f"connect_peers loop exit. max_outgoing_peers already reached"
-                )
-                break
-            log.trace(f"connecting to {peer}...")
-            try:
-                await asyncio.wait_for(peer.connect(), timeout)
-            except Exception as err:
-                log.error(f"error attempting to connect to {peer} - {err}")
-                continue
-            log.info(f"connected to {peer}")
-            peer_id = self.db.get_peer(peer.host, peer.port)
-            if not peer_id:
-                peer_id = self.db.save_peer(peer.host, peer.port)
-                peer._id = peer_id
-                log.info(f"{peer} saved to db.")
-            peer._id = peer_id
-            try:
-                connect_to_peer_task = asyncio.create_task(self.connect_to_peer(peer))
-                await asyncio.wait_for(connect_to_peer_task, timeout)
-            except Exception as err:
-                traceback.format_exc()
-                log.error(
-                    f"exception occurred while attempting to complete connection handshake for {peer} - {err}"
-                )
-                self.db.remove_peer(peer._id)
-                log.info(f"{peer} removed from db")
-            else:
-                version_data = connect_to_peer_task.result()
-                # TODO: verify version data more rigorously?
-                # nonce, timestamp, recv / trans addrs services
-                # save all of it to db
-                # TODO: hydrate Peer class with db data, for easy retrieval, especially for items that don't change often
-                log.debug(f"{peer} version payload: {version_data}")
-                peer._version_data = version_data
-                cursor = self.db._conn.cursor()
-                cursor.execute(
-                    f"UPDATE peer SET protocol_version={version_data['protocol_version']}, services={version_data['services']}, user_agent='{version_data['user_agent']}', start_height='{version_data['start_height']}' WHERE id={peer._id};"
-                )
-                self.db._conn.commit()
-                cursor.close()
-                log.info(f"version data for {peer} saved to db")
-                self.peers.append(peer)
-                # if len(self.peers) == 1:
-                #     blockheight = self.db.get_blockchain_height()
-                #     # choose a peer as sync node
-                #     # if blockchain is 144 blocks behind peer (~24 hr) enter ibd
-                #     sync_node = self.peers[0]
-                #     if sync_node._version_data["start_height"] - blockheight > 144:
-                #         log.info(
-                #             f"local blockchain is behind sync node {sync_node} by {sync_node._version_data['start_height'] - blockheight} blocks. Entering IBD..."
-                #         )
-                #         asyncio.create_task(self.request_block_inventories(sync_node))
-                #         asyncio.create_task(self.request_blocks(sync_node))
-
-                # asyncio.create_task(self.request_tx(sync_node))
-                connected_peers.append(peer)
-                asyncio.create_task(self.outgoing_peer_recv_loop(peer))
-                # asyncio.create_task(peer.send_command(b"getaddr"))
-                # asyncio.create_task(self.process_addrs(peer))
-        return connected_peers
-
-    async def connect_to_peer(self, peer: Peer) -> dict:
+    async def connect_to_peer(self, peer: Peer, timeout: int = 3) -> dict:
         """
         Connect to peer by performing version / verack handshake
         https://developer.bitcoin.org/devguide/p2p_network.html#connecting-to-peers
         Args:
             peer: Peer, peer to connect to
+            timeout: int, connection timeout
         Returns:
             version_data: dict, parsed version payload from peer
         """
+        # check for max outgoing peers
+        if len(self.outgoing_peers) >= self.max_outgoing_peers:
+            log.warning(f"max_outgoing_peers reached, connect_peers loop exit.")
+            return False
+
+        # attempt to connect to peer socket
+        log.trace(f"connecting to {peer}...")
+        try:
+            await asyncio.wait_for(peer.connect(), timeout)
+        except Exception as err:
+            log.error(f"error attempting to connect to {peer} - {err}")
+            return False
+        log.info(f"connected to {peer}")
+
+        # retrieve or create peer in db, TODO: use (peer.host, peer.port) as primary key
+        peer_id = self.db.get_peer(peer.host, peer.port)
+        if not peer_id:
+            peer_id = self.db.save_peer(peer.host, peer.port)
+            peer._id = peer_id
+            log.info(f"{peer} saved to db.")
+        peer._id = peer_id
+
+        # attempt to complete connection to outgoing peer by performing version / verack handshake
+
+        # send version message
         trans_sock = peer.writer.transport.get_extra_info("socket")
         local_host, local_port = trans_sock.getsockname()
         versionp = version_payload(
@@ -1081,7 +1027,7 @@ class Node:
 
         # save version payload peer data
         version_data = parse_payload(command, payload)
-        log.info(f"parsed version payload for {peer}")
+        log.debug(f"{peer} version payload: {version_data}")
 
         # send verack
         await peer.send_command(b"verack")
@@ -1091,16 +1037,48 @@ class Node:
         assert command == b"verack", f"expected verack command, not {command}"
 
         log.info(f"connection handshake established for {peer}")
+
+        # update peer db with version data
+        peer._version_data = version_data
+        cursor = self.db._conn.cursor()
+        cursor.execute(
+            f"UPDATE peer SET protocol_version={version_data['protocol_version']}, services={version_data['services']}, user_agent='{version_data['user_agent']}', start_height='{version_data['start_height']}' WHERE id={peer._id};"
+        )
+        self.db._conn.commit()
+        cursor.close()
+        log.info(f"version data for {peer} saved to db")
+        self.outgoing_peers.append(peer)
+        asyncio.create_task(self.peer_recv_loop(peer))
+        # asyncio.create_task(peer.send_command(b"getaddr"))
+        # asyncio.create_task(self.process_addrs(peer))
+
         return version_data
 
     async def connect_from_peer(self, peer: Peer):
+        """
+        Connect from incoming peer
+
+        Unlike connect_to_peer, this function is called with the peer socket connection already established.
+
+        Args:
+            peer: Peer, peer to connect from by performing version / verack handshake
+        """
+
+        # retrieve or create peer in db, TODO: use (peer.host, peer.port) as primary key
+        peer_id = self.db.get_peer(peer.host, peer.port)
+        if not peer_id:
+            peer_id = self.db.save_peer(peer.host, peer.port)
+            peer._id = peer_id
+            log.info(f"{peer} saved to db.")
+        peer._id = peer_id
+
         # wait for version message
         start_bytes, command, payload = await peer.recv_msg()
         assert command == b"version", f"expected version command not {command}"
 
         # save version payload peer data
         version_data = parse_payload(command, payload)
-        log.info(f"parsed version payload for {peer}")
+        log.debug(f"{peer} version payload: {version_data}")
 
         # send version
         trans_sock = peer.writer.transport.get_extra_info("socket")
@@ -1124,13 +1102,29 @@ class Node:
         assert command == b"verack", f"expected verack command, not {command}"
 
         log.info(f"connection handshake established for {peer}")
+
+        # save version data for peer in db
+        peer._version_data = version_data
+        cursor = self.db._conn.cursor()
+        cursor.execute(
+            f"UPDATE peer SET protocol_version={version_data['protocol_version']}, services={version_data['services']}, user_agent='{version_data['user_agent']}', start_height='{version_data['start_height']}' WHERE id={peer._id};"
+        )
+        self.db._conn.commit()
+        cursor.close()
+        log.info(f"version data for {peer} saved to db")
+        self.incoming_peers.append(peer)
+        asyncio.create_task(self.peer_recv_loop(peer))
+        # asyncio.create_task(peer.send_command(b"getaddr"))
+        # asyncio.create_task(self.process_addrs(peer))
         return version_data
 
-    async def outgoing_peer_recv_loop(self, peer: Peer, msg_timeout: int = 5):
+    async def peer_recv_loop(self, peer: Peer, msg_timeout: int = 5):
         """
         Args:
-            msg_timeout: int, sec to wait before timing out recv_msg and looping until exit_event has been set
+            msg_timeout: int, sec to wait before timing out recv_msg
+                and looping until exit_event has been set
         """
+        log.trace(f"peer_recv_loop started for {peer}")
         loop = asyncio.get_running_loop()
         while not peer.exit_event.is_set():
             try:
@@ -1163,9 +1157,10 @@ class Node:
                     if timestamp - peer._pending_ping_requests[0]["time"] > 1200:
                         log.info(f"peer pong timeout reached")
                         break
-
-            except ShutdownException as err:
-                log.info(f"shutdown except raised during recv_msg for {peer} - {err}")
+            except Exception as err:
+                log.error(f"exception occurred during recv_msg for {peer} - {err}")
+                peer.exit_event.set()
+                log.info(f"{peer} exit event set")
             else:
                 await self.message_queue.put((peer, command, payload))
             await asyncio.sleep(0)
@@ -1173,22 +1168,22 @@ class Node:
         try:
             await peer.close()
             log.info(f"{peer} socket closed")
-        except BrokenPipeError as err:
-            log.warning(f"broken pipe error closing {peer} socket - {err}")
         except Exception as err:
-            log.error(f"unexpected exception closing {peer} socket - {err}")
-        self.peers.remove(peer)
-        log.debug(f"{peer} removed from self.peers")
+            log.error(f"exception occurred closing {peer} socket - {err}")
+        if peer.type == "outgoing":
+            self.outgoing_peers.remove(peer)
+            log.debug(f"{peer} removed from self.outgoing_peers")
+        else:
+            self.incoming_peers.remove(peer)
+            log.debug(f"{peer} removed from self.incoming_peers")
+        log.trace(f"{peer} peer_recv_loop exit")
 
     async def handle_incoming_peer(self, reader: StreamReader, writer: StreamWriter):
         host, port = writer.get_extra_info("peername")
         log.info(f"incoming peer connection from {host}:{port}")
-        if (
-            len([peer for peer in self.peers if peer.type == "incoming"])
-            >= self.max_incoming_peers
-        ):
+        if len(self.incoming_peers) >= self.max_incoming_peers:
             log.warning(
-                f"max incoming already peers reached. closing new connection from {host}:{port} ..."
+                f"max incoming peers reached. closing new connection from {host}:{port} ..."
             )
             writer.close()
             return
@@ -1196,37 +1191,15 @@ class Node:
         peer.reader = reader
         peer.writer = writer
         peer.type = "incoming"
-        # TODO: this logic seems like it could be simplified, and is used also in connect_peers
-        peer_id = self.db.get_peer(peer.host, peer.port)
-        if not peer_id:
-            peer_id = self.db.save_peer(peer.host, peer.port)
-            peer._id = peer_id
-            log.info(f"{peer} saved to db.")
-        peer._id = peer_id
         try:
             connect_from_peer_task = asyncio.create_task(self.connect_from_peer(peer))
-            await asyncio.wait_for(connect_from_peer_task, self.connection_timeout)
+            await asyncio.wait_for(connect_from_peer_task, 5)
         except Exception as err:
+            peer._failed_connection_attempts += 1
             log.error(
                 f"exception while attempting to complete connection handshake for {peer} - {err}"
             )
-            self.db
-            log.info(f"{peer} removed from db")
-        else:
-            version_data = connect_from_peer_task.result()
-            log.debug(f"{peer} version payload: {version_data}")
-            peer._version_data = version_data
-            cursor = self.db._conn.cursor()
-            cursor.execute(
-                f"UPDATE peer SET protocol_version={version_data['protocol_version']}, services={version_data['services']}, user_agent='{version_data['user_agent']}', start_height='{version_data['start_height']}' WHERE id={peer._id};"
-            )
-            self.db._conn.commit()
-            cursor.close()
-            log.info(f"version data for {peer} saved to db")
-            self.peers.append(peer)
-            asyncio.create_task(self.outgoing_peer_recv_loop(peer))
-            asyncio.create_task(peer.send_command(b"getaddr"))
-            asyncio.create_task(self.process_addrs(peer))
+            log.error(traceback.format_exc())
 
     async def incoming_peer_server(self, bind_address: str, bind_port: int):
         server = await asyncio.start_server(
@@ -1234,10 +1207,8 @@ class Node:
         )
         log.info(f"incoming peer server started @ {bind_address}:{bind_port}")
         async with server:
-            try:
-                await server.serve_forever()
-            except asyncio.CancelledError as err:
-                log.warning(err)
+            while not self.exit_event.is_set():
+                await asyncio.sleep(0)
         log.trace("incoming peer server exit")
 
     async def main_loop(self):
@@ -1248,34 +1219,134 @@ class Node:
         loop = asyncio.get_running_loop()
         while not self.exit_event.is_set():
 
-            # check for external requests in datdir/requests
-            request_files = [
-                req
-                for req in os.listdir(self._requests_dir)
-                if req.endswith("_request.json")
+            current_blockheight = self.db.get_blockchain_height()
+            current_block_index_data = self.db.get_block(current_blockheight)
+
+            seed_candidates = [
+                seed for seed in self.seeds if seed not in self.outgoing_peers
             ]
-            if request_files:
-                log.debug(
-                    f"{len(request_files)} requests found in {self._requests_dir}"
+            if len(self.outgoing_peers) < self.max_outgoing_peers and seed_candidates:
+                seed_candidates = sorted(
+                    seed_candidates, key=lambda peer: peer._failed_connection_attempts
                 )
-                for request_file in request_files:
-                    await loop.run_in_executor(
-                        self._thread_pool_executor,
-                        self.service_request,
-                        request_file,
-                        loop,
+                await self.connect_to_peer(seed_candidates[0])
+
+            if self.outgoing_peers:
+                peer = self.outgoing_peers[0]
+            elif self.incoming_peers:
+                peer = self.incoming_peers[0]
+            else:
+                log.warning("no peers")
+                await asyncio.sleep(1)
+                continue
+
+            if current_blockheight < peer._version_data["start_height"]:
+                block_inventories = list(
+                    filter(lambda inv: inv["type_id"] == "MSG_BLOCK", peer.inventories)
+                )
+                pending_getdata_requests = list(
+                    filter(
+                        lambda req: req["type_id"] == "MSG_BLOCK",
+                        peer._pending_getdata_requests,
                     )
+                )
+                if (
+                    not block_inventories
+                    and self._block_processing_queue.qsize() == 0
+                    and not peer._pending_getblocks_request
+                ):
+                    peer._pending_getblocks_request = {
+                        "time": int(time.time()),
+                        "blockheaderhash": current_block_index_data["blockheaderhash"],
+                    }
+                    await peer.send_command(
+                        b"getblocks",
+                        getblocks_payload(
+                            [
+                                bytes.fromhex(
+                                    current_block_index_data["blockheaderhash"]
+                                )[::-1]
+                            ]
+                        ),
+                    )
+                elif (
+                    peer._pending_getblocks_request
+                    and peer._pending_getblocks_request["time"] < time.time() - 60
+                ):
+                    log.debug(
+                        f"pending getblocks {peer._pending_getblocks_request} request expired."
+                    )
+                    peer._pending_getblocks_request = None
+                elif (
+                    self._block_processing_queue.qsize()
+                    < self._block_processing_queue.maxsize
+                    and block_inventories
+                    and not pending_getdata_requests
+                ):
+                    inventory_list = block_inventories[
+                        : self._block_processing_queue.maxsize
+                        - self._block_processing_queue.qsize()
+                    ]
+
+                    current_time = int(time.time())
+                    requests = [
+                        {"time": current_time, "retries": 3} | inventory_
+                        for inventory_ in inventory_list
+                    ]
+                    peer._pending_getdata_requests.extend(requests)
+                    await peer.send_command(
+                        b"getdata",
+                        inv_payload(
+                            len(inventory_list),
+                            [
+                                inventory(inv["type_id"], inv["hash"])
+                                for inv in inventory_list
+                            ],
+                        ),
+                    )
+                elif pending_getdata_requests:
+                    expired_requests = list(
+                        filter(
+                            lambda req: req["time"] < time.time() - 60,
+                            peer._pending_getdata_requests,
+                        )
+                    )
+                    if expired_requests:
+                        for req in expired_requests:
+                            req["retries"] -= 1
+                            log.debug(
+                                f"{peer} pending getdata request timeout - {req}. {req['retries']} attemtps remaining..."
+                            )
+                            if req["retries"] <= 0:
+                                log.debug(f"pending getdata request expired - {req}")
+                                peer._pending_getdata_requests.remove(req)
+                                req.pop("time")
+                                req.pop("retries")
+                                peer.inventories.remove(req)
+                else:
+                    log.trace(
+                        f"len(block_inventories)={len(block_inventories)}, block_processing_queue.qsize()={self._block_processing_queue.qsize()}, pending_getblocks_request={peer._pending_getblocks_request}, pending_getdata_requests(type=MSG_BLOCK)={pending_getdata_requests}"
+                    )
+
+                # check for external requests in datdir/requests
+                request_files = [
+                    req
+                    for req in os.listdir(self._requests_dir)
+                    if req.endswith("_request.json")
+                ]
+                if request_files:
+                    log.debug(
+                        f"{len(request_files)} requests found in {self._requests_dir}"
+                    )
+                    for request_file in request_files:
+                        await loop.run_in_executor(
+                            self._thread_pool_executor,
+                            self.service_request,
+                            request_file,
+                            loop,
+                        )
             await asyncio.sleep(0)
         log.trace("main loop exit")
-        if self._incoming_peer_server_task:
-            self._incoming_peer_server_task.cancel()
-            log.trace("incoming_peer_server task cancelled")
-        if self._connect_seeds_task:
-            self._connect_seeds_task.cancel()
-            log.trace("connect_seeds task cancelled")
-        if self._connect_former_peers_task:
-            self._connect_former_peers_task.cancel()
-            log.trace("connect_former_peers task cancelled")
 
     def service_request(
         self, request_filename: str, loop_: Optional[AbstractEventLoop] = None
@@ -1484,7 +1555,10 @@ class Node:
                 "more data found on disk, after last block as indicated in index db"
             )
 
-        for i in range(6):
+        for i in range(min(blockheight + 1, 6)):
+            log.trace(
+                f"checking block {blockheight - i} data and index consistency ..."
+            )
             block_index_data = self.db.get_block(blockheight=blockheight - i)
             block = self.get_block_data(
                 os.path.join(self.datadir, block_index_data["datafile"]),
@@ -1495,86 +1569,44 @@ class Node:
                     f"blockheaderhash in index db for block {blockheight - i} ({block_index_data['blockheaderhash']}) does not match calculated blockheaderhash for block data on disk ({block['blockheaderhash']})"
                 )
 
-    def run(self, reindex: bool = False):
-        asyncio.run(self.main(reindex=reindex), debug=True)
+    def run(self):
+        asyncio.run(
+            self.main(),
+            debug=True if log.getEffectiveLevel() <= logging.DEBUG else False,
+        )
 
-    def start(self, reindex: bool = False):
+    def start(self):
         self.exit_event.clear()
-        self._thread = Thread(target=self.run, kwargs={"reindex": reindex})
+        self._thread = Thread(target=self.run)
         self._thread.start()
 
     def stop(self):
         log.info("stopping node gracefully...")
-        for peer in self.peers:
+        for peer in self.incoming_peers + self.outgoing_peers:
             peer.exit_event.set()
             log.info(f"peer {peer._id} exit event set")
         self.exit_event.set()
         log.info("node exit event set")
 
-    async def main(self, reindex: bool = False):
-        if not os.path.exists(self.index_db_filepath):
-            reindex = True
-        if reindex:
-            log.debug("removing index db ...")
-            self.db._conn.close()
-            os.remove(self.index_db_filepath)
-            self.db = Db(self.index_db_filepath)
-            log.debug("creating tables...")
-            self.db.create_tables()
-            log.debug("rebuilding index...")
-            self.rebuild_index()
-        else:
-            log.debug("running startup checks...")
-            self.startup_checks()
+    async def main(self):
+        self.startup_checks()
 
-        self._connect_seeds_task = asyncio.create_task(self.connect_seeds())
-        self._connect_former_peers_task = asyncio.create_task(
-            self.connect_former_peers()
-        )
         message_handler_loop_task = asyncio.create_task(self.message_handler_loop())
         process_blocks_task = asyncio.create_task(self.process_blocks())
         # asyncio.create_task(self.process_mempool_txns())
         # asyncio.create_task(self.mine_blocks())
         main_loop_task = asyncio.create_task(self.main_loop())
 
-        await self._connect_seeds_task
-        await self._connect_former_peers_task
-        cursor = self.db._conn.cursor()
-        cursor.execute(
-            "SELECT id, start_height FROM peer ORDER BY start_height DESC LIMIT 1;"
-        )
-        result = cursor.fetchone()
-        cursor.close()
-        if result:
-            start_height = result[1]
-            blockheight = self.db.get_blockchain_height()
-            if blockheight < start_height:
-                sync_node = next(filter(lambda p: p._id == result[0], self.peers), None)
-                if sync_node:
-                    log.debug(f"{sync_node} chosen as sync_node")
-                    self._request_block_inventories_event = asyncio.Event()
-                    self._request_block_inventories_event.set()
-                    self._request_block_inventories_task = asyncio.create_task(
-                        self.request_block_inventories(sync_node)
-                    )
-                    self._request_blocks_task = asyncio.create_task(
-                        self.request_blocks(sync_node)
-                    )
-
         self._incoming_peer_server_task = asyncio.create_task(
             self.incoming_peer_server(self._bind[0], self._bind[1])
         )
 
-        tasks = [
+        self._tasks = [
             message_handler_loop_task,
             process_blocks_task,
             main_loop_task,
             self._incoming_peer_server_task,
         ]
-        if self._request_block_inventories_task:
-            tasks.append(self._request_block_inventories_task)
-        if self._request_blocks_task:
-            tasks.append(self._request_blocks_task)
 
         def handle_task_exception(task):
             try:
@@ -1583,107 +1615,11 @@ class Node:
                 log.error(f"task failed: {err}")
                 raise err
 
-        for task in tasks:
+        for task in self._tasks:
             task.add_done_callback(handle_task_exception)
 
-        await asyncio.wait(tasks)
+        await asyncio.wait(self._tasks)
         log.trace("main exit")
-
-    async def connect_seeds(self):
-        """
-        Connect to seeds in self.seeds
-        """
-        CONNECT_SEEDS_TIMEOUT = 600  # 10 min
-
-        if not self.seeds:
-            log.warning("no seeds to connect to")
-            self._connect_seeds_exit_event.set()
-            return
-
-        peer_candidates = [
-            Peer(seed[0], seed[1], self.network, self.datadir) for seed in self.seeds
-        ]
-        time_start = time.time()
-        while peer_candidates:
-            try:
-                connected_peers = await self.connect_peers(peer_candidates)
-            except asyncio.CancelledError as err:
-                log.warning(f"connect_seeds cancelled - {err}")
-                break
-            log.info(f"connected to {len(connected_peers)} seeds")
-            for peer in connected_peers:
-                peer._is_seed = True
-            connected_peer_addrs = [
-                (peer.host, peer.port) for peer in self.peers if peer._is_seed
-            ]
-            peer_candidates = [
-                Peer(seed[0], seed[1], self.network, self.datadir)
-                for seed in self.seeds
-                if seed not in connected_peer_addrs
-            ]
-            log.info(f"{len(peer_candidates)} seed candidate(s) remaining.")
-            if not peer_candidates:
-                log.info("all seeds connected")
-                break
-            time_elapsed = time.time() - time_start
-            if time_elapsed > CONNECT_SEEDS_TIMEOUT:
-                log.info(f"connect seeds timeout reached. exiting ...")
-                break
-            log.info("retrying in 5 sec ...")
-            try:
-                await asyncio.sleep(5)
-            except asyncio.CancelledError as err:
-                log.warning(f"connect_seeds cancelled - {err}")
-                break
-        self._connect_seeds_exit_event.set()
-        log.debug("connect_seeds exit")
-
-    async def connect_former_peers(self) -> List[Peer]:
-        """
-        Attempt to connect to formerly connected peers, respecting max_outgoing_peers limit.
-
-        Waits for seed_connect task to exit before proceeding.
-        """
-        outgoing_peers = [peer for peer in self.peers if peer.type == "outgoing"]
-        if len(outgoing_peers) >= self.max_outgoing_peers:
-            log.debug(f"connect_former_peers exit. max_outgoing_peers already reached")
-            return []
-
-        log.debug("connect_outgoing_peers - waiting for connect_seeds_task to exit ...")
-        try:
-            await self._connect_seeds_exit_event.wait()
-        except asyncio.CancelledError as err:
-            log.warning(f"connect_outgoing_peers cancelled - {err}")
-            return
-
-        outgoing_peers = [peer for peer in self.peers if peer.type == "outgoing"]
-        if len(outgoing_peers) >= self.max_outgoing_peers:
-            log.debug(f"connect_former_peers exit. max_outgoing_peers already reached")
-            return []
-
-        formerly_connected_peers = self.db.get_peer_addrs(None)
-        formerly_connected_peer_addrs = [
-            (peer["host"], peer["port"]) for peer in formerly_connected_peers
-        ]
-        log.debug(
-            f"{len(formerly_connected_peer_addrs)} formerly connected peer addrs found in db"
-        )
-        connected_peer_addrs = [(peer.host, peer.port) for peer in self.peers]
-        peer_candidates = [
-            Peer(addr[0], addr[1], self.network, self.datadir)
-            for addr in formerly_connected_peer_addrs
-            if addr not in connected_peer_addrs
-        ]
-        if not peer_candidates:
-            log.info("no peer candidates")
-            return []
-
-        try:
-            newly_connected_peers = await self.connect_peers(peer_candidates)
-            return newly_connected_peers
-        except asyncio.CancelledError as err:
-            log.warning(f"connect_former_peers cancelled - {err}")
-            return []
 
     async def process_addrs(self, peer: Peer):
         """
@@ -1711,16 +1647,17 @@ class Node:
                 )
                 continue
 
-            outgoing_peers = [peer for peer in self.peers if peer.type == "outgoing"]
-
-            if len(outgoing_peers) >= self.max_outgoing_peers:
+            if len(self.outgoing_peers) >= self.max_outgoing_peers:
                 # if we're already at max outgoing peers, just save to db
                 await loop.run_in_executor(
                     self._thread_pool_executor, self.save_addr, addr, peer._id
                 )
                 continue
 
-            connected_peer_addrs = [(peer.host, peer.port) for peer in self.peers]
+            connected_peer_addrs = [
+                (peer.host, peer.port)
+                for peer in self.incoming_peers + self.outgoing_peers
+            ]
             if (addr["host"], addr["port"]) in connected_peer_addrs:
                 # don't connect to peers we've already connected to
                 # just save to db for this peer
@@ -1739,12 +1676,7 @@ class Node:
                 addr["host"], addr["port"], self.network, self.datadir
             )
 
-            try:
-                new_peer = await self.connect_peers([potential_peer])
-            except asyncio.CancelledError as err:
-                log.warning(
-                    f"process_addrs cancelled while attempting to connect to {potential_peer} - {err}"
-                )
+            new_peer = await self.connect_to_peer(potential_peer)
             if not new_peer:
                 log.warning(f"failed to connect to {potential_peer}.")
                 log.info(f"saving {addr} to db for {peer} ...")
@@ -1759,36 +1691,17 @@ class Node:
                     return
             else:
                 log.info(f"connected to {new_peer}.")
-                outgoing_peers = [
-                    peer for peer in self.peers if peer.type == "outgoing"
-                ]
-                log.debug(f"total outgoing connected peers: {len(outgoing_peers)}")
+                log.debug(f"total outgoing connected peers: {len(self.outgoing_peers)}")
                 log.debug(f"saving {addr} to db for {peer} ...")
-                try:
-                    await loop.run_in_executor(
-                        self._thread_pool_executor, self.save_addr, addr, peer._id
-                    )
-                except asyncio.CancelledError as err:
-                    log.error(
-                        f"process_addrs cancelled while saving {addr} to db for {peer} - {err}"
-                    )
-                    return
+                await loop.run_in_executor(
+                    self._thread_pool_executor, self.save_addr, addr, peer._id
+                )
                 log.debug(f"saving {addr} to db for self (peer id None) ...")
                 addr["time"] = int(time.time())
-                try:
-                    await loop.run_in_executor(
-                        self._thread_pool_executor, self.save_addr, addr, None
-                    )
-                except asyncio.CancelledError as err:
-                    log.error(
-                        f"process_addrs cancelled while saving {addr} to db for self (peer id None) - {err}"
-                    )
-                    return
-            try:
-                await asyncio.sleep(1)
-            except asyncio.CancelledError as err:
-                log.warning(f"process_addrs cancelled during sleep - {err}")
-                return
+                await loop.run_in_executor(
+                    self._thread_pool_executor, self.save_addr, addr, None
+                )
+            await asyncio.sleep(1)
 
     def save_addr(self, addr: dict, peer_id: int):
         time_ = addr["time"]
@@ -1977,119 +1890,6 @@ class Node:
             await asyncio.sleep(1)
         log.trace("request_tx loop exit")
 
-    async def request_block_inventories(self, peer: Peer):
-        """
-        Request block inventories via 'getblocks' from peer, during IBD
-
-        Expected response of 2000 inventories until we get current
-        """
-        while not self.exit_event.is_set():
-            block_inventories = list(
-                filter(lambda inv: inv["type_id"] == "MSG_BLOCK", peer.inventories)
-            )
-            if (
-                not block_inventories
-                and self._block_processing_queue.qsize() == 0
-                and not peer._pending_getblocks_request
-            ):
-                current_block_height = self.db.get_blockchain_height()
-                current_block_index_data = self.db.get_block(current_block_height)
-                peer._pending_getblocks_request = {
-                    "time": int(time.time()),
-                    "blockheaderhash": current_block_index_data["blockheaderhash"],
-                }
-                await peer.send_command(
-                    b"getblocks",
-                    getblocks_payload(
-                        [
-                            bytes.fromhex(current_block_index_data["blockheaderhash"])[
-                                ::-1
-                            ]
-                        ]
-                    ),
-                )
-            elif (
-                peer._pending_getblocks_request
-                and peer._pending_getblocks_request["time"] < time.time() - 60
-            ):
-                log.debug(
-                    f"pending getblocks {peer._pending_getblocks_request} request expired."
-                )
-                peer._pending_getblocks_request = None
-            else:
-                log.trace(
-                    f"request_block_inventories skip. len(block_inventories)={len(block_inventories)}, block_processing_queue.qsize()={self._block_processing_queue.qsize()}, pending_getblocks_request={peer._pending_getblocks_request} "
-                )
-            await asyncio.sleep(1)
-        log.trace("request_block_inventories loop exit")
-
-    async def request_blocks(self, peer: Peer):
-        """
-        Request blocks via 'getdata' from peer, during IBD
-        """
-        while not self.exit_event.is_set():
-            block_inventories = list(
-                filter(lambda inv: inv["type_id"] == "MSG_BLOCK", peer.inventories)
-            )
-            pending_getdata_requests = list(
-                filter(
-                    lambda req: req["type_id"] == "MSG_BLOCK",
-                    peer._pending_getdata_requests,
-                )
-            )
-            if (
-                self._block_processing_queue.qsize()
-                < self._block_processing_queue.maxsize
-                and block_inventories
-                and not pending_getdata_requests
-            ):
-                inventory_list = block_inventories[
-                    : self._block_processing_queue.maxsize
-                    - self._block_processing_queue.qsize()
-                ]
-
-                current_time = int(time.time())
-                requests = [
-                    {"time": current_time, "retries": 3} | inventory_
-                    for inventory_ in inventory_list
-                ]
-                peer._pending_getdata_requests.extend(requests)
-                await peer.send_command(
-                    b"getdata",
-                    inv_payload(
-                        len(inventory_list),
-                        [
-                            inventory(inv["type_id"], inv["hash"])
-                            for inv in inventory_list
-                        ],
-                    ),
-                )
-            elif pending_getdata_requests:
-                expired_requests = list(
-                    filter(
-                        lambda req: req["time"] < time.time() - 60,
-                        peer._pending_getdata_requests,
-                    )
-                )
-                if expired_requests:
-                    for req in expired_requests:
-                        req["retries"] -= 1
-                        log.debug(
-                            f"{peer} pending getdata request timeout - {req}. {req['retries']} attemtps remaining..."
-                        )
-                        if req["retries"] <= 0:
-                            log.debug(f"pending getdata request expired - {req}")
-                            peer._pending_getdata_requests.remove(req)
-                            req.pop("time")
-                            req.pop("retries")
-                            peer.inventories.remove(req)
-            else:
-                log.trace(
-                    f"request_blocks loop skip. len(block_inventories)={len(block_inventories)}, len(pending_getdata_requests)={len(pending_getdata_requests)}"
-                )
-            await asyncio.sleep(1)
-        log.trace("request_blocks loop exit")
-
     async def process_blocks(self):
         loop = asyncio.get_running_loop()
         while not self.exit_event.is_set():
@@ -2102,6 +1902,10 @@ class Node:
                 )
             except asyncio.TimeoutError:
                 pass
+            except Exception as err:
+                log.error(err)
+                log.error(traceback.format_exc())
+                self.exit_event.set()
             await asyncio.sleep(0)
         log.trace("exit process_blocks")
 
@@ -2118,7 +1922,7 @@ class Node:
             # TODO: switch sync node to best peer, and rollback to common ancestor, if necessary
         except (CheckBlockError, AcceptBlockError) as err:
             log.error(err)
-        except ConnectBlockError as err:
+        except (ConnectBlockError, Exception) as err:
             log.error(err)
             # revert
             current_block_index_data = self.db.get_block(
@@ -2141,12 +1945,12 @@ class Node:
 
         NOTE: This function does NOT delete the block data from disk nor the block index entry
         """
-        block_id = self.db.get_block(blockheight=blockheight)["id"]
-        revert_ops = self.db.get_block_revert(block_id)
+        blockheaderhash = self.db.get_block(blockheight=blockheight)["blockheaderhash"]
+        revert_ops = self.db.get_block_revert(blockheaderhash)
         for op in revert_ops:
             if op["vout"] is None:
                 # implied tx (not utxo) rollback
-                self.db.remove_tx(op["txid"])
+                self.db.remove_tx(op["txid"], blockheaderhash)
                 log.debug(f"removed tx {op['txid']} from tx table")
             elif op["revert"]:
                 # utxo rollback
@@ -2162,19 +1966,21 @@ class Node:
                     f"SELECT blockheaderhash FROM tx WHERE txid='{op['txid']}';"
                 ).fetchone()[0]
                 cursor.close()
-                revert_block_id = self.db.get_block(blockheaderhash=tx_blockheaderhash)[
-                    "id"
-                ]
                 self.db.add_to_utxoset(
                     op["txid"],
                     op["vout"],
-                    revert_block_id,
-                    json.loads(op["ordinal_ranges"]),
+                    tx_blockheaderhash,
+                    op["ordinal_ranges"],
                     index_ordinals=self._index_ordinals,
                 )
                 log.debug(
-                    f"added utxo(txid={op['txid']}, vout={op['vout']}) to utxoset with revert_block_id {revert_block_id}"
+                    f"added utxo(txid={op['txid']}, vout={op['vout']}) to utxoset"
                 )
+            cursor = self.db._conn.cursor()
+            cursor.execute(f"DELETE FROM revert WHERE id={op['id']};")
+            self.db._conn.commit()
+            cursor.close()
+            log.debug(f"removed revert op {op['id']} from revert table")
 
     def delete_block(self) -> Block:
         """
@@ -2459,7 +2265,7 @@ class Node:
 
     def get_node_info(self) -> Union[dict, None]:
         ret = {"peers": {"incoming": [], "outgoing": []}}
-        for peer in self.peers:
+        for peer in self.incoming_peers + self.outgoing_peers:
             peer_data = {"id": peer._id}
             cursor = self.db._conn.cursor()
             query = cursor.execute(
@@ -2483,45 +2289,6 @@ class Node:
                 )
             ret["peers"][peer.type].append(peer_data)
         return ret
-
-    def rebuild_index(self):
-        """
-        Rebuild block index db from the latest block index entry.
-
-        Assumes that the blocks on disk are ordered by blockheight.
-        """
-        log.info("rebuilding index...")
-        dat_filenames = sorted(
-            [f for f in os.listdir(self.blocksdir) if f.endswith(".dat")]
-        )
-        log.info(f"found {len(dat_filenames)} dat files in {self.blocksdir}")
-        chainwork = "0000000000000000000000000000000000000000000000000000000000000000"
-        for i, filename in enumerate(dat_filenames, start=1):
-            log.info(f"parsing file {i} of {len(dat_filenames)} - {filename} ...")
-            filepath = os.path.join(self.blocksdir, filename)
-            with open(filepath, "rb") as dat_file:
-                while not self.exit_event.is_set():
-                    start_offset = dat_file.tell()
-                    magic = dat_file.read(4)
-                    if not magic:
-                        break
-                    assert magic == self.magic_start_bytes, "magic mismatch"
-                    length = int.from_bytes(dat_file.read(4), "little")
-                    block = Block(dat_file.read(length))
-                    assert len(block) == length, "length mismatch"
-                    chainwork = bits.blockchain.new_chainwork(chainwork, block["nBits"])
-                    try:
-                        log.debug(f"reindexing block {block['blockheaderhash']} ...")
-                        self.accept_block(
-                            block,
-                            reindex=True,
-                            rel_path=os.path.relpath(filepath, start=self.datadir),
-                            start_offset=start_offset,
-                        )
-                    except Exception as err:
-                        traceback.format_exc()
-                        log.error(err)
-                        raise err
 
     def get_block_data(
         self, datafile: str, datafile_offset: int, cache: bool = False
@@ -2593,18 +2360,11 @@ class Node:
     def accept_block(
         self,
         block: Union[Block, Bytes, bytes],
-        reindex: bool = False,
-        rel_path: str = None,
-        start_offset: int = None,
     ) -> bool:
         """
         Validate block as new tip and save block data and / or index and chainstate
         Args:
             block: Block | bytes, block data
-            reindex: bool, True if this function if this is a reindex operation,
-                meaning the block data won't be saved, but index and chainstate are still updated
-            rel_path: str, relative path of block data, use if and only if reindex=True
-            start_offset: int, start offset byte of block data in rel_path, use if and only if reindex=True
         Returns:
             bool: True if block is accepted
         Throws:
@@ -2616,26 +2376,9 @@ class Node:
                 i.e. after block is saved to disk
         """
         current_blockheight = self.db.get_blockchain_height()
-        if current_blockheight is None:
-            # hack for reindexing
-            # no block index exists yet for block 0
-            # set "current_block_index_data" to be able to check and derive "new" chainwork
-            current_block_index_data = {
-                "blockheaderhash": "0000000000000000000000000000000000000000000000000000000000000000",
-                "chainwork": "0000000000000000000000000000000000000000000000000000000000000000",
-                "nBits": "1d00ffff",
-                "nTime": 1231006505
-                if self.network.lower() == "mainnet"
-                else 1296688602,
-            }
-        else:
-            current_block_index_data = self.db.get_block(
-                blockheight=current_blockheight
-            )
+        current_block_index_data = self.db.get_block(blockheight=current_blockheight)
 
-        proposed_blockheight = (
-            current_blockheight + 1 if current_blockheight is not None else 0
-        )
+        proposed_blockheight = current_blockheight + 1
         proposed_block = Block(block)
         if not bits.blockchain.check_block(proposed_block, network=self.network):
             raise CheckBlockError(
@@ -2665,10 +2408,6 @@ class Node:
                     f"proposed block {proposed_block['blockheaderhash']} prev blockheader hash does not match current block {current_blockheight}'s header hash"
                 )
 
-        # if prev blockhash field DOES match blockchain tip,
-        # the next couple rules (nbits & timestamp checks)
-        # must pass for the block to be considered valid
-
         # check nBits correctly sets difficulty
         if proposed_block["nBits"] not in self.get_next_nbits(proposed_block):
             raise AcceptBlockError(
@@ -2690,6 +2429,7 @@ class Node:
             raise AcceptBlockError(
                 f"proposed block nTime {proposed_block['nTime']} is not strictly greater than the median time {median_time}"
             )
+
         # ensure timestamp is not more than two hours in future
         current_time = time.time()
         if proposed_block["nTime"] > current_time + 7200:
@@ -2706,48 +2446,13 @@ class Node:
                     f"block {proposed_block['blockheaderhash']} has non-final transaction {txn['txid']}"
                 )
 
-        # log.trace("get best peer")
-        # # check if proposed block is in the most work chain,
-        # best_peer_id = self.get_best_peer()
-        # if best_peer_id is not None:
-        #     cursor = self.db._conn.cursor()
-        #     res = cursor.execute(
-        #         f"SELECT blockheaderhash FROM blockheader WHERE peer_id={best_peer_id} AND blockheight={proposed_blockheight} AND blockheaderhash='{proposed_block['blockheaderhash']}';"
-        #     ).fetchone()
-        #     cursor.close()
-        #     if not res:
-        #         raise PossibleForkError(
-        #             f"proposed block {proposed_block['blockheaderhash']} is not in the most work chain"
-        #         )
-        # log.trace("get best peer end")
-
-        if not reindex:
-            ### save block to disk and index db ###
-            self.save_block(
-                block,
-                bits.blockchain.new_chainwork(
-                    current_block_index_data["chainwork"], proposed_block["nBits"]
-                ),
-            )
-        else:
-            # TODO: this if/else code looks misleading
-            with self._thread_lock:
-                self.db.save_block(
-                    proposed_blockheight,
-                    proposed_block["blockheaderhash"],
-                    proposed_block["version"],
-                    proposed_block["prev_blockheaderhash"],
-                    proposed_block["merkle_root_hash"],
-                    proposed_block["nTime"],
-                    proposed_block["nBits"],
-                    proposed_block["nNonce"],
-                    bits.blockchain.new_chainwork(
-                        current_block_index_data["chainwork"], proposed_block["nBits"]
-                    ),
-                    rel_path,
-                    start_offset,
-                )
-            log.info(f"block {proposed_blockheight} saved to {self.index_db_filename}")
+        ### save block to disk and index db ###
+        self.save_block(
+            block,
+            bits.blockchain.new_chainwork(
+                current_block_index_data["chainwork"], proposed_block["nBits"]
+            ),
+        )
 
         # cleanup proposed block variables
         del proposed_blockheight
@@ -2775,11 +2480,32 @@ class Node:
         # get total value spent by coinbase transaction
         coinbase_tx = current_block["txns"][0]
         with self._thread_lock:
+            cursor = self.db._conn.cursor()
+            utxo_count = cursor.execute(
+                "SELECT COUNT(*) FROM utxoset WHERE txid=?;", (coinbase_tx["txid"],)
+            ).fetchone()[0]
+            cursor.close()
+            if utxo_count > 0:
+                log.debug(
+                    f"{utxo_count} utxo(s) with txid {coinbase_tx['txid']} already exist in utxoset"
+                )
+                if current_blockheight in [91842, 91880]:
+                    # two historic violations allowed per BIP 30,
+                    # https://github.com/bitcoin/bips/blob/master/bip-0030.mediawiki
+                    log.debug(
+                        f"allowing historic BIP 30 violation @ block {current_blockheight}"
+                    )
+                else:
+                    log.error(
+                        f"txid {coinbase_tx['txid']} matches prior not-fully-spent transaction, disallowed per BIP30"
+                    )
+                    raise ConnectBlockError(
+                        f"txid {coinbase_tx['txid']} matches prior not-fully-spent tx"
+                    )
             self.db.add_tx(
                 coinbase_tx["txid"],
                 current_block["blockheaderhash"],
                 0,
-                current_block_index_data["id"],
             )
 
         coinbase_tx_txouts = coinbase_tx["txouts"]
@@ -2808,11 +2534,32 @@ class Node:
         miner_tips = 0
         for txn_i, txn in enumerate(current_block["txns"][1:], start=1):
             with self._thread_lock:
+                cursor = self.db._conn.cursor()
+                utxo_count = cursor.execute(
+                    "SELECT COUNT(*) FROM utxoset WHERE txid=?;", (txn["txid"],)
+                ).fetchone()[0]
+                cursor.close()
+                if utxo_count > 0:
+                    log.debug(
+                        f"{utxo_count} utxo(s) with txid {txn['txid']} already exist in utxoset"
+                    )
+                    if current_blockheight in [91842, 91880]:
+                        # two historic violations allowed per BIP 30,
+                        # https://github.com/bitcoin/bips/blob/master/bip-0030.mediawiki
+                        log.debug(
+                            f"allowing historic BIP 30 violation @ block {current_blockheight}"
+                        )
+                    else:
+                        log.error(
+                            f"txid {txn['txid']} matches prior not-fully-spent transaction, disallowed per BIP30"
+                        )
+                        raise ConnectBlockError(
+                            f"txid {txn['txid']} matches prior not-fully-spent tx"
+                        )
                 self.db.add_tx(
                     txn["txid"],
                     current_block["blockheaderhash"],
                     txn_i,
-                    current_block_index_data["id"],
                 )
 
             log.debug(
@@ -2884,22 +2631,21 @@ class Node:
                 # add utxo value to total transction value input
                 txn_value_in += utxo_value
 
-                if current_blockheight >= self._assumevalid:
-                    # evaluate tx_in unlocking script for its utxo
-                    tx_in_scriptsig = tx_in["scriptsig"]
-                    utxo_scriptpubkey = utxo["scriptpubkey"]
-                    script_ = bits.script.script(
-                        [tx_in_scriptsig, "OP_CODESEPARATOR", utxo_scriptpubkey]
+                # evaluate tx_in unlocking script for its utxo
+                tx_in_scriptsig = tx_in["scriptsig"]
+                utxo_scriptpubkey = utxo["scriptpubkey"]
+                script_ = bits.script.script(
+                    [tx_in_scriptsig, "OP_CODESEPARATOR", utxo_scriptpubkey]
+                )
+                log.trace(
+                    f"evaluating script for tx input {txin_i} of {len(txn['txins'])} txins in txn {txn_i}/{len(current_block['txns'][1:])} of new block {current_blockheight}..."
+                )
+                if not bits.script.eval_script(
+                    script_, bits.tx.tx_ser(utxo_tx), txin_vout
+                ):
+                    raise ConnectBlockError(
+                        f"script evaluation failed for txin {txin_i} in txn {txn_i} in block(blockheaderhash={current_block['blockheaderhash']})"
                     )
-                    log.trace(
-                        f"evaluating script for tx input {txin_i} of {len(txn['txins'])} txins in txn {txn_i}/{len(current_block['txns'][1:])} of new block {current_blockheight}..."
-                    )
-                    if not bits.script.eval_script(
-                        script_, bits.tx.tx_ser(utxo_tx), txin_vout
-                    ):
-                        raise ConnectBlockError(
-                            f"script evaluation failed for txin {txin_i} in txn {txn_i} in block(blockheaderhash={current_block['blockheaderhash']})"
-                        )
 
                 # this tx_in succeeds, update utxoset
                 log.trace(
@@ -2909,7 +2655,7 @@ class Node:
                     tx_ordinal_ranges += self.db.remove_from_utxoset(
                         txin_txid,
                         txin_vout,
-                        current_block_index_data["id"],
+                        current_block_index_data["blockheaderhash"],
                         index_ordinals=self._index_ordinals,
                     )
                 log.trace(
@@ -2953,9 +2699,11 @@ class Node:
                     self.db.add_to_utxoset(
                         txn["txid"],
                         vout,
-                        current_block_index_data["id"],
+                        current_block_index_data["blockheaderhash"],
                         utxo_ordinal_ranges,
                         index_ordinals=self._index_ordinals,
+                        replace=current_blockheight
+                        in [91842, 91880],  # allow historic violations per BIP 30
                     )
             block_ordinal_ranges += tx_ordinal_ranges
 
@@ -2982,9 +2730,11 @@ class Node:
                 self.db.add_to_utxoset(
                     coinbase_tx["txid"],
                     vout,
-                    current_block_index_data["id"],
+                    current_block_index_data["blockheaderhash"],
                     utxo_ordinal_ranges,
                     index_ordinals=self._index_ordinals,
+                    replace=current_blockheight
+                    in [91842, 91880],  # allow historic violations per BIP 30
                 )
 
         log.debug(
@@ -3046,12 +2796,7 @@ class Node:
         else:
             next_block = Block(next_block)
             current_blockheight = self.db.get_blockchain_height()
-            if current_blockheight is None:
-                # hack, special case for reindexing, there is not block 0 index yet
-                # just return with known starting nbits
-                return set(["1d00ffff"])
-            else:
-                current_block_index_data = self.db.get_block(current_blockheight)
+            current_block_index_data = self.db.get_block(current_blockheight)
 
         next_blockheight = current_blockheight + 1
 
@@ -3192,7 +2937,7 @@ class Db:
                 """
                 CREATE TABLE tx(
                     id INTEGER PRIMARY KEY,
-                    txid TEXT UNIQUE,
+                    txid TEXT,
                     wtxid TEXT,
                     version INTEGER,
 
@@ -3219,16 +2964,16 @@ class Db:
             cursor.execute(
                 """
                 CREATE TABLE utxoset(
-                    id INTEGER PRIMARY KEY,
-                    txid TEXT,
-                    vout INTEGER,
+                    txid TEXT NOT NULL,
+                    vout INTEGER NOT NULL,
                     value INTEGER,
                     scriptpubkey TEXT,
-                    FOREIGN KEY(txid) REFERENCES tx(txid)
+                    blockheaderhash TEXT NOT NULL,
+                    FOREIGN KEY(blockheaderhash) REFERENCES block(blockheaderhash),
+                    PRIMARY KEY (txid, vout)
                 );
             """
             )
-            cursor.execute("CREATE INDEX utxo_txid_vout_index ON utxoset(txid, vout);")
             self._conn.commit()
         cursor.close()
 
@@ -3246,18 +2991,11 @@ class Db:
                     start INTEGER,
                     end INTEGER,
 
-                    utxoset_id INTEGER,
-                    revert_id INTEGER,
-                    FOREIGN KEY(utxoset_id) REFERENCES utxoset(id) ON DELETE SET NULL,
-                    FOREIGN KEY(revert_id) REFERENCES revert(id) ON DELETE SET NULL
+                    utxoset_txid TEXT,
+                    utxoset_vout INTEGER,
+                    FOREIGN KEY(utxoset_txid, utxoset_vout) REFERENCES utxoset(txid, vout) ON DELETE SET NULL
                 );
                 """
-            )
-            cursor.execute(
-                "CREATE INDEX ordinal_range_utxoset_id_index ON ordinal_range(utxoset_id);"
-            )
-            cursor.execute(
-                "CREATE INDEX ordinal_range_revert_id_index ON ordinal_range(revert_id);"
             )
             self._conn.commit()
         cursor.close()
@@ -3291,14 +3029,17 @@ class Db:
         cursor.close()
 
     def create_revert_table(self):
-        # revert table for block reorgs
-        # block_id references the block for which this reversion is for (not the block that the utxo is contained in)
-        #   note also that block_id references the primary key id, not blockheight nor blockheaderhash
-        # id reflects the order in which the operation was made, thus reverse for the reversion order
-        # revert is a boolean, True if revert, False if this is to be re-added
-        # txid and vout refer to the utxo to be re-added or removed to utxoset
-        # if vout is NULL, this indicates this txid itself to be removed from the tx table table during reversion,
-        #   note that tx are never re-added during reversion
+        """
+        Create revert table
+
+        A row is created for each operation which may need to be reverted, during a block reorg.
+        if vout is NULL, this is an entry for a tx, otherwise
+        txid and vout must be specified indicating a utxo
+        revert is a boolean, indicating if this object should be removed (revert=1) or re-added (revert=0) during a block reversion
+        Note that tx are never re-added during reversion
+        The primary key id reflects the order in which the operation was made,
+            thus the reverse is the reversion order
+        """
         cursor = self._conn.cursor()
         query = cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='revert';"
@@ -3312,12 +3053,14 @@ class Db:
                     revert BOOLEAN DEFAULT 1,
                     txid TEXT,
                     vout INTEGER,
-                    block_id INTEGER,
-                    FOREIGN KEY(block_id) REFERENCES block(id)
+                    blockheaderhash TEXT,
+                    FOREIGN KEY(blockheaderhash) REFERENCES block(blockheaderhash)
                 )
                 """
             )
-            cursor.execute("CREATE INDEX revert_block_id_index ON revert(block_id);")
+            cursor.execute(
+                "CREATE INDEX revert_blockheaderhash_index ON revert(blockheaderhash);"
+            )
             self._conn.commit()
         cursor.close()
 
@@ -3403,7 +3146,6 @@ class Db:
         txid: str,
         blockheaderhash: str,
         n: int,
-        revert_block_id: int,
     ):
         """
         Create a new tx row in index db
@@ -3411,7 +3153,6 @@ class Db:
             txid: str, transaction id
             blockheaderhash: str, block header hash for the block this tx is in
             n: int, tx index in block
-            revert_block_id: int, block id this tx is added in (for the revert table)
         """
         cursor = self._conn.cursor()
         cursor.execute("BEGIN TRANSACTION;")
@@ -3419,19 +3160,22 @@ class Db:
             f"INSERT INTO tx (txid, blockheaderhash, n) VALUES ('{txid}', '{blockheaderhash}', {n});"
         )
         cursor.execute(
-            f"INSERT INTO revert (revert, txid, vout, block_id) VALUES (1, '{txid}', NULL, {revert_block_id});"
+            f"INSERT INTO revert (revert, txid, vout, blockheaderhash) VALUES (1, '{txid}', NULL, '{blockheaderhash}');"
         )
         self._conn.commit()
         cursor.close()
 
-    def remove_tx(self, txid: str):
+    def remove_tx(self, txid: str, blockheaderhash: str):
         """
         Remove tx from tx table
         Args:
             txid: str, transaction id (big endian)
+            blockheaderhash: str, block header hash for the block this tx is in
         """
         cursor = self._conn.cursor()
-        cursor.execute(f"DELETE FROM tx WHERE txid='{txid}'")
+        cursor.execute(
+            f"DELETE FROM tx WHERE txid='{txid}' and blockheaderhash='{blockheaderhash}';"
+        )
         self._conn.commit()
 
     def get_tx(self, txid: str) -> Union[dict, None]:
@@ -3578,41 +3322,60 @@ class Db:
             else None
         )
 
+    def get_utxoset(self, txid: str, vout: int) -> Union[dict, None]:
+        """
+        Get utxoset table entry, for given txid and vout, if exists, else None
+        """
+        cursor = self._conn.cursor()
+        res = cursor.execute(
+            f"SELECT * FROM utxoset WHERE txid='{txid}' AND vout='{vout}';"
+        )
+        result = res.fetchone()
+        cursor.close()
+        return (
+            {
+                "txid": result[1],
+                "vout": int(result[2]),
+                "value": int(result[3]),
+                "scriptpubkey": result[4],
+                "blockheaderhash": result[5],
+            }
+            if result
+            else None
+        )
+
     def remove_from_utxoset(
         self,
         txid: str,
         vout: int,
-        revert_block_id: Optional[int] = None,
+        revert_blockheaderhash: Optional[str] = None,
         index_ordinals: bool = False,
     ) -> Tuple[Tuple[int, int]]:
         """
         Remove row from utxoset, optionally writing to revert table
         Args:
-            revert_block_id: Optional[int], block id this operation corresponds to for revert purposes
+            revert_blockheaderhash: Optional[str],
+              blockheaderhash this operation corresponds to for block revert purposes
+              Note this is not the same as the blockheaderhash this utxo was created in
         Return:
             ordinal ranges removed e.g. ((0, 16), (420, 690), ...)
         """
         cursor = self._conn.cursor()
         cursor.execute("BEGIN TRANSACTION;")
-        utxoset_id = cursor.execute(
-            "SELECT id FROM utxoset WHERE txid=? AND vout=?;", (txid, vout)
-        ).fetchone()[0]
         if index_ordinals:
             ordinal_ranges = cursor.execute(
-                "SELECT start, end FROM ordinal_range WHERE utxoset_id=?;",
-                (utxoset_id,),
+                "SELECT start, end FROM ordinal_range WHERE utxoset_txid=? AND utxoset_vout=?;",
+                (txid, vout),
             ).fetchall()
-            revert_block_id = "NULL" if revert_block_id is None else revert_block_id
             cursor.execute(
-                "UPDATE ordinal_range SET utxoset_id=NULL, revert_block_id=? WHERE utxoset_id=?;",
-                (revert_block_id, utxoset_id),
+                "UPDATE ordinal_range SET revert_blockheaderhash=? WHERE utxoset_txid=? AND utxoset_vout=?;",
+                (revert_blockheaderhash, txid, vout),
             )
         cursor.execute("DELETE FROM utxoset WHERE txid=? AND vout=?;", (txid, vout))
-        if revert_block_id is not None:
-            cursor.execute(
-                "INSERT INTO revert (revert, txid, vout, block_id) VALUES (?, ?, ?, ?);",
-                (0, txid, vout, revert_block_id),
-            )
+        cursor.execute(
+            "INSERT INTO revert (revert, txid, vout, blockheaderhash) VALUES (?, ?, ?, ?);",
+            (0, txid, vout, revert_blockheaderhash),
+        )
         self._conn.commit()
         cursor.close()
         return ordinal_ranges if index_ordinals else []
@@ -3621,35 +3384,40 @@ class Db:
         self,
         txid: str,
         vout: int,
-        revert_block_id: int,
+        blockheaderhash: str,
         ordinal_ranges: List[List[int]],
         index_ordinals: bool = False,
+        replace: bool = False,
     ):
         """
         Add to utxo set
         Args:
             txid: str, transaction id
-            vout: str, output number
-            revert_block_id: int, block id primary key that a potential reversion is for
+            vout: int, output number
+            blockheaderhash: str, block header hash for the block this utxo is in
             ordinal_ranges: list, list of ordinal ranges contained in this utxo
+            replace: bool, use INSERT OR REPLACE when adding utxo, defaults to False
         """
         cursor = self._conn.cursor()
         cursor.execute("BEGIN TRANSACTION;")
-        cursor.execute("INSERT INTO utxoset (txid, vout) VALUES (?, ?);", (txid, vout))
-        utxoset_id = cursor.execute(
-            "SELECT id FROM utxoset WHERE txid=? AND vout=?;", (txid, vout)
-        ).fetchone()[0]
+        if replace:
+            cursor.execute(
+                "INSERT OR REPLACE INTO utxoset (txid, vout, blockheaderhash) VALUES (?, ?, ?);",
+                (txid, vout, blockheaderhash),
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO utxoset (txid, vout, blockheaderhash) VALUES (?, ?, ?);",
+                (txid, vout, blockheaderhash),
+            )
         if index_ordinals:
             cursor.executemany(
-                "INSERT INTO ordinal_range(start, end, utxoset_id, revert_block_id) VALUES (?, ?, ?, ?);",
-                [
-                    (start, end, utxoset_id, revert_block_id)
-                    for start, end in ordinal_ranges
-                ],
+                "INSERT INTO ordinal_range(start, end, utxoset_txid, utxoset_vout) VALUES (?, ?, ?, ?);",
+                [(start, end, txid, vout) for start, end in ordinal_ranges],
             )
         cursor.execute(
-            "INSERT INTO revert (revert, txid, vout, block_id) VALUES (?, ?, ?, ?);",
-            (1, txid, vout, revert_block_id),
+            "INSERT INTO revert (revert, txid, vout) VALUES (?, ?, ?);",
+            (1, txid, vout),
         )
         self._conn.commit()
         cursor.close()
@@ -3694,17 +3462,17 @@ class Db:
         cursor.close()
         return peer_id
 
-    def get_block_revert(self, block_id: int):
+    def get_block_revert(self, blockheaderhash: str):
         """
         Get the revert table entries for a block
         Args:
-            block_id: int, block id primary key
+            blockheaderhash: str, block header hash
         Returns:
-            Entries in revert table for block_id, in descending order
+            Entries in revert table for blockheaderhash, in descending order
         """
         cursor = self._conn.cursor()
         rows = cursor.execute(
-            f"SELECT * FROM revert WHERE block_id={block_id} ORDER BY id DESC;"
+            f"SELECT * FROM revert WHERE blockheaderhash='{blockheaderhash}' ORDER BY id DESC;"
         ).fetchall()
 
         cursor.close()
