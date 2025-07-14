@@ -820,6 +820,7 @@ Examples:
         "--seeds",
         type=json.loads,
         action=ExplicitOption,
+        default=[],
         help="list of seed nodes host:port, e.g. '[\"127.0.0.1:8333\"]'",
     )
     p2p_parser.add_argument(
@@ -827,6 +828,15 @@ Examples:
         type=str,
         action=ExplicitOption,
         help="p2p node data directory",
+    )
+    p2p_parser.add_argument(
+        "--bind",
+        type=str,
+        action=ExplicitOption,
+        help="bind ip address / port e.g. '0.0.0.0:10101'",
+    )
+    p2p_parser.add_argument(
+        "--index-ordinals", action=ExplicitOption, default=False, help="index ordinals"
     )
 
     block_parser = sub_parser.add_parser(
@@ -1312,19 +1322,35 @@ def main():
             max_outgoing_peers=config.max_outgoing_peers,
             miner_wallet_address=config.miner_wallet_address,
             bind=config.bind,
+            index_ordinals=config.index_ordinals,
         )
         if args.info:
             ret = make_request(p2p_node._requests_dir, "get_node_info")
             print(json.dumps(ret))
             return
-        p2p_node.start()
 
-        def shutdown(*args):
-            p2p_node.stop()
+        pid = os.getpid()
+        pidfile = os.path.join(config.datadir, "p2p.pid")
+        if os.path.exists(pidfile):
+            log.error(f"p2p node already running. pidfile exists: {pidfile}")
+            return
+        try:
+            with open(pidfile, "w") as f:
+                f.write(str(pid))
 
-        signal.signal(signal.SIGINT, shutdown)
-        signal.signal(signal.SIGTERM, shutdown)
-        p2p_node._thread.join()
+            p2p_node.start()
+
+            def shutdown(*args):
+                p2p_node.stop()
+
+            signal.signal(signal.SIGINT, shutdown)
+            signal.signal(signal.SIGTERM, shutdown)
+            p2p_node._thread.join()
+        except Exception as err:
+            log.error(f"exception occurred in p2p node __main__ entrypoint - {err}")
+            return
+        finally:
+            os.remove(pidfile)
     elif args.subcommand == "block":
         if args.chain_info:
             node = bits.p2p.Node(
