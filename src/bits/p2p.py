@@ -1341,7 +1341,7 @@ class Node:
                         request_file,
                         loop,
                     )
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.5)
         log.trace("main loop exit")
 
     def service_request(
@@ -1723,15 +1723,10 @@ class Node:
                     f"removed utxo(txid={op['txid']}, vout={op['vout']}) from utxoset"
                 )
             else:
-                cursor = self.db._conn.cursor()
-                tx_blockheaderhash = cursor.execute(
-                    f"SELECT blockheaderhash FROM tx WHERE txid='{op['txid']}';"
-                ).fetchone()[0]
-                cursor.close()
                 self.db.add_to_utxoset(
                     op["txid"],
                     op["vout"],
-                    tx_blockheaderhash,
+                    op["utxo_blockheaderhash"],
                     op["ordinal_ranges"],
                     index_ordinals=self._index_ordinals,
                 )
@@ -2796,11 +2791,14 @@ class Db:
         """
         Create revert table
 
-        A row is created for each operation which may need to be reverted, during a block reorg.
-        if vout is NULL, this is an entry for a tx, otherwise
-        txid and vout must be specified indicating a utxo
-        revert is a boolean, indicating if this object should be removed (revert=1) or re-added (revert=0) during a block reversion
-        Note that tx are never re-added during reversion
+        A row is created for each operation which may need to be reverted, e.g. during a block reorg.
+        If vout is NULL, this is an entry for a tx, otherwise
+            txid and vout must be specified indicating a utxo
+            revert is a boolean, indicating if this object should be removed, i.e.
+            (revert=1) or re-added (revert=0) during a block reversion
+        Note that tx are never re-added during reversion.
+        utxo_blockheaderhash is the blockheaderhash of the block in which the utxo was created
+        revert_blockheaderhash is the blockheaderhash of the block in which this revert entry corresponds to
         The primary key id reflects the order in which the operation was made,
             thus the reverse is the reversion order
         """
@@ -2817,13 +2815,18 @@ class Db:
                     revert BOOLEAN DEFAULT 1,
                     txid TEXT,
                     vout INTEGER,
-                    blockheaderhash TEXT,
-                    FOREIGN KEY(blockheaderhash) REFERENCES block(blockheaderhash)
-                )
+                    utxo_blockheaderhash TEXT,
+                    revert_blockheaderhash TEXT,
+                    FOREIGN KEY(utxo_blockheaderhash) REFERENCES block(blockheaderhash),
+                    FOREIGN KEY(revert_blockheaderhash) REFERENCES block(blockheaderhash)
+                );
                 """
             )
             cursor.execute(
-                "CREATE INDEX revert_blockheaderhash_index ON revert(blockheaderhash);"
+                "CREATE INDEX utxo_blockheaderhash_index ON revert(utxo_blockheaderhash);"
+            )
+            cursor.execute(
+                "CREATE INDEX revert_blockheaderhash_index ON revert(revert_blockheaderhash);"
             )
             self._conn.commit()
         cursor.close()
@@ -2847,7 +2850,7 @@ class Db:
             f"INSERT INTO tx (txid, blockheaderhash, n) VALUES ('{txid}', '{blockheaderhash}', {n});"
         )
         cursor.execute(
-            f"INSERT INTO revert (revert, txid, vout, blockheaderhash) VALUES (1, '{txid}', NULL, '{blockheaderhash}');"
+            f"INSERT INTO revert (revert, txid, vout, utxo_blockheaderhash) VALUES (1, '{txid}', NULL, '{blockheaderhash}');"
         )
         self._conn.commit()
         cursor.close()
@@ -3058,11 +3061,15 @@ class Db:
                 "UPDATE ordinal_range SET revert_blockheaderhash=? WHERE utxoset_txid=? AND utxoset_vout=?;",
                 (revert_blockheaderhash, txid, vout),
             )
+        utxo_blockheaderhash = cursor.execute(
+            "SELECT blockheaderhash FROM utxoset WHERE txid=? AND vout=?;",
+            (txid, vout),
+        ).fetchone()[0]
         cursor.execute("DELETE FROM utxoset WHERE txid=? AND vout=?;", (txid, vout))
         if revert_blockheaderhash:
             cursor.execute(
-                "INSERT INTO revert (revert, txid, vout, blockheaderhash) VALUES (?, ?, ?, ?);",
-                (0, txid, vout, revert_blockheaderhash),
+                "INSERT INTO revert (revert, txid, vout, utxo_blockheaderhash, revert_blockheaderhash) VALUES (?, ?, ?, ?, ?);",
+                (0, txid, vout, utxo_blockheaderhash, revert_blockheaderhash),
             )
         self._conn.commit()
         cursor.close()
@@ -3103,9 +3110,10 @@ class Db:
                 "INSERT INTO ordinal_range(start, end, utxoset_txid, utxoset_vout) VALUES (?, ?, ?, ?);",
                 [(start, end, txid, vout) for start, end in ordinal_ranges],
             )
+        # when adding to utxoset, utxo_blockheaderhash = revert_blockheaderhash
         cursor.execute(
-            "INSERT INTO revert (revert, txid, vout) VALUES (?, ?, ?);",
-            (1, txid, vout),
+            "INSERT INTO revert (revert, txid, vout, utxo_blockheaderhash, revert_blockheaderhash) VALUES (?, ?, ?, ?, ?);",
+            (1, txid, vout, blockheaderhash, blockheaderhash),
         )
         self._conn.commit()
         cursor.close()
