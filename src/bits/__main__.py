@@ -1329,12 +1329,21 @@ def main():
             print(json.dumps(ret))
             return
 
-        pid = os.getpid()
         pidfile = os.path.join(config.datadir, "p2p.pid")
         if os.path.exists(pidfile):
-            log.error(f"p2p node already running. pidfile exists: {pidfile}")
-            return
+            with open(pidfile, "r") as f:
+                pid = int(f.read())
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                os.remove(pidfile)
+            else:
+                log.error(
+                    f"pidfile and process with pid {pid} exists. is p2p node already running?"
+                )
+                return
         try:
+            pid = os.getpid()
             with open(pidfile, "w") as f:
                 f.write(str(pid))
 

@@ -1137,7 +1137,7 @@ class Node:
                     log.debug(f"{peer} removed from self.outgoing_peers")
                 else:
                     self.incoming_peers.remove(peer)
-                log.debug(f"{peer} removed from self.incoming_peers")
+                    log.debug(f"{peer} removed from self.incoming_peers")
             log.trace(f"{peer} peer_recv_loop exit")
 
     async def handle_incoming_peer(self, reader: StreamReader, writer: StreamWriter):
@@ -3168,9 +3168,8 @@ class Db:
         """
         cursor = self._conn.cursor()
         rows = cursor.execute(
-            f"SELECT * FROM revert WHERE blockheaderhash='{blockheaderhash}' ORDER BY id DESC;"
+            f"SELECT * FROM revert WHERE revert_blockheaderhash='{blockheaderhash}' ORDER BY id DESC;"
         ).fetchall()
-
         cursor.close()
         return [
             {
@@ -3178,7 +3177,8 @@ class Db:
                 "revert": row[1],
                 "txid": row[2],
                 "vout": row[3],
-                "block_id": row[4],
+                "utxo_blockheaderhash": row[4],
+                "revert_blockheaderhash": row[5],
                 "ordinal_ranges": [],  # TODO: implement ordinal ranges for block revert
             }
             for row in rows
