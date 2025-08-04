@@ -20,6 +20,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from ipaddress import ip_address
+from sqlite3 import Cursor
 from threading import Thread, Lock
 from typing import Any, List, Optional, Tuple, Union
 
@@ -235,7 +236,7 @@ def parse_reject_payload(payload: bytes) -> dict:
 def getblocks_payload(
     block_header_hashes: List[bytes],
     stop_hash: bytes = b"\x00" * 32,
-    protocol_version: int = 70015,
+    protocol_version: int = 60001,
 ) -> bytes:
     """
     https://developer.bitcoin.org/reference/p2p_networking.html#getblocks
@@ -602,6 +603,7 @@ class Peer:
             self.writer.write(message_bytes)
             await self.writer.drain()
             log.info(f"sent {command} and {len(payload)} payload bytes to {self}.")
+            log.trace(f"payload: {payload}")
         except ConnectionResetError as err:
             log.error(err)
             log.info(f"connection reset while sending {command} to {self}.")
@@ -1265,6 +1267,9 @@ class Node:
                         ]
                     ),
                 )
+                log.trace(
+                    f"sent getblocks for {current_block_index_data['blockheaderhash']}"
+                )
             elif (
                 peer._pending_getblocks_request
                 and peer._pending_getblocks_request["time"] < time.time() - 15
@@ -1557,7 +1562,7 @@ class Node:
     def run(self):
         asyncio.run(
             self.main(),
-            debug=True if self.log_level.lower() in ["debug", "trace"] else False,
+            debug=True if self.log_level.lower() in ["trace"] else False,
         )
 
     def start(self):
@@ -1674,70 +1679,33 @@ class Node:
         log.trace("exit process_blocks")
 
     def process_block(self, block: Block):
+        log.trace(f"processing block {block['blockheaderhash']} ...")
         try:
             self.accept_block(block)
-        except PossibleOrphanError as err:
-            log.debug(
-                f"possible orphan block {block['blockheaderhash']}. discarding ..."
+        except (
+            PossibleOrphanError,
+            CheckBlockError,
+            AcceptBlockError,
+            PossibleForkError,
+        ) as err:
+            log.info(err)
+            log.info(
+                f"{type(err).__name__} for block {block['blockheaderhash']} . discarding ..."
             )
-        except PossibleForkError as err:
-            raise err
-        except (CheckBlockError, AcceptBlockError) as err:
-            log.error(err)
+            return
+
+        try:
+            cursor = self.db._conn.cursor()
+            cursor.execute("BEGIN TRANSACTION;")
+            self.connect_block(block, cursor=cursor)
         except (ConnectBlockError, Exception) as err:
             log.error(err)
-            # revert
-            current_block_index_data = self.db.get_block(
-                blockheight=self.db.get_blockchain_height()
-            )
-            log.info(
-                f"reverting changes to tx / utxoset via block {current_block_index_data['blockheight']} ..."
-            )
-            self.revert_block(current_block_index_data["blockheight"])
-            log.info(
-                f"changes to tx / utxoset via block {current_block_index_data['blockheight']} reverted in {self.index_db_filename}"
-            )
-            # delete last block & block index
+            # rollback tx / utxoset changes
+            cursor.execute("ROLLBACK;")
+            cursor.close()
+            # delete block on disk and index db
             _deleted_block = self.delete_block()
             raise err
-
-    def revert_block(self, blockheight: int):
-        """
-        Revert tx and utxoset changes for a block, given by revert table entries
-
-        NOTE: This function does NOT delete the block data from disk nor the block index entry
-        """
-        blockheaderhash = self.db.get_block(blockheight=blockheight)["blockheaderhash"]
-        revert_ops = self.db.get_block_revert(blockheaderhash)
-        for op in revert_ops:
-            if op["vout"] is None:
-                # implied tx (not utxo) rollback
-                self.db.remove_tx(op["txid"], blockheaderhash)
-                log.debug(f"removed tx {op['txid']} from tx table")
-            elif op["revert"]:
-                # utxo rollback
-                self.db.remove_from_utxoset(
-                    op["txid"], op["vout"], index_ordinals=self._index_ordinals
-                )
-                log.debug(
-                    f"removed utxo(txid={op['txid']}, vout={op['vout']}) from utxoset"
-                )
-            else:
-                self.db.add_to_utxoset(
-                    op["txid"],
-                    op["vout"],
-                    op["utxo_blockheaderhash"],
-                    op["ordinal_ranges"],
-                    index_ordinals=self._index_ordinals,
-                )
-                log.debug(
-                    f"added utxo(txid={op['txid']}, vout={op['vout']}) to utxoset"
-                )
-            cursor = self.db._conn.cursor()
-            cursor.execute(f"DELETE FROM revert WHERE id={op['id']};")
-            self.db._conn.commit()
-            cursor.close()
-            log.debug(f"removed revert op {op['id']} from revert table")
 
     def delete_block(self) -> Block:
         """
@@ -2207,15 +2175,22 @@ class Node:
                 current_block_index_data["chainwork"], proposed_block["nBits"]
             ),
         )
+        return True
 
-        # cleanup proposed block variables
-        del proposed_blockheight
-        del proposed_block
-
+    def connect_block(
+        self, block: Union[Block, Bytes, bytes], cursor: Optional[Cursor] = None
+    ) -> bool:
         # now we update utxoset step-by-step during tx validation,
+        ephemeral_cursor = False
+        if not cursor:
+            ephemeral_cursor = True
+            cursor = self.db._conn.cursor()
+            cursor.execute("BEGIN TRANSACTION;")
 
-        current_blockheight = self.db.get_blockchain_height()
-        current_block_index_data = self.db.get_block(blockheight=current_blockheight)
+        current_blockheight = self.db.get_blockchain_height(cursor=cursor)
+        current_block_index_data = self.db.get_block(
+            blockheight=current_blockheight, cursor=cursor
+        )
 
         cached_current_block_data = self._block_cache.get(
             current_block_index_data["blockheaderhash"]
@@ -2234,11 +2209,9 @@ class Node:
         # get total value spent by coinbase transaction
         coinbase_tx = current_block["txns"][0]
         with self._thread_lock:
-            cursor = self.db._conn.cursor()
             utxo_count = cursor.execute(
                 "SELECT COUNT(*) FROM utxoset WHERE txid=?;", (coinbase_tx["txid"],)
             ).fetchone()[0]
-            cursor.close()
             if utxo_count > 0:
                 log.debug(
                     f"{utxo_count} utxo(s) with txid {coinbase_tx['txid']} already exist in utxoset"
@@ -2251,7 +2224,7 @@ class Node:
                     )
                 else:
                     log.error(
-                        f"txid {coinbase_tx['txid']} matches prior not-fully-spent transaction, disallowed per BIP30"
+                        f"txid {coinbase_tx['txid']} matches prior not-fully-spent transaction"
                     )
                     raise ConnectBlockError(
                         f"txid {coinbase_tx['txid']} matches prior not-fully-spent tx"
@@ -2260,6 +2233,7 @@ class Node:
                 coinbase_tx["txid"],
                 current_block["blockheaderhash"],
                 0,
+                cursor=cursor,
             )
 
         coinbase_tx_txouts = coinbase_tx["txouts"]
@@ -2288,11 +2262,9 @@ class Node:
         miner_tips = 0
         for txn_i, txn in enumerate(current_block["txns"][1:], start=1):
             with self._thread_lock:
-                cursor = self.db._conn.cursor()
                 utxo_count = cursor.execute(
                     "SELECT COUNT(*) FROM utxoset WHERE txid=?;", (txn["txid"],)
                 ).fetchone()[0]
-                cursor.close()
                 if utxo_count > 0:
                     log.debug(
                         f"{utxo_count} utxo(s) with txid {txn['txid']} already exist in utxoset"
@@ -2305,7 +2277,7 @@ class Node:
                         )
                     else:
                         log.error(
-                            f"txid {txn['txid']} matches prior not-fully-spent transaction, disallowed per BIP30"
+                            f"txid {txn['txid']} matches prior not-fully-spent transaction"
                         )
                         raise ConnectBlockError(
                             f"txid {txn['txid']} matches prior not-fully-spent tx"
@@ -2314,6 +2286,7 @@ class Node:
                     txn["txid"],
                     current_block["blockheaderhash"],
                     txn_i,
+                    cursor=cursor,
                 )
 
             log.debug(
@@ -2338,11 +2311,9 @@ class Node:
                     raise ConnectBlockError(
                         f"a matching blockheaderhash for txo {txin_vout} in txid {txin_txid} was not found in the utxoset"
                     )
-                cursor = self.db._conn.cursor()
                 res = cursor.execute(
                     f"SELECT * FROM utxoset WHERE txid='{txin_txid}' AND vout={txin_vout};"
                 ).fetchone()
-                cursor.close()
                 if not res:
                     raise ConnectBlockError(
                         f"utxo(txid='{txin_txid}', vout={txin_vout}) not found in utxoset"
@@ -2351,6 +2322,7 @@ class Node:
                 # get the utxo transaction in full
                 utxo_block_index_data = self.db.get_block(
                     blockheaderhash=utxo_blockheaderhash,
+                    cursor=cursor,
                 )
                 utxo_blockheight = utxo_block_index_data["blockheight"]
                 cached_utxo_block_data = self._block_cache.get(utxo_blockheaderhash)
@@ -2409,8 +2381,8 @@ class Node:
                     tx_ordinal_ranges += self.db.remove_from_utxoset(
                         txin_txid,
                         txin_vout,
-                        current_block_index_data["blockheaderhash"],
                         index_ordinals=self._index_ordinals,
+                        cursor=cursor,
                     )
                 log.trace(
                     f"tx input {txin_i} in txn {txn_i} of new block {current_blockheight} removed from utxoset."
@@ -2458,6 +2430,7 @@ class Node:
                         index_ordinals=self._index_ordinals,
                         replace=current_blockheight
                         in [91842, 91880],  # allow historic violations per BIP 30
+                        cursor=cursor,
                     )
             block_ordinal_ranges += tx_ordinal_ranges
 
@@ -2489,11 +2462,15 @@ class Node:
                     index_ordinals=self._index_ordinals,
                     replace=current_blockheight
                     in [91842, 91880],  # allow historic violations per BIP 30
+                    cursor=cursor,
                 )
 
+        self.db._conn.commit()
         log.debug(
             f"processed all of {len(current_block['txns'])} txns in block {current_blockheight}."
         )
+        if ephemeral_cursor:
+            cursor.close()
         return True
 
     def get_best_peer(self) -> Union[Peer, None]:
@@ -2639,11 +2616,10 @@ class Db:
 
     def create_tables(self):
         self.create_block_table()
+        self.create_tx_table()
         self.create_utxoset_table()
         self.create_ordinal_range_table()
         self.create_peer_table()
-        self.create_tx_table()
-        self.create_revert_table()
 
     def create_block_table(self):
         cursor = self._conn.cursor()
@@ -2787,55 +2763,12 @@ class Db:
             self._conn.commit()
         cursor.close()
 
-    def create_revert_table(self):
-        """
-        Create revert table
-
-        A row is created for each operation which may need to be reverted, e.g. during a block reorg.
-        If vout is NULL, this is an entry for a tx, otherwise
-            txid and vout must be specified indicating a utxo
-            revert is a boolean, indicating if this object should be removed, i.e.
-            (revert=1) or re-added (revert=0) during a block reversion
-        Note that tx are never re-added during reversion.
-        utxo_blockheaderhash is the blockheaderhash of the block in which the utxo was created
-        revert_blockheaderhash is the blockheaderhash of the block in which this revert entry corresponds to
-        The primary key id reflects the order in which the operation was made,
-            thus the reverse is the reversion order
-        """
-        cursor = self._conn.cursor()
-        query = cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='revert';"
-        ).fetchone()
-        if not query:
-            cursor.execute("BEGIN TRANSACTION;")
-            cursor.execute(
-                """
-                CREATE TABLE revert(
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    revert BOOLEAN DEFAULT 1,
-                    txid TEXT,
-                    vout INTEGER,
-                    utxo_blockheaderhash TEXT,
-                    revert_blockheaderhash TEXT,
-                    FOREIGN KEY(utxo_blockheaderhash) REFERENCES block(blockheaderhash),
-                    FOREIGN KEY(revert_blockheaderhash) REFERENCES block(blockheaderhash)
-                );
-                """
-            )
-            cursor.execute(
-                "CREATE INDEX utxo_blockheaderhash_index ON revert(utxo_blockheaderhash);"
-            )
-            cursor.execute(
-                "CREATE INDEX revert_blockheaderhash_index ON revert(revert_blockheaderhash);"
-            )
-            self._conn.commit()
-        cursor.close()
-
     def add_tx(
         self,
         txid: str,
         blockheaderhash: str,
         n: int,
+        cursor: Optional[Cursor] = None,
     ):
         """
         Create a new tx row in index db
@@ -2844,50 +2777,74 @@ class Db:
             blockheaderhash: str, block header hash for the block this tx is in
             n: int, tx index in block
         """
-        cursor = self._conn.cursor()
-        cursor.execute("BEGIN TRANSACTION;")
+        ephemeral_cursor = False
+        if not cursor:
+            ephemeral_cursor = True
+            cursor = self._conn.cursor()
         cursor.execute(
             f"INSERT INTO tx (txid, blockheaderhash, n) VALUES ('{txid}', '{blockheaderhash}', {n});"
         )
-        cursor.execute(
-            f"INSERT INTO revert (revert, txid, vout, utxo_blockheaderhash) VALUES (1, '{txid}', NULL, '{blockheaderhash}');"
-        )
-        self._conn.commit()
-        cursor.close()
+        if ephemeral_cursor:
+            self._conn.commit()
+            cursor.close()
 
-    def remove_tx(self, txid: str, blockheaderhash: str):
+    def remove_tx(
+        self,
+        txid: str,
+        blockheaderhash: str,
+        cursor: Optional[Cursor] = None,
+    ):
         """
         Remove tx from tx table
         Args:
             txid: str, transaction id (big endian)
             blockheaderhash: str, block header hash for the block this tx is in
         """
-        cursor = self._conn.cursor()
+        ephemeral_cursor = False
+        if not cursor:
+            ephemeral_cursor = True
+            cursor = self._conn.cursor()
         cursor.execute(
             f"DELETE FROM tx WHERE txid='{txid}' and blockheaderhash='{blockheaderhash}';"
         )
-        self._conn.commit()
+        if ephemeral_cursor:
+            self._conn.commit()
+            cursor.close()
 
-    def get_tx(self, txid: str) -> Union[dict, None]:
-        cursor = self._conn.cursor()
+    def get_tx(
+        self,
+        txid: str,
+        cursor: Optional[Cursor] = None,
+    ) -> dict:
+        ephemeral_cursor = False
+        if not cursor:
+            ephemeral_cursor = True
+            cursor = self._conn.cursor()
         res = cursor.execute(
             f"SELECT txid, blockheaderhash, n FROM tx WHERE txid='{txid}';"
         )
         result = res.fetchone()
-        cursor.close()
-        if not result:
-            return
-        return {
-            "txid": result[0],
-            "blockheaderhash": result[1],
-            "n": result[2],
-        }
+        if ephemeral_cursor:
+            cursor.close()
+        return (
+            {
+                "txid": result[0],
+                "blockheaderhash": result[1],
+                "n": result[2],
+            }
+            if result
+            else {}
+        )
 
-    def delete_block(self, blockheaderhash: str):
-        cursor = self._conn.cursor()
+    def delete_block(self, blockheaderhash: str, cursor: Optional[Cursor] = None):
+        ephemeral_cursor = False
+        if not cursor:
+            ephemeral_cursor = True
+            cursor = self._conn.cursor()
         cursor.execute(f"DELETE FROM block WHERE blockheaderhash='{blockheaderhash}';")
-        self._conn.commit()
-        cursor.close()
+        if ephemeral_cursor:
+            self._conn.commit()
+            cursor.close()
 
     def save_block(
         self,
@@ -2902,7 +2859,12 @@ class Db:
         chainwork: str,
         datafile: str,
         datafile_offset: int,
+        cursor: Optional[Cursor] = None,
     ):
+        ephemeral_cursor = False
+        if not cursor:
+            ephemeral_cursor = True
+            cursor = self._conn.cursor()
         cmd = f"""
             INSERT INTO block (
                 blockheight,
@@ -2930,35 +2892,46 @@ class Db:
                 {datafile_offset}
             );
         """
-        cursor = self._conn.cursor()
         cursor.execute(cmd)
-        self._conn.commit()
-        cursor.close()
+        if ephemeral_cursor:
+            self._conn.commit()
+            cursor.close()
 
-    def get_blockchain_height(self) -> Union[int | None]:
+    def get_blockchain_height(
+        self, cursor: Optional[Cursor] = None
+    ) -> Union[int | None]:
         """
         Get blockchain height according to block index
         Returns:
             blockheight: int, or None if no block row found from query
         """
-        cursor = self._conn.cursor()
+        ephemeral_cursor = False
+        if not cursor:
+            ephemeral_cursor = True
+            cursor = self._conn.cursor()
         res = cursor.execute(
             "SELECT blockheight FROM block ORDER BY blockheight DESC LIMIT 1;"
         )
         result = res.fetchone()
-        cursor.close()
+        if ephemeral_cursor:
+            cursor.close()
         return result[0] if result else None
 
-    def count_blocks(self) -> int:
-        cursor = self._conn.cursor()
+    def count_blocks(self, cursor: Optional[Cursor] = None) -> int:
+        ephemeral_cursor = False
+        if not cursor:
+            ephemeral_cursor = True
+            cursor = self._conn.cursor()
         res = cursor.execute("SELECT COUNT(*) FROM block;").fetchone()[0]
-        cursor.close()
+        if ephemeral_cursor:
+            cursor.close()
         return int(res)
 
     def get_block(
         self,
         blockheight: Optional[int] = None,
         blockheaderhash: Optional[str] = None,
+        cursor: Optional[Cursor] = None,
     ) -> Union[dict, None]:
         """
         Get the block data from index db, i.e. header data, meta data
@@ -2973,7 +2946,10 @@ class Db:
             dict, block index db data, or
             None, if not found
         """
-        cursor = self._conn.cursor()
+        ephemeral_cursor = False
+        if not cursor:
+            ephemeral_cursor = True
+            cursor = self._conn.cursor()
         if blockheight is not None and blockheaderhash is not None:
             raise ValueError(
                 "both blockheight and blockheaderhash should not be specified"
@@ -2992,7 +2968,8 @@ class Db:
             )
 
         result = res.fetchone()
-        cursor.close()
+        if ephemeral_cursor:
+            cursor.close()
         return (
             {
                 "id": int(result[0]),
@@ -3012,16 +2989,22 @@ class Db:
             else None
         )
 
-    def get_utxoset(self, txid: str, vout: int) -> Union[dict, None]:
+    def get_utxoset(
+        self, txid: str, vout: int, cursor: Optional[Cursor] = None
+    ) -> Union[dict, None]:
         """
         Get utxoset table entry, for given txid and vout, if exists, else None
         """
-        cursor = self._conn.cursor()
+        ephemeral_cursor = False
+        if not cursor:
+            ephemeral_cursor = True
+            cursor = self._conn.cursor()
         res = cursor.execute(
             f"SELECT * FROM utxoset WHERE txid='{txid}' AND vout='{vout}';"
         )
         result = res.fetchone()
-        cursor.close()
+        if ephemeral_cursor:
+            cursor.close()
         return (
             {
                 "txid": result[1],
@@ -3038,41 +3021,36 @@ class Db:
         self,
         txid: str,
         vout: int,
-        revert_blockheaderhash: Optional[str] = None,
         index_ordinals: bool = False,
+        cursor: Optional[Cursor] = None,
     ) -> Tuple[Tuple[int, int]]:
         """
-        Remove row from utxoset, optionally writing to revert table
+        Remove row from utxoset
         Args:
-            revert_blockheaderhash: Optional[str],
-              blockheaderhash this operation corresponds to for block revert purposes
-              Note this is not the same as the blockheaderhash this utxo was created in
+            txid: str, transaction id
+            vout: int, output number
+            index_ordinals: bool, whether to index ordinals
         Return:
             ordinal ranges removed e.g. ((0, 16), (420, 690), ...)
         """
-        cursor = self._conn.cursor()
-        cursor.execute("BEGIN TRANSACTION;")
+        ephemeral_cursor = False
+        if not cursor:
+            ephemeral_cursor = True
+            cursor = self._conn.cursor()
+            cursor.execute("BEGIN TRANSACTION;")
         if index_ordinals:
             ordinal_ranges = cursor.execute(
                 "SELECT start, end FROM ordinal_range WHERE utxoset_txid=? AND utxoset_vout=?;",
                 (txid, vout),
             ).fetchall()
-            cursor.execute(
-                "UPDATE ordinal_range SET revert_blockheaderhash=? WHERE utxoset_txid=? AND utxoset_vout=?;",
-                (revert_blockheaderhash, txid, vout),
-            )
         utxo_blockheaderhash = cursor.execute(
             "SELECT blockheaderhash FROM utxoset WHERE txid=? AND vout=?;",
             (txid, vout),
         ).fetchone()[0]
         cursor.execute("DELETE FROM utxoset WHERE txid=? AND vout=?;", (txid, vout))
-        if revert_blockheaderhash:
-            cursor.execute(
-                "INSERT INTO revert (revert, txid, vout, utxo_blockheaderhash, revert_blockheaderhash) VALUES (?, ?, ?, ?, ?);",
-                (0, txid, vout, utxo_blockheaderhash, revert_blockheaderhash),
-            )
-        self._conn.commit()
-        cursor.close()
+        if ephemeral_cursor:
+            self._conn.commit()
+            cursor.close()
         return ordinal_ranges if index_ordinals else []
 
     def add_to_utxoset(
@@ -3083,6 +3061,7 @@ class Db:
         ordinal_ranges: List[List[int]],
         index_ordinals: bool = False,
         replace: bool = False,
+        cursor: Optional[Cursor] = None,
     ):
         """
         Add to utxo set
@@ -3092,9 +3071,13 @@ class Db:
             blockheaderhash: str, block header hash for the block this utxo is in
             ordinal_ranges: list, list of ordinal ranges contained in this utxo
             replace: bool, use INSERT OR REPLACE when adding utxo, defaults to False
+            cursor: Optional[Cursor], optional Db cursor to use
         """
-        cursor = self._conn.cursor()
-        cursor.execute("BEGIN TRANSACTION;")
+        ephemeral_cursor = False
+        if not cursor:
+            ephemeral_cursor = True
+            cursor = self._conn.cursor()
+            cursor.execute("BEGIN TRANSACTION;")
         if replace:
             cursor.execute(
                 "INSERT OR REPLACE INTO utxoset (txid, vout, blockheaderhash) VALUES (?, ?, ?);",
@@ -3110,22 +3093,24 @@ class Db:
                 "INSERT INTO ordinal_range(start, end, utxoset_txid, utxoset_vout) VALUES (?, ?, ?, ?);",
                 [(start, end, txid, vout) for start, end in ordinal_ranges],
             )
-        # when adding to utxoset, utxo_blockheaderhash = revert_blockheaderhash
-        cursor.execute(
-            "INSERT INTO revert (revert, txid, vout, utxo_blockheaderhash, revert_blockheaderhash) VALUES (?, ?, ?, ?, ?);",
-            (1, txid, vout, blockheaderhash, blockheaderhash),
-        )
-        self._conn.commit()
-        cursor.close()
+        if ephemeral_cursor:
+            self._conn.commit()
+            cursor.close()
 
-    def find_blockheaderhash_for_utxo(self, txid: str) -> Union[str, None]:
-        cursor = self._conn.cursor()
+    def find_blockheaderhash_for_utxo(
+        self, txid: str, cursor: Optional[Cursor] = None
+    ) -> Union[str, None]:
+        ephemeral_cursor = False
+        if not cursor:
+            ephemeral_cursor = True
+            cursor = self._conn.cursor()
         res = cursor.execute(f"SELECT blockheaderhash FROM tx WHERE txid='{txid}';")
         result = res.fetchone()
-        cursor.close()
+        if ephemeral_cursor:
+            cursor.close()
         return result[0] if result else None
 
-    def get_peer(self, host: str, port: int) -> dict:
+    def get_peer(self, host: str, port: int, cursor: Optional[Cursor] = None) -> dict:
         """
         Get peer data from db for a given host and port
         Args:
@@ -3134,11 +3119,15 @@ class Db:
         Returns:
             dict, peer data
         """
-        cursor = self._conn.cursor()
+        ephemeral_cursor = False
+        if not cursor:
+            ephemeral_cursor = True
+            cursor = self._conn.cursor()
         result = cursor.execute(
             f"SELECT * FROM peer WHERE host='{host}' AND port={port};"
         ).fetchone()
-        cursor.close()
+        if ephemeral_cursor:
+            cursor.close()
         return (
             {
                 "host": result[0],
@@ -3152,34 +3141,12 @@ class Db:
             else {}
         )
 
-    def save_peer(self, host: str, port: int):
-        cursor = self._conn.cursor()
+    def save_peer(self, host: str, port: int, cursor: Optional[Cursor] = None):
+        ephemeral_cursor = False
+        if not cursor:
+            ephemeral_cursor = True
+            cursor = self._conn.cursor()
         cursor.execute(f"INSERT INTO peer (host, port) VALUES ('{host}', {port});")
-        cursor.close()
-        self._conn.commit()
-
-    def get_block_revert(self, blockheaderhash: str):
-        """
-        Get the revert table entries for a block
-        Args:
-            blockheaderhash: str, block header hash
-        Returns:
-            Entries in revert table for blockheaderhash, in descending order
-        """
-        cursor = self._conn.cursor()
-        rows = cursor.execute(
-            f"SELECT * FROM revert WHERE revert_blockheaderhash='{blockheaderhash}' ORDER BY id DESC;"
-        ).fetchall()
-        cursor.close()
-        return [
-            {
-                "id": row[0],
-                "revert": row[1],
-                "txid": row[2],
-                "vout": row[3],
-                "utxo_blockheaderhash": row[4],
-                "revert_blockheaderhash": row[5],
-                "ordinal_ranges": [],  # TODO: implement ordinal ranges for block revert
-            }
-            for row in rows
-        ]
+        if ephemeral_cursor:
+            cursor.close()
+            self._conn.commit()
