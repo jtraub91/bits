@@ -817,6 +817,13 @@ Examples:
         "--info", "-I", action="store_true", default=False, help="get p2p node info"
     )
     p2p_parser.add_argument(
+        "--timeout",
+        "-t",
+        type=int,
+        default=10,
+        help="timeout for `bits p2p --info` request",
+    )
+    p2p_parser.add_argument(
         "--seeds",
         type=json.loads,
         action=ExplicitOption,
@@ -1325,7 +1332,13 @@ def main():
             index_ordinals=config.index_ordinals,
         )
         if args.info:
-            ret = make_request(p2p_node._requests_dir, "get_node_info")
+            try:
+                ret = make_request(
+                    p2p_node._requests_dir, "get_node_info", timeout=args.timeout
+                )
+            except TimeoutError as err:
+                log.error(err)
+                return
             print(json.dumps(ret))
             return
 

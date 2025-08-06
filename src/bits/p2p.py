@@ -496,7 +496,6 @@ def make_request(
                 log.debug(f"removed {request_filename}.")
             except FileNotFoundError:
                 pass
-            log.error(f"timeout waiting for response from Node")
             raise TimeoutError("timeout waiting for response from Node")
         time.sleep(0.5)
     log.trace(f"reading {response_filename} ...")
@@ -706,6 +705,12 @@ class Node:
         self.db.create_tables()
         self._thread_lock = Lock()  # use for db writes
 
+        self.peer_db_filename = "peers.db"
+        self.peer_db_filepath = os.path.join(self.datadir, self.peer_db_filename)
+        self.peer_db = PeerDb(self.peer_db_filepath)
+        self.peer_db.create_tables()
+        self._peer_db_lock = Lock()
+
         if not block_dat_files:
             # if there are no dat files yet,
 
@@ -743,7 +748,7 @@ class Node:
         self.outgoing_peers: List[Peer] = []
 
         self.seeds = [Peer(seed[0], seed[1], network, datadir) for seed in seeds]
-        cursor = self.db._conn.cursor()
+        cursor = self.peer_db._conn.cursor()
         cursor.execute(
             "SELECT host, port FROM peer WHERE type='outgoing' ORDER BY time DESC;"
         )
@@ -767,20 +772,20 @@ class Node:
     def handle_feefilter_command(self, peer: Peer, command: bytes, payload: bytes):
         payload = parse_feefilter_payload(payload)
         with self._thread_lock:
-            cursor = self.db._conn.cursor()
+            cursor = self.peer_db._conn.cursor()
             cursor.execute(
                 f"UPDATE peer SET feefilter_feerate={payload['feerate']} WHERE host='{peer.host}' AND port={peer.port};"
             )
-            self.db._conn.commit()
+            self.peer_db._conn.commit()
             cursor.close()
 
     def handle_sendheaders_command(self, peer: Peer, command: bytes, payload: bytes):
         with self._thread_lock:
-            cursor = self.db._conn.cursor()
+            cursor = self.peer_db._conn.cursor()
             cursor.execute(
                 f"UPDATE peer SET sendheaders=1 WHERE host='{peer.host}' AND port={peer.port};"
             )
-            self.db._conn.commit()
+            self.peer_db._conn.commit()
             cursor.close()
 
     def handle_reject_command(self, peer: Peer, command: bytes, payload: bytes):
@@ -892,11 +897,11 @@ class Node:
     def handle_sendcmpct_command(self, peer: Peer, command: bytes, payload: bytes):
         payload = parse_sendcmpct_payload(payload)
         with self._thread_lock:
-            cursor = self.db._conn.cursor()
+            cursor = self.peer_db._conn.cursor()
             cursor.execute(
                 f"UPDATE peer SET sendcmpct_announce={payload['announce']}, sendcmpct_version={payload['version']} WHERE host='{peer.host}' AND port={peer.port};"
             )
-            self.db._conn.commit()
+            self.peer_db._conn.commit()
             cursor.close()
 
     async def handle_getheaders_command(
@@ -956,11 +961,11 @@ class Node:
         log.info(f"connected to {peer}")
 
         # retrieve or create peer in db
-        peer_data = self.db.get_peer(peer.host, peer.port)
+        peer_data = self.peer_db.get_peer(peer.host, peer.port)
         if not peer_data:
-            with self._thread_lock:
-                self.db.save_peer(peer.host, peer.port)
-            log.info(f"{peer} saved to db.")
+            with self._peer_db_lock:
+                self.peer_db.save_peer(peer.host, peer.port)
+            log.info(f"{peer} saved to {self.peer_db_filename}.")
 
         # attempt to complete connection to outgoing peer by performing version / verack handshake
 
@@ -999,14 +1004,14 @@ class Node:
 
         # update peer db with version data
         peer._version_data = version_data
-        with self._thread_lock:
-            cursor = self.db._conn.cursor()
+        with self._peer_db_lock:
+            cursor = self.peer_db._conn.cursor()
             cursor.execute(
                 f"UPDATE peer SET protocol_version={version_data['protocol_version']}, services={version_data['services']}, user_agent='{version_data['user_agent']}', start_height='{version_data['start_height']}', time={int(time.time())}, type='outgoing' WHERE host='{peer.host}' AND port={peer.port};"
             )
             cursor.close()
-            self.db._conn.commit()
-        log.info(f"version data for {peer} saved to db")
+            self.peer_db._conn.commit()
+        log.info(f"version data for {peer} saved to {self.peer_db_filename}")
         self.outgoing_peers.append(peer)
         asyncio.create_task(self.peer_recv_loop(peer))
         asyncio.create_task(peer.send_command(b"getaddr"))
@@ -1023,11 +1028,11 @@ class Node:
             peer: Peer, peer to connect from by performing version / verack handshake
         """
         # retrieve or create peer in db
-        peer_data = self.db.get_peer(peer.host, peer.port)
+        peer_data = self.peer_db.get_peer(peer.host, peer.port)
         if not peer_data:
-            with self._thread_lock:
-                self.db.save_peer(peer.host, peer.port)
-            log.info(f"{peer} saved to db.")
+            with self._peer_db_lock:
+                self.peer_db.save_peer(peer.host, peer.port)
+            log.info(f"{peer} saved to {self.peer_db_filename}")
 
         # wait for version message
         start_bytes, command, payload = await peer.recv_msg()
@@ -1061,14 +1066,14 @@ class Node:
 
         # save version data for peer in db
         peer._version_data = version_data
-        with self._thread_lock:
-            cursor = self.db._conn.cursor()
+        with self._peer_db_lock:
+            cursor = self.peer_db._conn.cursor()
             cursor.execute(
                 f"UPDATE peer SET protocol_version={version_data['protocol_version']}, services={version_data['services']}, user_agent='{version_data['user_agent']}', start_height='{version_data['start_height']}', time={int(time.time())}, type='incoming' WHERE host='{peer.host}' AND port={peer.port};"
             )
             cursor.close()
-            self.db._conn.commit()
-        log.info(f"version data for {peer} saved to db")
+            self.peer_db._conn.commit()
+        log.info(f"version data for {peer} saved to {self.peer_db_filename}")
         self.incoming_peers.append(peer)
         asyncio.create_task(self.peer_recv_loop(peer))
         asyncio.create_task(peer.send_command(b"getaddr"))
@@ -1697,15 +1702,31 @@ class Node:
         try:
             cursor = self.db._conn.cursor()
             cursor.execute("BEGIN TRANSACTION;")
+        except Exception as err:
+            log.error(err)
+            _deleted_block = self.delete_block()
+            try:
+                cursor.close()
+            except Exception as err:
+                log.error(err)
+            return
+
+        try:
             self.connect_block(block, cursor=cursor)
         except (ConnectBlockError, Exception) as err:
             log.error(err)
             # rollback tx / utxoset changes
-            cursor.execute("ROLLBACK;")
-            cursor.close()
+            try:
+                cursor.execute("ROLLBACK;")
+            except Exception as err:
+                log.error(f"rollback failed: {err}")
+            try:
+                cursor.close()
+            except Exception as err:
+                log.error(f"cursor close failed: {err}")
             # delete block on disk and index db
             _deleted_block = self.delete_block()
-            raise err
+            return
 
     def delete_block(self) -> Block:
         """
@@ -2619,7 +2640,6 @@ class Db:
         self.create_tx_table()
         self.create_utxoset_table()
         self.create_ordinal_range_table()
-        self.create_peer_table()
 
     def create_block_table(self):
         cursor = self._conn.cursor()
@@ -2725,40 +2745,6 @@ class Db:
                     FOREIGN KEY(utxoset_txid, utxoset_vout) REFERENCES utxoset(txid, vout) ON DELETE SET NULL
                 );
                 """
-            )
-            self._conn.commit()
-        cursor.close()
-
-    def create_peer_table(self):
-        cursor = self._conn.cursor()
-        query = cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='peer';"
-        ).fetchone()
-        if not query:
-            cursor.execute(
-                """
-                CREATE TABLE peer(
-                    host TEXT,
-                    port INTEGER,
-
-                    protocol_version INTEGER,
-                    services INTEGER,
-                    user_agent TEXT,
-                    start_height INTEGER,
-
-                    feefilter_feerate INTEGER,
-                    sendcmpct_announce BOOLEAN,
-                    sendcmpct_version INTEGER,
-                    sendheaders BOOLEAN DEFAULT 0,
-
-                    data BLOB,
-
-                    time INTEGER,
-                    type TEXT,
-
-                    PRIMARY KEY (host, port)
-                );
-            """
             )
             self._conn.commit()
         cursor.close()
@@ -3109,6 +3095,57 @@ class Db:
         if ephemeral_cursor:
             cursor.close()
         return result[0] if result else None
+
+
+class PeerDb:
+    def __init__(self, db_filepath: str):
+        self._conn = sqlite3.connect(db_filepath, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL;")
+        self._conn.execute("PRAGMA foreign_keys=ON;")
+        self._conn.execute("PRAGMA busy_timeout=1000;")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._conn.close()
+
+    def create_tables(self):
+        self.create_peer_table()
+
+    def create_peer_table(self):
+        cursor = self._conn.cursor()
+        query = cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='peer';"
+        ).fetchone()
+        if not query:
+            cursor.execute(
+                """
+                CREATE TABLE peer(
+                    host TEXT,
+                    port INTEGER,
+
+                    protocol_version INTEGER,
+                    services INTEGER,
+                    user_agent TEXT,
+                    start_height INTEGER,
+
+                    feefilter_feerate INTEGER,
+                    sendcmpct_announce BOOLEAN,
+                    sendcmpct_version INTEGER,
+                    sendheaders BOOLEAN DEFAULT 0,
+
+                    data BLOB,
+
+                    time INTEGER,
+                    type TEXT,
+
+                    PRIMARY KEY (host, port)
+                );
+            """
+            )
+            self._conn.commit()
+        cursor.close()
 
     def get_peer(self, host: str, port: int, cursor: Optional[Cursor] = None) -> dict:
         """
