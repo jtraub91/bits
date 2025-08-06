@@ -2,7 +2,6 @@
 Base58(check) encoding / decoding
 """
 import hashlib
-from typing import Tuple
 
 BITCOIN_ALPHABET = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 BITCOIN_ALPHABET_MAP = {value: idx for idx, value in enumerate(BITCOIN_ALPHABET)}
