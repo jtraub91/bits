@@ -4,7 +4,7 @@ blockchain lulz :P
 import copy
 import logging
 import time
-from typing import List, Union
+from typing import List, Optional, Union
 
 import bits.constants
 import bits.crypto
@@ -552,7 +552,7 @@ def check_block(block: Union[Block, Bytes, bytes], network: str = "mainnet") -> 
     return True
 
 
-def median_time(times: List[int]) -> Union[int | None]:
+def median_time(times: List[int]) -> Optional[int]:
     """
     Return the median time
 

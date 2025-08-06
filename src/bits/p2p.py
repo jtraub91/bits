@@ -2883,9 +2883,7 @@ class Db:
             self._conn.commit()
             cursor.close()
 
-    def get_blockchain_height(
-        self, cursor: Optional[Cursor] = None
-    ) -> Union[int | None]:
+    def get_blockchain_height(self, cursor: Optional[Cursor] = None) -> Optional[int]:
         """
         Get blockchain height according to block index
         Returns:
