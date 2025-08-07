@@ -98,7 +98,7 @@ def compressed_pubkey(pubkey_: bytes) -> bytes:
 def pubkey_hash(pubkey_: bytes) -> bytes:
     """
     Returns pubkeyhash as used in P2PKH scriptPubKey
-    e.g. RIPEMD160(SHA256(pubkey_))
+    e.g. RIPEMD160(SHA256(pubkey))
     """
     return hashlib.new("ripemd160", hashlib.sha256(pubkey_).digest()).digest()
 
@@ -244,6 +244,7 @@ def to_bitcoin_address(
 ) -> bytes:
     """
     Encode payload as bitcoin address invoice (optional segwit)
+
     Args:
         payload: bytes, pubkey_hash or script_hash
         addr_type: str, address type, "p2pkh" or "p2sh".
@@ -251,8 +252,10 @@ def to_bitcoin_address(
         network: str, mainnet, testnet, or regtest
         witness_version: Optional[int], witness version for native segwit addresses
             usage implies p2wpkh or p2wsh, accordingly
+
     Returns:
         base58 (or bech32 segwit) encoded bitcoin address
+
     """
     assert network in [
         "mainnet",
@@ -271,7 +274,7 @@ def to_bitcoin_address(
         version = b"\x05"
     elif network in ["testnet", "regtest"] and addr_type == "p2sh":
         version = b"\xc4"
-    return bits.base58.base58check(version + payload)
+    return bits.base58.base58check(version + payload)  # pylint: disable=E0606
 
 
 def is_addr(addr_: bytes) -> bool:
@@ -385,25 +388,15 @@ def wif_encode(
 
     Args:
         privkey_: bytes, private key
-        addr_type: str, address type. choices => [
-            "p2pkh",
-            "p2wpkh",
-            "p2sh-p2wpkh",
-            "p2pk",
-            "multisig",
-            "p2sh",
-            "p2wsh",
-            "p2sh-p2wsh"
-        ]
+        addr_type: str, address type. choices => ["p2pkh", "p2wpkh", "p2sh-p2wpkh", "p2pk", "multisig", "p2sh", "p2wsh", "p2sh-p2wsh"]
         network: str, e.g. mainnet, testnet, or regtest
         data: bytes, appended to key prior to base58check encoding.
             For p2(w)sh address types, supply redeem script.
-            For p2pk(h) address types, use 0x01 to associate WIF key with a compressed
-                pubkey, omit for uncompressed pubkey.
+            For p2pk(h) address types, use 0x01 to associate WIF key with a compressed pubkey, omit for uncompressed pubkey.
             For multsig, supply redeem script
-            For p2wpkh & p2sh-p2wpkh, data shall be omitted since compressed pubkey
-                (and redeem_script) are implied
+            For p2wpkh & p2sh-p2wpkh, data shall be omitted since compressed pubkey (and redeem_script) are implied
             For p2sh-p2wsh, supply witness_script
+
     """
     privkey_int(privkey_)  # key validation
     prefix = (WIF_NETWORK_BASE[network] + WIF_SCRIPT_OFFSET[addr_type]).to_bytes(

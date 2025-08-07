@@ -15,8 +15,9 @@ from bits.base58 import base58check_decode
 def get_xpub(xkey: bytes):
     """
     Return xpub from xprv (or xpub)
+
     Args:
-        xprv_: bytes, serialized extended private key
+        xkey: bytes, serialized extended private key
 
     >>> xpub = b'xpub6H5w431hKsmLXYzEwpyuZ2BmqGzbf7zBanX8Fg8dQFUDmKNLMGKom15X1go8QBoQn2BrZrNweRwVVPjYaFtbpuk7MzCdMkHdnNB8fywmjyh'
     >>> get_xpub(xpub)

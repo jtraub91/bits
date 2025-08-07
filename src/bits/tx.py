@@ -22,6 +22,7 @@ log.setLevel(logging.DEBUG)
 def outpoint(txid_: bytes, index: int) -> bytes:
     """
     # https://developer.bitcoin.org/reference/transactions.html#outpoint-the-specific-part-of-a-specific-output
+
     Args:
         txid_: bytes, txid in internal byte order
     """
@@ -116,11 +117,13 @@ def txid(tx_: bytes) -> bytes:
 def tx_deser(tx_: bytes, include_raw: bool = False) -> typing.Tuple[dict, bytes]:
     """
     Deserialize tx data
+
     Args:
         tx_: bytes, tx data
         include_raw: bool, if True, include raw hex transaction in dict
     Returns:
         tuple, (deserialized tx, leftove )
+
     """
     deserialized_tx = {}
     is_segwit = False
@@ -196,6 +199,7 @@ def coinbase_txin(
 ) -> bytes:
     """
     Create coinbase txin
+
     Args:
         coinbase_script: bytes, arbitrary data not exceeding 100 bytes
         block_height: bytes, block height of this block in script language
@@ -302,6 +306,7 @@ def send_tx(
     """
     Create raw transaction which sends funds from addr to addr, with optional change address.
     Depends on configured Bitcoin Core RPC node for UTXO discovery.
+
     Args:
         sender_addr: bytes, send from this address
         recipient_addr: bytes, send to this address
@@ -315,6 +320,7 @@ def send_tx(
         miner_fee: int, amount (in satoshis) to include as miner fee
         version: int, transaction version
         locktime: int, transaction locktime
+
     """
     rpc_kwargs = {
         "rpc_url": rpc_url,
@@ -531,7 +537,7 @@ def send_tx(
         tx_ = tx(
             txins_prime,
             txouts,
-            script_witnesses=sender_witnesses,
+            script_witnesses=sender_witnesses,  # pylint: disable=E0606
             version=version,
             locktime=locktime,
         )

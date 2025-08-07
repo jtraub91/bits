@@ -1,4 +1,4 @@
-name: Build and Test
+name: Build, Test, and Deploy Docs
 on: [push]
 jobs:
   build:
@@ -59,3 +59,29 @@ jobs:
         uses: codecov/codecov-action@v3
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+  docs:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/master'
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install bits with dev dependencies
+        run: |
+          python3 -m venv venv
+          source venv/bin/activate
+          python -m pip install -U pip
+          python -m pip install .[dev]
+      - name: Build docs with Makefile
+        run: |
+          make docs
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: docs/build/
+          publish_branch: gh-pages
+          force_orphan: true

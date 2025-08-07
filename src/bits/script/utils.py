@@ -173,8 +173,8 @@ def p2wpkh_script_pubkey(pk_hash: bytes, witness_version: int = 0) -> bytes:
     Ex: (v0)
     witness: <sig> <pubkey>
     scriptSig: (empty)
-    scriptPubKey: 0 <20-byte-key-hash>
-                 (0x0014{20-byte-key-hash})
+    scriptPubKey: 0 <20-byte-key-hash> (0x0014{20-byte-key-hash})
+
     """
     witness_version_opcode = getattr(constants, f"OP_{witness_version}")
     return (
@@ -190,7 +190,8 @@ def p2wpkh_script_sig() -> bytes:
 
 def p2wsh_script_pubkey(witness_scripthash_: bytes, witness_version: int = 0) -> bytes:
     """
-    witness_scripthash_ must be 32 bytes for v0 native p2wsh
+    Note witness_scripthash must be 32 bytes for v0 native p2wsh
+
     """
     return p2wpkh_script_pubkey(witness_scripthash_, witness_version=witness_version)
 
