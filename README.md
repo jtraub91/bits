@@ -54,3 +54,28 @@ MIT License
 Copyright (c) 2023 Jason Traub
 
 See `LICENSE.txt` for details.
+
+
+## Docs
+
+Documentation was scaffolded with several sphinx commands, e.g.
+
+```bash
+sphinx-quickstart docs --ext-autodoc --extensions sphinx.ext.napoleon --no-makefile --no-batchfile --sep
+```
+
+```bash
+sphinx-apidoc src/bits -o docs/source/
+```
+
+To re-build the docs,
+
+```bash
+make docs
+```
+
+And serve the docs locally,
+
+```bash
+make docs-serve
+```
