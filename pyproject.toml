@@ -32,7 +32,8 @@ dev = [
     "pylint",
     "pytest-cov",
     "reorder-python-imports",
-    "twine"
+    "twine",
+    "sphinx"
 ]
 
 [project.urls]
