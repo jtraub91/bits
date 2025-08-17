@@ -2,8 +2,8 @@ import csv
 
 import pytest
 
-from bits import compute_point
 from bits.bips import bip340
+from bits.ecmath import compute_point
 
 with open("tests/unit/bip340/test-vectors.csv") as csv_file:
     reader = csv.reader(csv_file)

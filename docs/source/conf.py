@@ -8,7 +8,7 @@
 project = "bits"
 copyright = "2025, Jason Traub"
 author = "Jason Traub"
-release = "0.2.2"
+release = "0.3.0"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

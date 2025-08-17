@@ -7,17 +7,17 @@ import hmac
 from typing import Tuple
 from typing import Union
 
+from bits import pubkey
 from bits.base58 import base58check
 from bits.base58 import base58check_decode
 from bits.ecmath import add_mod_p
+from bits.ecmath import point as point_
 from bits.ecmath import point_add
 from bits.ecmath import point_scalar_mul
+from bits.ecmath import privkey_int
 from bits.ecmath import SECP256K1_Gx
 from bits.ecmath import SECP256K1_Gy
 from bits.ecmath import SECP256K1_N
-from bits.utils import point as point_
-from bits.utils import privkey_int
-from bits.utils import pubkey
 
 VERSION_PUBLIC_MAINNET = b"\x04\x88\xb2\x1e"
 VERSION_PRIVATE_MAINNET = b"\x04\x88\xAD\xE4"

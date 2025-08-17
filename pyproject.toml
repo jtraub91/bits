@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bits"
-version = "0.2.2"
+version = "0.3.0"
 authors = [{name = "Jason Traub", email = "jtraub91@gmail.com"}]
-description = "bits is a cli tool and pure Python library for Bitcoin"
+description = "bits is a pure Python implementation of Bitcoin"
 readme="README.md"
 requires-python = ">=3.7"
 classifiers = [
@@ -24,14 +24,13 @@ classifiers = [
 
 [project.optional-dependencies]
 dev = [
-    "black",
+    "black==22.6.0",
     "build",
     "ipdb",
     "pip-chill",
     "pre-commit",
     "pylint",
     "pytest-cov",
-    "reorder-python-imports",
     "twine",
     "sphinx",
     "sphinx-argparse"

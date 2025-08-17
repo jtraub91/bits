@@ -1,5 +1,5 @@
 CLI Reference
-============
+==============
 
 .. argparse::
    :module: bits.__main__

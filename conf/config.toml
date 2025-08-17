@@ -1,10 +1,14 @@
 log_level="error"
 network="mainnet"
 
-rpc_url=""
-rpc_user=""
-rpc_password=""
-rpc_datadir=""
+datadir=""
+seeds=[]
+
+miner_wallet_address=""
+
+bind="0.0.0.0:10101"
+max_outgoing_peers=10
+max_incoming_peers=25
 
 input_format="hex"
 output_format="hex"

@@ -5,6 +5,7 @@ import secrets
 from typing import Tuple
 
 import bits
+import bits.ecmath
 import bits.bips.bip32 as bip32
 import bits.bips.bip39 as bip39
 import bits.bips.bip43 as bip43
@@ -39,9 +40,11 @@ def get_xpub(xkey: bytes):
         depth,
         parent_key_fingerprint,
         child_no,
-        testnet=True
-        if version in [bip32.VERSION_PRIVATE_TESTNET, bip32.VERSION_PUBLIC_TESTNET]
-        else False,
+        testnet=(
+            True
+            if version in [bip32.VERSION_PRIVATE_TESTNET, bip32.VERSION_PUBLIC_TESTNET]
+            else False
+        ),
     )
 
 
@@ -54,6 +57,19 @@ def derive_from_path(
     Args:
         path: str, path in shortened notation, e.g. m/0'/1
         master_extended_key: bytes, serialized master extended key
+
+    >>> xprv = b"xprv9s21ZrQH143K31xYSDQpPDxsXRTUcvj2iNHm5NUtrGiGG5e2DtALGdso3pGz6ssrdK4PFmM8NSpSBHNqPqm55Qn3LqFtT2emdEXVYsCzC2U"
+    >>> xpub = b"xpub661MyMwAqRbcFW31YEwpkMuc5THy2PSt5bDMsktWQcFF8syAmRUapSCGu8ED9W6oDMSgv6Zz8idoc4a6mr8BDzTJY47LJhkJ8UB7WEGuduB"
+
+    >>> derive_from_path("m/0", xprv)
+    b'xprv9vHkqa6EV4sPZHYqZznhT2NPtPCjKuDKGY38FBWLvgaDx45zo9WQRUT3dKYnjwih2yJD9mkrocEZXo1ex8G81dwSM1fwqWpWkeS3v86pgKt'
+
+    >>> derive_from_path("M/0", xpub)
+    b'xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH'
+
+    >>> xprv = b"xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi"
+    >>> derive_from_path("m/0'/1", xprv)
+    b'xprv9wTYmMFdV23N2TdNG573QoEsfRrWKQgWeibmLntzniatZvR9BmLnvSxqu53Kw1UmYPxLgboyZQaXwTCg8MSY3H2EU4pWcQDnRnrVA1xe8fs'
     """
     (
         version,
@@ -175,7 +191,7 @@ def derive_child(xkey: str, index: int) -> str:
     elif key_parent.startswith(b"\x02") or key_parent.startswith(b"\x03"):
         if not xkey.startswith("xpub"):
             raise ValueError("decoded key is public, expected private")
-        x, y = bits.point(key_parent)
+        x, y = bits.ecmath.point(key_parent)
         key, chain_code = bip32.CKDpub((x, y), chain_code_parent, index)
         key_data = bip32.ser_p(key)
         parent_key_fingerprint = bits.pubkey_hash(key_parent)[:4]
@@ -211,6 +227,7 @@ class HD:
     """
 
     ADDR_GAP_LIMIT: int = 20
+    # https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#address-gap-limit
 
     mnemonic: str = ""
 
@@ -285,10 +302,3 @@ class HD:
             child_no,
         )
         return xprv.decode("ascii"), xpub.decode("ascii")
-
-    def scan_for_utxo(self):
-        """
-        Scan blockchain for utxo owned by this wallet
-        https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#address-gap-limit
-        """
-        return

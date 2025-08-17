@@ -237,3 +237,56 @@ def verify(
     assert point_is_on_curve(x, y), "point is not on curve"
     assert r == x % N, "invalid signature"
     return True
+
+
+# helper functions
+def privkey_int(privkey_: bytes) -> int:
+    assert len(privkey_) == 32
+    p = int.from_bytes(privkey_, "big")
+    assert p > 0 and p < SECP256K1_N, f"private key not in range(1, N): {p}"
+    return p
+
+
+def compute_point(privkey_: bytes) -> Tuple[int]:
+    """
+    Compute (x, y) public key point from private key
+
+    >>> compute_point(bytes.fromhex('c3e7b149ad167dc83a5653a9eaae1cc50b36793bfdc050d8efab831d04b876a7'))
+    (88828742484815144809405969644853584197652586004550817561544596238129398385750, 53299775652378523772666068229018059902560429447534834823349875811815397393717)
+    """
+    k = privkey_int(privkey_)
+    return point_scalar_mul(k, (SECP256K1_Gx, SECP256K1_Gy))
+
+
+def point(pubkey_: bytes) -> Tuple[int]:
+    """
+    Return (x, y) point from SEC1 public key
+
+    >>> point(bytes.fromhex('03c463495bd336bc29636ed6d8c1cf162b45d76adda4df9499370dded242758c56'))
+    (88828742484815144809405969644853584197652586004550817561544596238129398385750, 53299775652378523772666068229018059902560429447534834823349875811815397393717)
+    """
+    assert len(pubkey_) == 33 or len(pubkey_) == 65, "invalid pubkey length"
+    version = pubkey_[0]
+    payload = pubkey_[1:]
+    x = int.from_bytes(payload[:32], "big")
+    if version == 2:
+        # compressed, y even
+        y = [i for i in y_from_x(x) if not i % 2][0]
+    elif version == 3:
+        # compressed, y odd
+        y = [i for i in y_from_x(x) if i % 2][0]
+    elif version == 4:
+        # uncompressed
+        y = int.from_bytes(payload[32:], "big")
+    else:
+        raise ValueError(f"unrecognized version: {version}")
+    assert point_is_on_curve(x, y), "invalid pubkey"
+    return (x, y)
+
+
+def is_point(pubkey_: bytes) -> bool:
+    try:
+        point(pubkey_)
+        return True
+    except (AssertionError, ValueError):
+        return False

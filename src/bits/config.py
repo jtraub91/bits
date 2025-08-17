@@ -15,10 +15,12 @@ class Config(object):
         self.log_level = kwargs.get("log_level", "error")
         self.network = kwargs.get("network", "mainnet")
 
-        self.rpc_url = kwargs.get("rpc_url", "")
-        self.rpc_user = kwargs.get("rpc_user", "")
-        self.rpc_password = kwargs.get("rpc_password", "")
-        self.rpc_datadir = kwargs.get("rpc_datadir", "")
+        self.datadir = kwargs.get("datadir", "")
+        self.seeds = kwargs.get("seeds", [])
+        self.max_outgoing_peers = kwargs.get("max_outgoing_peers", 5)
+        self.miner_wallet_address = kwargs.get("miner_wallet_address", "")
+        self.bind = kwargs.get("bind", None)
+        self.index_ordinals = kwargs.get("index_ordinals", False)
 
         self.input_format = kwargs.get("input_format", "hex")
         self.output_format = kwargs.get("output_format", "hex")
