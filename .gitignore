@@ -1,9 +1,7 @@
 __pycache__
-.coverage
 
-.bits
-
-venv*
-build
-dist
-bits.egg-info
+/.coverage
+/venv/
+/docs/build/
+/dist/
+/src/bits.egg-info/

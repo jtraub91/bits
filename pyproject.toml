@@ -31,7 +31,9 @@ dev = [
     "pre-commit",
     "pylint",
     "pytest-cov",
-    "twine"
+    "twine",
+    "sphinx",
+    "sphinx-argparse"
 ]
 
 [project.urls]

@@ -85,11 +85,13 @@ def write_bytes(
     output_format: str = "raw",
 ):
     """
-    Write bytes to file_ or stdout. bin/hex output format will have newline appended
+    Write bytes to file or stdout. bin/hex output format will have newline appended
+
     Args:
         data: bytes, bytes to print
         file_: Optional[IO], file object to write to, if None uses stdout
         output_format: str, 'raw', 'bin', or 'hex'
+
     """
     if not data:
         return

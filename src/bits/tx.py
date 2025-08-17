@@ -18,6 +18,7 @@ log = logging.getLogger(__name__)
 def outpoint(txid_: bytes, index: int) -> bytes:
     """
     # https://developer.bitcoin.org/reference/transactions.html#outpoint-the-specific-part-of-a-specific-output
+
     Args:
         txid_: bytes, txid (little endian)
         index: int, output index
@@ -169,6 +170,7 @@ def tx_ser(tx_: dict) -> bytes:
 def tx_deser(tx_: bytes, json_serializable: bool = False) -> Tuple[dict, bytes]:
     """
     Deserialize tx data
+
     Args:
         tx_: bytes, tx data
         json_serializable: bool, set True to return txin and txouts as dicts instead of TxIn and TxOut objects, respectively
