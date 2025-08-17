@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>bits &#8212; bits 0.2.2 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=000c92bf"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="bits">
+<h1>bits<a class="headerlink" href="#bits" title="Link to this heading">¶</a></h1>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="bits.html">bits package</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="bits.html#subpackages">Subpackages</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html">bits.script package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="bits.script.html#submodules">Submodules</a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.script.html#module-bits.script.constants">bits.script.constants module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.script.html#module-bits.script.utils">bits.script.utils module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.script.html#module-bits.script">Module contents</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="bits.wallet.html">bits.wallet package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#submodules">Submodules</a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#module-bits.wallet.hd">bits.wallet.hd module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#module-bits.wallet">Module contents</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.html#submodules">Submodules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bits.html#module-bits.base58">bits.base58</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.base58.base58check"><code class="docutils literal notranslate"><span class="pre">base58check()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.base58.base58check_decode"><code class="docutils literal notranslate"><span class="pre">base58check_decode()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.base58.base58decode"><code class="docutils literal notranslate"><span class="pre">base58decode()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.base58.base58encode"><code class="docutils literal notranslate"><span class="pre">base58encode()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.base58.is_base58check"><code class="docutils literal notranslate"><span class="pre">is_base58check()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.html#module-bits.blockchain">bits.blockchain</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.blockchain.block_deser"><code class="docutils literal notranslate"><span class="pre">block_deser()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.blockchain.block_header"><code class="docutils literal notranslate"><span class="pre">block_header()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.blockchain.block_header_deser"><code class="docutils literal notranslate"><span class="pre">block_header_deser()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.blockchain.block_ser"><code class="docutils literal notranslate"><span class="pre">block_ser()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.blockchain.difficulty"><code class="docutils literal notranslate"><span class="pre">difficulty()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.blockchain.genesis_block"><code class="docutils literal notranslate"><span class="pre">genesis_block()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.blockchain.genesis_coinbase_tx"><code class="docutils literal notranslate"><span class="pre">genesis_coinbase_tx()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.blockchain.merkle_root"><code class="docutils literal notranslate"><span class="pre">merkle_root()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.blockchain.target_threshold"><code class="docutils literal notranslate"><span class="pre">target_threshold()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.html#module-bits.config">bits.config</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.config.Config"><code class="docutils literal notranslate"><span class="pre">Config</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.config.Config.load_config"><code class="docutils literal notranslate"><span class="pre">Config.load_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.config.Config.update"><code class="docutils literal notranslate"><span class="pre">Config.update()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.html#module-bits.constants">bits.constants</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bits.html#module-bits.crypto">bits.crypto</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.crypto.hash160"><code class="docutils literal notranslate"><span class="pre">hash160()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.crypto.hash256"><code class="docutils literal notranslate"><span class="pre">hash256()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.crypto.ripemd160"><code class="docutils literal notranslate"><span class="pre">ripemd160()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.crypto.sha256"><code class="docutils literal notranslate"><span class="pre">sha256()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.html#module-bits.ecmath">bits.ecmath</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.ecmath.add_mod_p"><code class="docutils literal notranslate"><span class="pre">add_mod_p()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.ecmath.div_mod_p"><code class="docutils literal notranslate"><span class="pre">div_mod_p()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.ecmath.mul_mod_p"><code class="docutils literal notranslate"><span class="pre">mul_mod_p()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.ecmath.point_add"><code class="docutils literal notranslate"><span class="pre">point_add()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.ecmath.point_is_on_curve"><code class="docutils literal notranslate"><span class="pre">point_is_on_curve()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.ecmath.point_negate"><code class="docutils literal notranslate"><span class="pre">point_negate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.ecmath.point_scalar_mul"><code class="docutils literal notranslate"><span class="pre">point_scalar_mul()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.ecmath.pow_mod_p"><code class="docutils literal notranslate"><span class="pre">pow_mod_p()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.ecmath.sign"><code class="docutils literal notranslate"><span class="pre">sign()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.ecmath.sqrt_mod_p"><code class="docutils literal notranslate"><span class="pre">sqrt_mod_p()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.ecmath.sub_mod_p"><code class="docutils literal notranslate"><span class="pre">sub_mod_p()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.ecmath.verify"><code class="docutils literal notranslate"><span class="pre">verify()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.ecmath.y_from_x"><code class="docutils literal notranslate"><span class="pre">y_from_x()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.html#module-bits.integrations">bits.integrations</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.integrations.generate_funded_keys"><code class="docutils literal notranslate"><span class="pre">generate_funded_keys()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.integrations.median_time"><code class="docutils literal notranslate"><span class="pre">median_time()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.integrations.mine_block"><code class="docutils literal notranslate"><span class="pre">mine_block()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.html#module-bits.keys">bits.keys</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.keys.key"><code class="docutils literal notranslate"><span class="pre">key()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.keys.pub"><code class="docutils literal notranslate"><span class="pre">pub()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.html#module-bits.p2p">bits.p2p</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.Node"><code class="docutils literal notranslate"><span class="pre">Node</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.p2p.Node.connect_peer"><code class="docutils literal notranslate"><span class="pre">Node.connect_peer()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.p2p.Node.handle_command"><code class="docutils literal notranslate"><span class="pre">Node.handle_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.p2p.Node.handle_feefilter_command"><code class="docutils literal notranslate"><span class="pre">Node.handle_feefilter_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.p2p.Node.handle_getheaders_command"><code class="docutils literal notranslate"><span class="pre">Node.handle_getheaders_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.p2p.Node.handle_inv_command"><code class="docutils literal notranslate"><span class="pre">Node.handle_inv_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.p2p.Node.handle_ping_command"><code class="docutils literal notranslate"><span class="pre">Node.handle_ping_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.p2p.Node.handle_sendheaders_command"><code class="docutils literal notranslate"><span class="pre">Node.handle_sendheaders_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.p2p.Node.handle_verack_command"><code class="docutils literal notranslate"><span class="pre">Node.handle_verack_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.p2p.Node.handle_version_command"><code class="docutils literal notranslate"><span class="pre">Node.handle_version_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.p2p.Node.ibd"><code class="docutils literal notranslate"><span class="pre">Node.ibd()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.p2p.Node.recv_loop"><code class="docutils literal notranslate"><span class="pre">Node.recv_loop()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.p2p.Node.start"><code class="docutils literal notranslate"><span class="pre">Node.start()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.p2p.Node.start_rpc_server"><code class="docutils literal notranslate"><span class="pre">Node.start_rpc_server()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.p2p.Node.stop"><code class="docutils literal notranslate"><span class="pre">Node.stop()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.PeerThread"><code class="docutils literal notranslate"><span class="pre">PeerThread</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="bits.html#bits.p2p.PeerThread.exit"><code class="docutils literal notranslate"><span class="pre">PeerThread.exit()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.addr_payload"><code class="docutils literal notranslate"><span class="pre">addr_payload()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.auth_request_handler_factory"><code class="docutils literal notranslate"><span class="pre">auth_request_handler_factory()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.getblocks_payload"><code class="docutils literal notranslate"><span class="pre">getblocks_payload()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.getheaders_payload"><code class="docutils literal notranslate"><span class="pre">getheaders_payload()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.headers_payload"><code class="docutils literal notranslate"><span class="pre">headers_payload()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.inv_payload"><code class="docutils literal notranslate"><span class="pre">inv_payload()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.inventory"><code class="docutils literal notranslate"><span class="pre">inventory()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.msg_ser"><code class="docutils literal notranslate"><span class="pre">msg_ser()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.network_ip_addr"><code class="docutils literal notranslate"><span class="pre">network_ip_addr()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.parse_addr_payload"><code class="docutils literal notranslate"><span class="pre">parse_addr_payload()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.parse_feefilter_payload"><code class="docutils literal notranslate"><span class="pre">parse_feefilter_payload()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.parse_getheaders_payload"><code class="docutils literal notranslate"><span class="pre">parse_getheaders_payload()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.parse_inv_payload"><code class="docutils literal notranslate"><span class="pre">parse_inv_payload()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.parse_inventory"><code class="docutils literal notranslate"><span class="pre">parse_inventory()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.parse_network_ip_addr"><code class="docutils literal notranslate"><span class="pre">parse_network_ip_addr()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.parse_payload"><code class="docutils literal notranslate"><span class="pre">parse_payload()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.parse_ping_payload"><code class="docutils literal notranslate"><span class="pre">parse_ping_payload()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.parse_sendcmpct_payload"><code class="docutils literal notranslate"><span class="pre">parse_sendcmpct_payload()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.parse_version_payload"><code class="docutils literal notranslate"><span class="pre">parse_version_payload()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.ping_payload"><code class="docutils literal notranslate"><span class="pre">ping_payload()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.recv_msg"><code class="docutils literal notranslate"><span class="pre">recv_msg()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.set_magic_start_bytes"><code class="docutils literal notranslate"><span class="pre">set_magic_start_bytes()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.version_payload"><code class="docutils literal notranslate"><span class="pre">version_payload()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.p2p.write_blocks_to_disk"><code class="docutils literal notranslate"><span class="pre">write_blocks_to_disk()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.html#module-bits.pem">bits.pem</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.pem.decode_base64_pem"><code class="docutils literal notranslate"><span class="pre">decode_base64_pem()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.pem.decode_pem"><code class="docutils literal notranslate"><span class="pre">decode_pem()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.pem.encode_oid"><code class="docutils literal notranslate"><span class="pre">encode_oid()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.pem.encode_parsed_asn1"><code class="docutils literal notranslate"><span class="pre">encode_parsed_asn1()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.pem.encode_parsed_asn1_val"><code class="docutils literal notranslate"><span class="pre">encode_parsed_asn1_val()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.pem.encode_pem"><code class="docutils literal notranslate"><span class="pre">encode_pem()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.pem.parse_asn1"><code class="docutils literal notranslate"><span class="pre">parse_asn1()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.pem.parse_asn1_value"><code class="docutils literal notranslate"><span class="pre">parse_asn1_value()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.pem.parse_oid"><code class="docutils literal notranslate"><span class="pre">parse_oid()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.html#module-bits.rpc">bits.rpc</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.rpc.rpc_method"><code class="docutils literal notranslate"><span class="pre">rpc_method()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.html#module-bits.tx">bits.tx</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.tx.coinbase_tx"><code class="docutils literal notranslate"><span class="pre">coinbase_tx()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.tx.coinbase_txin"><code class="docutils literal notranslate"><span class="pre">coinbase_txin()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.tx.outpoint"><code class="docutils literal notranslate"><span class="pre">outpoint()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.tx.send_tx"><code class="docutils literal notranslate"><span class="pre">send_tx()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.tx.tx"><code class="docutils literal notranslate"><span class="pre">tx()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.tx.tx_deser"><code class="docutils literal notranslate"><span class="pre">tx_deser()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.tx.txid"><code class="docutils literal notranslate"><span class="pre">txid()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.tx.txin"><code class="docutils literal notranslate"><span class="pre">txin()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.tx.txin_deser"><code class="docutils literal notranslate"><span class="pre">txin_deser()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.tx.txout"><code class="docutils literal notranslate"><span class="pre">txout()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.tx.txout_deser"><code class="docutils literal notranslate"><span class="pre">txout_deser()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.html#module-bits.utils">bits.utils</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.assert_addr"><code class="docutils literal notranslate"><span class="pre">assert_addr()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.assert_valid_segwit"><code class="docutils literal notranslate"><span class="pre">assert_valid_segwit()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.compact_size_uint"><code class="docutils literal notranslate"><span class="pre">compact_size_uint()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.compressed_pubkey"><code class="docutils literal notranslate"><span class="pre">compressed_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.compute_point"><code class="docutils literal notranslate"><span class="pre">compute_point()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.decode_segwit_addr"><code class="docutils literal notranslate"><span class="pre">decode_segwit_addr()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.der_decode_sig"><code class="docutils literal notranslate"><span class="pre">der_decode_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.der_encode_sig"><code class="docutils literal notranslate"><span class="pre">der_encode_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.ensure_sig_low_s"><code class="docutils literal notranslate"><span class="pre">ensure_sig_low_s()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.is_addr"><code class="docutils literal notranslate"><span class="pre">is_addr()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.is_point"><code class="docutils literal notranslate"><span class="pre">is_point()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.is_segwit_addr"><code class="docutils literal notranslate"><span class="pre">is_segwit_addr()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.parse_compact_size_uint"><code class="docutils literal notranslate"><span class="pre">parse_compact_size_uint()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.pem_decode_key"><code class="docutils literal notranslate"><span class="pre">pem_decode_key()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.pem_encode_key"><code class="docutils literal notranslate"><span class="pre">pem_encode_key()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.point"><code class="docutils literal notranslate"><span class="pre">point()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.privkey_int"><code class="docutils literal notranslate"><span class="pre">privkey_int()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.pubkey"><code class="docutils literal notranslate"><span class="pre">pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.pubkey_from_pem"><code class="docutils literal notranslate"><span class="pre">pubkey_from_pem()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.pubkey_hash"><code class="docutils literal notranslate"><span class="pre">pubkey_hash()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.script_hash"><code class="docutils literal notranslate"><span class="pre">script_hash()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.segwit_addr"><code class="docutils literal notranslate"><span class="pre">segwit_addr()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.sig"><code class="docutils literal notranslate"><span class="pre">sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.sig_verify"><code class="docutils literal notranslate"><span class="pre">sig_verify()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.to_bitcoin_address"><code class="docutils literal notranslate"><span class="pre">to_bitcoin_address()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.wif_decode"><code class="docutils literal notranslate"><span class="pre">wif_decode()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.wif_encode"><code class="docutils literal notranslate"><span class="pre">wif_encode()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.utils.witness_script_hash"><code class="docutils literal notranslate"><span class="pre">witness_script_hash()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.html#module-bits">Module contents</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.init_logging"><code class="docutils literal notranslate"><span class="pre">init_logging()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.read_bytes"><code class="docutils literal notranslate"><span class="pre">read_bytes()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.set_log_level"><code class="docutils literal notranslate"><span class="pre">set_log_level()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.html#bits.write_bytes"><code class="docutils literal notranslate"><span class="pre">write_bytes()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="bits.wallet.html">bits.wallet package</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="bits.wallet.html#submodules">Submodules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bits.wallet.html#module-bits.wallet.hd">bits.wallet.hd module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.HD"><code class="docutils literal notranslate"><span class="pre">HD</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.HD.ADDR_GAP_LIMIT"><code class="docutils literal notranslate"><span class="pre">HD.ADDR_GAP_LIMIT</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.HD.from_mnemonic"><code class="docutils literal notranslate"><span class="pre">HD.from_mnemonic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.HD.from_xkey"><code class="docutils literal notranslate"><span class="pre">HD.from_xkey()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.HD.get_root_keys"><code class="docutils literal notranslate"><span class="pre">HD.get_root_keys()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.HD.get_xkeys_from_path"><code class="docutils literal notranslate"><span class="pre">HD.get_xkeys_from_path()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.HD.mnemonic"><code class="docutils literal notranslate"><span class="pre">HD.mnemonic</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.HD.scan_for_utxo"><code class="docutils literal notranslate"><span class="pre">HD.scan_for_utxo()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.derive_child"><code class="docutils literal notranslate"><span class="pre">derive_child()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.derive_from_path"><code class="docutils literal notranslate"><span class="pre">derive_from_path()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.get_xpub"><code class="docutils literal notranslate"><span class="pre">get_xpub()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.p2pkh"><code class="docutils literal notranslate"><span class="pre">p2pkh()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.wallet.html#module-bits.wallet">Module contents</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.wallet.html#bits.wallet.HD"><code class="docutils literal notranslate"><span class="pre">HD</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.HD.ADDR_GAP_LIMIT"><code class="docutils literal notranslate"><span class="pre">HD.ADDR_GAP_LIMIT</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.HD.from_mnemonic"><code class="docutils literal notranslate"><span class="pre">HD.from_mnemonic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.HD.from_xkey"><code class="docutils literal notranslate"><span class="pre">HD.from_xkey()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.HD.get_root_keys"><code class="docutils literal notranslate"><span class="pre">HD.get_root_keys()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.HD.get_xkeys_from_path"><code class="docutils literal notranslate"><span class="pre">HD.get_xkeys_from_path()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.HD.mnemonic"><code class="docutils literal notranslate"><span class="pre">HD.mnemonic</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.HD.scan_for_utxo"><code class="docutils literal notranslate"><span class="pre">HD.scan_for_utxo()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="bits.script.html">bits.script package</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="bits.script.html#submodules">Submodules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bits.script.html#module-bits.script.constants">bits.script.constants module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bits.script.html#module-bits.script.utils">bits.script.utils module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.decode_script"><code class="docutils literal notranslate"><span class="pre">decode_script()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.multisig_script_pubkey"><code class="docutils literal notranslate"><span class="pre">multisig_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.multisig_script_sig"><code class="docutils literal notranslate"><span class="pre">multisig_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.null_data_script_pubkey"><code class="docutils literal notranslate"><span class="pre">null_data_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2pk_script_pubkey"><code class="docutils literal notranslate"><span class="pre">p2pk_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2pk_script_sig"><code class="docutils literal notranslate"><span class="pre">p2pk_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2pkh_script_pubkey"><code class="docutils literal notranslate"><span class="pre">p2pkh_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2pkh_script_sig"><code class="docutils literal notranslate"><span class="pre">p2pkh_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2sh_multisig_script_pubkey"><code class="docutils literal notranslate"><span class="pre">p2sh_multisig_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2sh_multisig_script_sig"><code class="docutils literal notranslate"><span class="pre">p2sh_multisig_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2sh_p2wpkh_script_pubkey"><code class="docutils literal notranslate"><span class="pre">p2sh_p2wpkh_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2sh_p2wpkh_script_sig"><code class="docutils literal notranslate"><span class="pre">p2sh_p2wpkh_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2sh_p2wsh_script_pubkey"><code class="docutils literal notranslate"><span class="pre">p2sh_p2wsh_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2sh_p2wsh_script_sig"><code class="docutils literal notranslate"><span class="pre">p2sh_p2wsh_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2sh_script_pubkey"><code class="docutils literal notranslate"><span class="pre">p2sh_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2sh_script_sig"><code class="docutils literal notranslate"><span class="pre">p2sh_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2wpkh_script_pubkey"><code class="docutils literal notranslate"><span class="pre">p2wpkh_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2wpkh_script_sig"><code class="docutils literal notranslate"><span class="pre">p2wpkh_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2wsh_script_pubkey"><code class="docutils literal notranslate"><span class="pre">p2wsh_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2wsh_script_sig"><code class="docutils literal notranslate"><span class="pre">p2wsh_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.script"><code class="docutils literal notranslate"><span class="pre">script()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.scriptpubkey"><code class="docutils literal notranslate"><span class="pre">scriptpubkey()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.script.html#module-bits.script">Module contents</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">bits</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Table of Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Jason Traub.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/modules.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

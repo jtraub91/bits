@@ -1,0 +1,1341 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>bits package &#8212; bits 0.2.2 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=000c92bf"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="bits.script package" href="bits.script.html" />
+    <link rel="prev" title="API Reference" href="api.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="bits-package">
+<h1>bits package<a class="headerlink" href="#bits-package" title="Link to this heading">¶</a></h1>
+<section id="subpackages">
+<h2>Subpackages<a class="headerlink" href="#subpackages" title="Link to this heading">¶</a></h2>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="bits.script.html">bits.script package</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="bits.script.html#submodules">Submodules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bits.script.html#module-bits.script.constants">bits.script.constants module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bits.script.html#module-bits.script.utils">bits.script.utils module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.decode_script"><code class="docutils literal notranslate"><span class="pre">decode_script()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.multisig_script_pubkey"><code class="docutils literal notranslate"><span class="pre">multisig_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.multisig_script_sig"><code class="docutils literal notranslate"><span class="pre">multisig_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.null_data_script_pubkey"><code class="docutils literal notranslate"><span class="pre">null_data_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2pk_script_pubkey"><code class="docutils literal notranslate"><span class="pre">p2pk_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2pk_script_sig"><code class="docutils literal notranslate"><span class="pre">p2pk_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2pkh_script_pubkey"><code class="docutils literal notranslate"><span class="pre">p2pkh_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2pkh_script_sig"><code class="docutils literal notranslate"><span class="pre">p2pkh_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2sh_multisig_script_pubkey"><code class="docutils literal notranslate"><span class="pre">p2sh_multisig_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2sh_multisig_script_sig"><code class="docutils literal notranslate"><span class="pre">p2sh_multisig_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2sh_p2wpkh_script_pubkey"><code class="docutils literal notranslate"><span class="pre">p2sh_p2wpkh_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2sh_p2wpkh_script_sig"><code class="docutils literal notranslate"><span class="pre">p2sh_p2wpkh_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2sh_p2wsh_script_pubkey"><code class="docutils literal notranslate"><span class="pre">p2sh_p2wsh_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2sh_p2wsh_script_sig"><code class="docutils literal notranslate"><span class="pre">p2sh_p2wsh_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2sh_script_pubkey"><code class="docutils literal notranslate"><span class="pre">p2sh_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2sh_script_sig"><code class="docutils literal notranslate"><span class="pre">p2sh_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2wpkh_script_pubkey"><code class="docutils literal notranslate"><span class="pre">p2wpkh_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2wpkh_script_sig"><code class="docutils literal notranslate"><span class="pre">p2wpkh_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2wsh_script_pubkey"><code class="docutils literal notranslate"><span class="pre">p2wsh_script_pubkey()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.p2wsh_script_sig"><code class="docutils literal notranslate"><span class="pre">p2wsh_script_sig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.script"><code class="docutils literal notranslate"><span class="pre">script()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.script.html#bits.script.utils.scriptpubkey"><code class="docutils literal notranslate"><span class="pre">scriptpubkey()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.script.html#module-bits.script">Module contents</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="bits.wallet.html">bits.wallet package</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="bits.wallet.html#submodules">Submodules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bits.wallet.html#module-bits.wallet.hd">bits.wallet.hd module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.HD"><code class="docutils literal notranslate"><span class="pre">HD</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.HD.ADDR_GAP_LIMIT"><code class="docutils literal notranslate"><span class="pre">HD.ADDR_GAP_LIMIT</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.HD.from_mnemonic"><code class="docutils literal notranslate"><span class="pre">HD.from_mnemonic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.HD.from_xkey"><code class="docutils literal notranslate"><span class="pre">HD.from_xkey()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.HD.get_root_keys"><code class="docutils literal notranslate"><span class="pre">HD.get_root_keys()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.HD.get_xkeys_from_path"><code class="docutils literal notranslate"><span class="pre">HD.get_xkeys_from_path()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.HD.mnemonic"><code class="docutils literal notranslate"><span class="pre">HD.mnemonic</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.HD.scan_for_utxo"><code class="docutils literal notranslate"><span class="pre">HD.scan_for_utxo()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.derive_child"><code class="docutils literal notranslate"><span class="pre">derive_child()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.derive_from_path"><code class="docutils literal notranslate"><span class="pre">derive_from_path()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.get_xpub"><code class="docutils literal notranslate"><span class="pre">get_xpub()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="bits.wallet.html#bits.wallet.hd.p2pkh"><code class="docutils literal notranslate"><span class="pre">p2pkh()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bits.wallet.html#module-bits.wallet">Module contents</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="bits.wallet.html#bits.wallet.HD"><code class="docutils literal notranslate"><span class="pre">HD</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.HD.ADDR_GAP_LIMIT"><code class="docutils literal notranslate"><span class="pre">HD.ADDR_GAP_LIMIT</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.HD.from_mnemonic"><code class="docutils literal notranslate"><span class="pre">HD.from_mnemonic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.HD.from_xkey"><code class="docutils literal notranslate"><span class="pre">HD.from_xkey()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.HD.get_root_keys"><code class="docutils literal notranslate"><span class="pre">HD.get_root_keys()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.HD.get_xkeys_from_path"><code class="docutils literal notranslate"><span class="pre">HD.get_xkeys_from_path()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.HD.mnemonic"><code class="docutils literal notranslate"><span class="pre">HD.mnemonic</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bits.wallet.html#bits.wallet.HD.scan_for_utxo"><code class="docutils literal notranslate"><span class="pre">HD.scan_for_utxo()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+<section id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Link to this heading">¶</a></h2>
+</section>
+<section id="module-bits.base58">
+<span id="bits-base58"></span><h2>bits.base58<a class="headerlink" href="#module-bits.base58" title="Link to this heading">¶</a></h2>
+<p>Base58(check) encoding / decoding</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.base58.base58check">
+<span class="sig-prename descclassname"><span class="pre">bits.base58.</span></span><span class="sig-name descname"><span class="pre">base58check</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.base58.base58check" title="Link to this definition">¶</a></dt>
+<dd><p>Encode data as base58check encoding used in Bitcoin addresses
+# <a class="reference external" href="https://en.bitcoin.it/wiki/Base58Check_encoding">https://en.bitcoin.it/wiki/Base58Check_encoding</a>
+:param data: bytes, data to encode</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>base58check encoded data</p>
+</dd>
+</dl>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">base58check</span><span class="p">(</span><span class="sa">b</span><span class="s2">&quot;hello world&quot;</span><span class="p">)</span>
+<span class="go">b&#39;3vQB7B6MrGQZaxCuFg4oh&#39;</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.base58.base58check_decode">
+<span class="sig-prename descclassname"><span class="pre">bits.base58.</span></span><span class="sig-name descname"><span class="pre">base58check_decode</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">addr_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.base58.base58check_decode" title="Link to this definition">¶</a></dt>
+<dd><p>Decode base58check encoded data
+:param data: bytes, data to decode</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>decoded data</p>
+</dd>
+</dl>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">base58check_decode</span><span class="p">(</span><span class="sa">b</span><span class="s2">&quot;3vQB7B6MrGQZaxCuFg4oh&quot;</span><span class="p">)</span>
+<span class="go">b&#39;hello world&#39;</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.base58.base58decode">
+<span class="sig-prename descclassname"><span class="pre">bits.base58.</span></span><span class="sig-name descname"><span class="pre">base58decode</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.base58.base58decode" title="Link to this definition">¶</a></dt>
+<dd><p>Decode base58 encoded data
+:param data: bytes, data to decode</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>decoded data</p>
+</dd>
+</dl>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">base58decode</span><span class="p">(</span><span class="sa">b</span><span class="s2">&quot;StV1DL6CwTryKyV&quot;</span><span class="p">)</span>
+<span class="go">b&#39;hello world&#39;</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.base58.base58encode">
+<span class="sig-prename descclassname"><span class="pre">bits.base58.</span></span><span class="sig-name descname"><span class="pre">base58encode</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.base58.base58encode" title="Link to this definition">¶</a></dt>
+<dd><p>Encode data in base58 format
+:param data: bytes, data to encode</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>base58 encoded data</p>
+</dd>
+</dl>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">base58encode</span><span class="p">(</span><span class="sa">b</span><span class="s2">&quot;hello world&quot;</span><span class="p">)</span>
+<span class="go">b&#39;StV1DL6CwTryKyV&#39;</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.base58.is_base58check">
+<span class="sig-prename descclassname"><span class="pre">bits.base58.</span></span><span class="sig-name descname"><span class="pre">is_base58check</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.base58.is_base58check" title="Link to this definition">¶</a></dt>
+<dd><p>Check if data is base58check encoded
+:param data: bytes, data to check</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if base58check encoded, else False</p>
+</dd>
+</dl>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">is_base58check</span><span class="p">(</span><span class="sa">b</span><span class="s2">&quot;DthHcFYf2SzzprfBcpKfTG&quot;</span><span class="p">)</span>
+<span class="go">True</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">is_base58check</span><span class="p">(</span><span class="sa">b</span><span class="s2">&quot;2yGEbwRFyhPZZckJm&quot;</span><span class="p">)</span>
+<span class="go">False</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</section>
+<section id="module-bits.blockchain">
+<span id="bits-blockchain"></span><h2>bits.blockchain<a class="headerlink" href="#module-bits.blockchain" title="Link to this heading">¶</a></h2>
+<p>blockchain lulz :P</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.blockchain.block_deser">
+<span class="sig-prename descclassname"><span class="pre">bits.blockchain.</span></span><span class="sig-name descname"><span class="pre">block_deser</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">block</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#bits.blockchain.block_deser" title="Link to this definition">¶</a></dt>
+<dd><p>Deserialize block data
+:param block: bytes, block data</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.blockchain.block_header">
+<span class="sig-prename descclassname"><span class="pre">bits.blockchain.</span></span><span class="sig-name descname"><span class="pre">block_header</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">version</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prev_blockheaderhash</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">merkle_root_hash</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ntime</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nBits</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nNonce</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.blockchain.block_header" title="Link to this definition">¶</a></dt>
+<dd><p>Create serialized block header from args</p>
+<p># <a class="reference external" href="https://developer.bitcoin.org/reference/block_chain.html#block-headers">https://developer.bitcoin.org/reference/block_chain.html#block-headers</a></p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>version</strong> – int, block version</p></li>
+<li><p><strong>prev_blockheaderhash</strong> – bytes, hash of previous block header</p></li>
+<li><p><strong>merkle_root_hash</strong> – bytes, merkle root hash</p></li>
+<li><p><strong>ntime</strong> – int, Unix epoch time</p></li>
+<li><p><strong>nBits</strong> – int, nBits encoding of target threshold</p></li>
+<li><p><strong>nNonce</strong> – int, arbitrary number</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>block header</p>
+</dd>
+</dl>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">merkle_root_hash</span> <span class="o">=</span> <span class="nb">bytes</span><span class="o">.</span><span class="n">fromhex</span><span class="p">(</span><span class="s2">&quot;3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">nBits</span> <span class="o">=</span> <span class="p">(</span><span class="mh">0x1D00FFFF</span><span class="p">)</span><span class="o">.</span><span class="n">to_bytes</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="s2">&quot;little&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">bits</span><span class="o">.</span><span class="n">crypto</span><span class="o">.</span><span class="n">hash256</span><span class="p">(</span><span class="n">block_header</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">NULL_32</span><span class="p">,</span> <span class="n">merkle_root_hash</span><span class="p">,</span> <span class="mi">1231006505</span><span class="p">,</span> <span class="n">nBits</span><span class="p">,</span> <span class="mi">2083236893</span><span class="p">))</span><span class="o">.</span><span class="n">hex</span><span class="p">()</span>
+<span class="go">&#39;6fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000&#39;</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.blockchain.block_header_deser">
+<span class="sig-prename descclassname"><span class="pre">bits.blockchain.</span></span><span class="sig-name descname"><span class="pre">block_header_deser</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">blk_hdr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#bits.blockchain.block_header_deser" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.blockchain.block_ser">
+<span class="sig-prename descclassname"><span class="pre">bits.blockchain.</span></span><span class="sig-name descname"><span class="pre">block_ser</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">blk_hdr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">txns</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.blockchain.block_ser" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.blockchain.difficulty">
+<span class="sig-prename descclassname"><span class="pre">bits.blockchain.</span></span><span class="sig-name descname"><span class="pre">difficulty</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">target</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">network</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'mainnet'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">float</span></span></span><a class="headerlink" href="#bits.blockchain.difficulty" title="Link to this definition">¶</a></dt>
+<dd><p>difficulty = difficulty_1_target / current_target
+<a class="reference external" href="https://en.bitcoin.it/wiki/Difficulty">https://en.bitcoin.it/wiki/Difficulty</a></p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.blockchain.genesis_block">
+<span class="sig-prename descclassname"><span class="pre">bits.blockchain.</span></span><span class="sig-name descname"><span class="pre">genesis_block</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#bits.blockchain.genesis_block" title="Link to this definition">¶</a></dt>
+<dd><p>Hard coded genesis block - mainnet
+&gt;&gt;&gt; gb = genesis_block()
+&gt;&gt;&gt; header = gb[:80]
+&gt;&gt;&gt; import hashlib
+&gt;&gt;&gt; hashlib.sha256(hashlib.sha256(header).digest()).digest()[::-1].hex()
+‘000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f’</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.blockchain.genesis_coinbase_tx">
+<span class="sig-prename descclassname"><span class="pre">bits.blockchain.</span></span><span class="sig-name descname"><span class="pre">genesis_coinbase_tx</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#bits.blockchain.genesis_coinbase_tx" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.blockchain.merkle_root">
+<span class="sig-prename descclassname"><span class="pre">bits.blockchain.</span></span><span class="sig-name descname"><span class="pre">merkle_root</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">txns</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.blockchain.merkle_root" title="Link to this definition">¶</a></dt>
+<dd><p>merkle root from a list of transaction ids
+<a class="reference external" href="https://developer.bitcoin.org/reference/block_chain.html#merkle-trees">https://developer.bitcoin.org/reference/block_chain.html#merkle-trees</a></p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>txns</strong> – list[bytes], list of txids</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.blockchain.target_threshold">
+<span class="sig-prename descclassname"><span class="pre">bits.blockchain.</span></span><span class="sig-name descname"><span class="pre">target_threshold</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">nBits</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">int</span></span></span><a class="headerlink" href="#bits.blockchain.target_threshold" title="Link to this definition">¶</a></dt>
+<dd><p>Calculate target threshold from compact nBits
+# <a class="reference external" href="https://developer.bitcoin.org/reference/block_chain.html#target-nbits">https://developer.bitcoin.org/reference/block_chain.html#target-nbits</a>
+:param nBits: bytes, rpc byte order</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">target</span> <span class="o">=</span> <span class="n">target_threshold</span><span class="p">(</span><span class="nb">bytes</span><span class="o">.</span><span class="n">fromhex</span><span class="p">(</span><span class="s2">&quot;207fffff&quot;</span><span class="p">))</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">hex</span><span class="p">(</span><span class="n">target</span><span class="p">)</span>
+<span class="go">&#39;0x7fffff0000000000000000000000000000000000000000000000000000000000&#39;</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</section>
+<section id="module-bits.config">
+<span id="bits-config"></span><h2>bits.config<a class="headerlink" href="#module-bits.config" title="Link to this heading">¶</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="bits.config.Config">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">bits.config.</span></span><span class="sig-name descname"><span class="pre">Config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.config.Config" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.config.Config.load_config">
+<span class="sig-name descname"><span class="pre">load_config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'/home/runner/.bits'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.config.Config.load_config" title="Link to this definition">¶</a></dt>
+<dd><p>Look for configuration file in ~/.bits and load, if present</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.config.Config.update">
+<span class="sig-name descname"><span class="pre">update</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.config.Config.update" title="Link to this definition">¶</a></dt>
+<dd><p>Update Config with kwargs</p>
+<p>Avoid applying keys not defined in __init__ by re-instantiating</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-bits.constants">
+<span id="bits-constants"></span><h2>bits.constants<a class="headerlink" href="#module-bits.constants" title="Link to this heading">¶</a></h2>
+<p>Global constants</p>
+</section>
+<section id="module-bits.crypto">
+<span id="bits-crypto"></span><h2>bits.crypto<a class="headerlink" href="#module-bits.crypto" title="Link to this heading">¶</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.crypto.hash160">
+<span class="sig-prename descclassname"><span class="pre">bits.crypto.</span></span><span class="sig-name descname"><span class="pre">hash160</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">msg</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.crypto.hash160" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.crypto.hash256">
+<span class="sig-prename descclassname"><span class="pre">bits.crypto.</span></span><span class="sig-name descname"><span class="pre">hash256</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">msg</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.crypto.hash256" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.crypto.ripemd160">
+<span class="sig-prename descclassname"><span class="pre">bits.crypto.</span></span><span class="sig-name descname"><span class="pre">ripemd160</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">msg</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.crypto.ripemd160" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.crypto.sha256">
+<span class="sig-prename descclassname"><span class="pre">bits.crypto.</span></span><span class="sig-name descname"><span class="pre">sha256</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">msg</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.crypto.sha256" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</section>
+<section id="module-bits.ecmath">
+<span id="bits-ecmath"></span><h2>bits.ecmath<a class="headerlink" href="#module-bits.ecmath" title="Link to this heading">¶</a></h2>
+<p>Elliptic curve math</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.ecmath.add_mod_p">
+<span class="sig-prename descclassname"><span class="pre">bits.ecmath.</span></span><span class="sig-name descname"><span class="pre">add_mod_p</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">115792089237316195423570985008687907853269984665640564039457584007908834671663</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">int</span></span></span><a class="headerlink" href="#bits.ecmath.add_mod_p" title="Link to this definition">¶</a></dt>
+<dd><p>x + y (mod p)</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">add_mod_p</span><span class="p">(</span><span class="n">SECP256K1_P</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<span class="go">2</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.ecmath.div_mod_p">
+<span class="sig-prename descclassname"><span class="pre">bits.ecmath.</span></span><span class="sig-name descname"><span class="pre">div_mod_p</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">115792089237316195423570985008687907853269984665640564039457584007908834671663</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">int</span></span></span><a class="headerlink" href="#bits.ecmath.div_mod_p" title="Link to this definition">¶</a></dt>
+<dd><p>x / y (mod p)
+Using Fermat’s little thereom,
+mod p
+x / y = x * (y ** -1)
+x / y = x * (y ** (p - 2))</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.ecmath.mul_mod_p">
+<span class="sig-prename descclassname"><span class="pre">bits.ecmath.</span></span><span class="sig-name descname"><span class="pre">mul_mod_p</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">115792089237316195423570985008687907853269984665640564039457584007908834671663</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">int</span></span></span><a class="headerlink" href="#bits.ecmath.mul_mod_p" title="Link to this definition">¶</a></dt>
+<dd><p>x * y (mod p)</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.ecmath.point_add">
+<span class="sig-prename descclassname"><span class="pre">bits.ecmath.</span></span><span class="sig-name descname"><span class="pre">point_add</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">p1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">7</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bits.ecmath.point_add" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.ecmath.point_is_on_curve">
+<span class="sig-prename descclassname"><span class="pre">bits.ecmath.</span></span><span class="sig-name descname"><span class="pre">point_is_on_curve</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">7</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="headerlink" href="#bits.ecmath.point_is_on_curve" title="Link to this definition">¶</a></dt>
+<dd><p>Returns True if (x, y) is on elliptic curve given by y^2 = x^3 + ax + b, else False
+&gt;&gt;&gt; point_is_on_curve(SECP256K1_Gx, SECP256K1_Gy)
+True</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.ecmath.point_negate">
+<span class="sig-prename descclassname"><span class="pre">bits.ecmath.</span></span><span class="sig-name descname"><span class="pre">point_negate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">p</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">7</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bits.ecmath.point_negate" title="Link to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>-p</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.ecmath.point_scalar_mul">
+<span class="sig-prename descclassname"><span class="pre">bits.ecmath.</span></span><span class="sig-name descname"><span class="pre">point_scalar_mul</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">P</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">7</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bits.ecmath.point_scalar_mul" title="Link to this definition">¶</a></dt>
+<dd><p>Point multiplication using double and add algorithm
+kP where k has n binary digits
+O(k)</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.ecmath.pow_mod_p">
+<span class="sig-prename descclassname"><span class="pre">bits.ecmath.</span></span><span class="sig-name descname"><span class="pre">pow_mod_p</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">115792089237316195423570985008687907853269984665640564039457584007908834671663</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">int</span></span></span><a class="headerlink" href="#bits.ecmath.pow_mod_p" title="Link to this definition">¶</a></dt>
+<dd><p>x ** y (mod p)</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.ecmath.sign">
+<span class="sig-prename descclassname"><span class="pre">bits.ecmath.</span></span><span class="sig-name descname"><span class="pre">sign</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">digest</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">N</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">115792089237316195423570985008687907852837564279074904382605163141518161494337</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">G</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">(55066263022277343669578718895168534326250603453777594175500187360389116729240,</span> <span class="pre">32670510020758816978083085130507043184471273380659243275938904335757337482424)</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bits.ecmath.sign" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.ecmath.sqrt_mod_p">
+<span class="sig-prename descclassname"><span class="pre">bits.ecmath.</span></span><span class="sig-name descname"><span class="pre">sqrt_mod_p</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">115792089237316195423570985008687907853269984665640564039457584007908834671663</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">int</span></span></span><a class="headerlink" href="#bits.ecmath.sqrt_mod_p" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.ecmath.sub_mod_p">
+<span class="sig-prename descclassname"><span class="pre">bits.ecmath.</span></span><span class="sig-name descname"><span class="pre">sub_mod_p</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">115792089237316195423570985008687907853269984665640564039457584007908834671663</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">int</span></span></span><a class="headerlink" href="#bits.ecmath.sub_mod_p" title="Link to this definition">¶</a></dt>
+<dd><p>x - y (mod p)</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="nb">hex</span><span class="p">(</span><span class="n">sub_mod_p</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+<span class="go">&#39;0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2e&#39;</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.ecmath.verify">
+<span class="sig-prename descclassname"><span class="pre">bits.ecmath.</span></span><span class="sig-name descname"><span class="pre">verify</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">r</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">point</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">digest</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">N</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">115792089237316195423570985008687907852837564279074904382605163141518161494337</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">G</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">(55066263022277343669578718895168534326250603453777594175500187360389116729240,</span> <span class="pre">32670510020758816978083085130507043184471273380659243275938904335757337482424)</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="headerlink" href="#bits.ecmath.verify" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.ecmath.y_from_x">
+<span class="sig-prename descclassname"><span class="pre">bits.ecmath.</span></span><span class="sig-name descname"><span class="pre">y_from_x</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">7</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">int</span></span></span><a class="headerlink" href="#bits.ecmath.y_from_x" title="Link to this definition">¶</a></dt>
+<dd><p>Find y from x
+y^2 = x^3 + ax + b</p>
+</dd></dl>
+
+</section>
+<section id="module-bits.integrations">
+<span id="bits-integrations"></span><h2>bits.integrations<a class="headerlink" href="#module-bits.integrations" title="Link to this heading">¶</a></h2>
+<p>Utils for various integrations with local bitcoind node</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.integrations.generate_funded_keys">
+<span class="sig-prename descclassname"><span class="pre">bits.integrations.</span></span><span class="sig-name descname"><span class="pre">generate_funded_keys</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">count</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">compressed_pubkey</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">network</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'regtest'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_url</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_datadir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_user</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_password</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Iterator</span><span class="p"><span class="pre">[</span></span><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bits.integrations.generate_funded_keys" title="Link to this definition">¶</a></dt>
+<dd><p>Generate keys which receive coinbase reward sent to p2pkh address
+:param count: int, number of funded keys to generate
+:param compressed_pubkey: bool, wether key should correspond to compressed pubkey for recv addr
+:param network: str, bitcoin network</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>iterator of tuples (key, addr)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.integrations.median_time">
+<span class="sig-prename descclassname"><span class="pre">bits.integrations.</span></span><span class="sig-name descname"><span class="pre">median_time</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rpc_url</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_datadir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_user</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_password</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">int</span></span></span><a class="headerlink" href="#bits.integrations.median_time" title="Link to this definition">¶</a></dt>
+<dd><p>Returns the median time of the last 11 blocks</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.integrations.mine_block">
+<span class="sig-prename descclassname"><span class="pre">bits.integrations.</span></span><span class="sig-name descname"><span class="pre">mine_block</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">recv_addr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_url</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_datadir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_user</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_password</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.integrations.mine_block" title="Link to this definition">¶</a></dt>
+<dd><p>Retrieve all raw mempool transactions and submit in a block.
+Regtest mode is inferred from getdifficulty rpc.
+Commits to witness root per BIP 141 via coinbase tx, if necessary
+:param recv_addr: bytes, addr to receive block reward</p>
+</dd></dl>
+
+</section>
+<section id="module-bits.keys">
+<span id="bits-keys"></span><h2>bits.keys<a class="headerlink" href="#module-bits.keys" title="Link to this heading">¶</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.keys.key">
+<span class="sig-prename descclassname"><span class="pre">bits.keys.</span></span><span class="sig-name descname"><span class="pre">key</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.keys.key" title="Link to this definition">¶</a></dt>
+<dd><p>Generate a private key</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.keys.pub">
+<span class="sig-prename descclassname"><span class="pre">bits.keys.</span></span><span class="sig-name descname"><span class="pre">pub</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">privkey</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">compressed</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.keys.pub" title="Link to this definition">¶</a></dt>
+<dd><p>Calculate public point and return pubkey
+:param privkey: bytes, private key</p>
+</dd></dl>
+
+</section>
+<section id="module-bits.p2p">
+<span id="bits-p2p"></span><h2>bits.p2p<a class="headerlink" href="#module-bits.p2p" title="Link to this heading">¶</a></h2>
+<p>P2P and stuff</p>
+<p><a class="reference external" href="https://developer.bitcoin.org/devguide/p2p_network.html">https://developer.bitcoin.org/devguide/p2p_network.html</a>
+<a class="reference external" href="https://developer.bitcoin.org/reference/p2p_networking.html">https://developer.bitcoin.org/reference/p2p_networking.html</a>
+<a class="reference external" href="https://en.bitcoin.it/wiki/Network">https://en.bitcoin.it/wiki/Network</a>
+<a class="reference external" href="https://en.bitcoin.it/wiki/Protocol_documentation">https://en.bitcoin.it/wiki/Protocol_documentation</a></p>
+<dl class="py class">
+<dt class="sig sig-object py" id="bits.p2p.Node">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">Node</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">seeds</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">[]</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">protocol_version</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">70015</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">services</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">relay</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">datadir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'.bits/blocks'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">serve_rpc</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_bind</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">()</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_username</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_password</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.Node" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.p2p.Node.connect_peer">
+<span class="sig-name descname"><span class="pre">connect_peer</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">host</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">port</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.Node.connect_peer" title="Link to this definition">¶</a></dt>
+<dd><p>Connect to peer; open socket and send version message</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.p2p.Node.handle_command">
+<span class="sig-name descname"><span class="pre">handle_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">peer_no</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">command</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.Node.handle_command" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.p2p.Node.handle_feefilter_command">
+<span class="sig-name descname"><span class="pre">handle_feefilter_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">peer_no</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">command</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.Node.handle_feefilter_command" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.p2p.Node.handle_getheaders_command">
+<span class="sig-name descname"><span class="pre">handle_getheaders_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">peer_no</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">command</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.Node.handle_getheaders_command" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.p2p.Node.handle_inv_command">
+<span class="sig-name descname"><span class="pre">handle_inv_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">peer_no</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">command</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.Node.handle_inv_command" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.p2p.Node.handle_ping_command">
+<span class="sig-name descname"><span class="pre">handle_ping_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">peer_no</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">command</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.Node.handle_ping_command" title="Link to this definition">¶</a></dt>
+<dd><p>Handle ping command by sending a ‘pong’ message</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.p2p.Node.handle_sendheaders_command">
+<span class="sig-name descname"><span class="pre">handle_sendheaders_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">peer_no</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">command</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.Node.handle_sendheaders_command" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.p2p.Node.handle_verack_command">
+<span class="sig-name descname"><span class="pre">handle_verack_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">peer_no</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">command</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.Node.handle_verack_command" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.p2p.Node.handle_version_command">
+<span class="sig-name descname"><span class="pre">handle_version_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">peer_no</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">command</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.Node.handle_version_command" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.p2p.Node.ibd">
+<span class="sig-name descname"><span class="pre">ibd</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.Node.ibd" title="Link to this definition">¶</a></dt>
+<dd><p>Initial Block Download</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.p2p.Node.recv_loop">
+<span class="sig-name descname"><span class="pre">recv_loop</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">peer_no</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.Node.recv_loop" title="Link to this definition">¶</a></dt>
+<dd><p>Recv loop; receive msg, add to msg queue</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.p2p.Node.start">
+<span class="sig-name descname"><span class="pre">start</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.Node.start" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.p2p.Node.start_rpc_server">
+<span class="sig-name descname"><span class="pre">start_rpc_server</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.Node.start_rpc_server" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.p2p.Node.stop">
+<span class="sig-name descname"><span class="pre">stop</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.Node.stop" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bits.p2p.PeerThread">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">PeerThread</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.PeerThread" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Thread</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="bits.p2p.PeerThread.exit">
+<span class="sig-name descname"><span class="pre">exit</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.PeerThread.exit" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.addr_payload">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">addr_payload</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">count</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">addrs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.p2p.addr_payload" title="Link to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>count</strong> – int, number of ip address (max 1,000)</p></li>
+<li><p><strong>addrs</strong> – List[bytes], ip addresses in network ip addr format</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.auth_request_handler_factory">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">auth_request_handler_factory</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">username</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">password</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.auth_request_handler_factory" title="Link to this definition">¶</a></dt>
+<dd><p>Return subclass of SimpleXMLRPCRequestHandler for checking Basic Auth
+:param username: str, basic auth username
+:param password: str, basic auth password</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>BasicAuthRequestHandler</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.getblocks_payload">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">getblocks_payload</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">block_header_hashes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">protocol_version</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">70015</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.p2p.getblocks_payload" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.getheaders_payload">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">getheaders_payload</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">protocol_version</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hash_count</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_header_hashes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stop_hash</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.p2p.getheaders_payload" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.headers_payload">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">headers_payload</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">count</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">headers</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.p2p.headers_payload" title="Link to this definition">¶</a></dt>
+<dd><p>Serialized headers message payload
+:param count: int, number of block headers - max of 2000
+:param headers: List[bytes], block headers</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.inv_payload">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">inv_payload</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">count</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inventories</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.p2p.inv_payload" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.inventory">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">inventory</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">type_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hash</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.p2p.inventory" title="Link to this definition">¶</a></dt>
+<dd><p>inventory data structure
+<a class="reference external" href="https://developer.bitcoin.org/glossary.html#term-Inventory">https://developer.bitcoin.org/glossary.html#term-Inventory</a></p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.msg_ser">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">msg_ser</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">start_bytes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">command</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">b''</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.p2p.msg_ser" title="Link to this definition">¶</a></dt>
+<dd><p>Serialized p2p message</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.network_ip_addr">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">network_ip_addr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">time</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">services</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ip_addr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">port</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.p2p.network_ip_addr" title="Link to this definition">¶</a></dt>
+<dd><p>Network ip address format
+# <a class="reference external" href="https://developer.bitcoin.org/reference/p2p_networking.html#addr">https://developer.bitcoin.org/reference/p2p_networking.html#addr</a></p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.parse_addr_payload">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">parse_addr_payload</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#bits.p2p.parse_addr_payload" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.parse_feefilter_payload">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">parse_feefilter_payload</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#bits.p2p.parse_feefilter_payload" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.parse_getheaders_payload">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">parse_getheaders_payload</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#bits.p2p.parse_getheaders_payload" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.parse_inv_payload">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">parse_inv_payload</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#bits.p2p.parse_inv_payload" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.parse_inventory">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">parse_inventory</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">inventory_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#bits.p2p.parse_inventory" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.parse_network_ip_addr">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">parse_network_ip_addr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#bits.p2p.parse_network_ip_addr" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.parse_payload">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">parse_payload</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">command</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">payload</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.parse_payload" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.parse_ping_payload">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">parse_ping_payload</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#bits.p2p.parse_ping_payload" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.parse_sendcmpct_payload">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">parse_sendcmpct_payload</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#bits.p2p.parse_sendcmpct_payload" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.parse_version_payload">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">parse_version_payload</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">versionpayload_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#bits.p2p.parse_version_payload" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.ping_payload">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">ping_payload</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">nonce</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.p2p.ping_payload" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.recv_msg">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">recv_msg</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sock</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">socket</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bytes</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bits.p2p.recv_msg" title="Link to this definition">¶</a></dt>
+<dd><p>Recv and deserialize message ( header + optional payload )</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.set_magic_start_bytes">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">set_magic_start_bytes</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">network</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'mainnet'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.set_magic_start_bytes" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.version_payload">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">version_payload</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">start_height</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">addr_recv_port</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">addr_trans_port</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">protocol_version</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">70015</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">services</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">relay</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.p2p.version_payload" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.p2p.write_blocks_to_disk">
+<span class="sig-prename descclassname"><span class="pre">bits.p2p.</span></span><span class="sig-name descname"><span class="pre">write_blocks_to_disk</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">blocks</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">datadir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.p2p.write_blocks_to_disk" title="Link to this definition">¶</a></dt>
+<dd><p>Write blocks to disk</p>
+<p>observe max_blockfile_size &amp;
+number files blk00000.dat, blk00001.dat, …</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>blocks</strong> – List[bytes]</p></li>
+<li><p><strong>datadir</strong> – str, path to blockchain datadir</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-bits.pem">
+<span id="bits-pem"></span><h2>bits.pem<a class="headerlink" href="#module-bits.pem" title="Link to this heading">¶</a></h2>
+<p>PEM / DER / ASN.1</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.pem.decode_base64_pem">
+<span class="sig-prename descclassname"><span class="pre">bits.pem.</span></span><span class="sig-name descname"><span class="pre">decode_base64_pem</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pem</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.pem.decode_base64_pem" title="Link to this definition">¶</a></dt>
+<dd><p>Decode pem base64 data
+inspiration from ssl.PEM_cert_to_DER_cert
+but more general</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.pem.decode_pem">
+<span class="sig-prename descclassname"><span class="pre">bits.pem.</span></span><span class="sig-name descname"><span class="pre">decode_pem</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pem_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.pem.decode_pem" title="Link to this definition">¶</a></dt>
+<dd><p>Decode pem and parse ASN.1</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.pem.encode_oid">
+<span class="sig-prename descclassname"><span class="pre">bits.pem.</span></span><span class="sig-name descname"><span class="pre">encode_oid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">oid</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.pem.encode_oid" title="Link to this definition">¶</a></dt>
+<dd><p><a class="reference external" href="https://learn.microsoft.com/en-us/windows/win32/seccertenroll/about-object-identifier">https://learn.microsoft.com/en-us/windows/win32/seccertenroll/about-object-identifier</a>
+&gt;&gt;&gt; encode_oid(“1.2.840.10045.2.1”).hex()
+‘2a8648ce3d0201’
+&gt;&gt;&gt; encode_oid(“1.3.6.1.4.1.311.21.20”).hex()
+‘2b0601040182371514’
+&gt;&gt;&gt; encode_oid(“1.3.132.0.10”).hex()
+‘2b8104000a’</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.pem.encode_parsed_asn1">
+<span class="sig-prename descclassname"><span class="pre">bits.pem.</span></span><span class="sig-name descname"><span class="pre">encode_parsed_asn1</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">parsed_data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.pem.encode_parsed_asn1" title="Link to this definition">¶</a></dt>
+<dd><p>Inverse of parse_asn1
+&gt;&gt;&gt; sig = bytes.fromhex(“3046022100807ebfaf104a08061044a11109873af5c16cfb2e4e4ec69b47bd4dfcf3b630d4022100bbc3387cc3c5fd83d672eee20c40161099f8df44e135ca96a9b8650dbcbfe1bc”)
+&gt;&gt;&gt; parsed = parse_asn1(sig)
+&gt;&gt;&gt; encoded = encode_parsed_asn1(parsed[0])
+&gt;&gt;&gt; assert sig == encoded</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.pem.encode_parsed_asn1_val">
+<span class="sig-prename descclassname"><span class="pre">bits.pem.</span></span><span class="sig-name descname"><span class="pre">encode_parsed_asn1_val</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tag</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parsed_val</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.pem.encode_parsed_asn1_val" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.pem.encode_pem">
+<span class="sig-prename descclassname"><span class="pre">bits.pem.</span></span><span class="sig-name descname"><span class="pre">encode_pem</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">der_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">b'-----BEGIN</span> <span class="pre">CERTIFICATE-----'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">footer</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">b'-----END</span> <span class="pre">CERTIFICATE-----'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.pem.encode_pem" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.pem.parse_asn1">
+<span class="sig-prename descclassname"><span class="pre">bits.pem.</span></span><span class="sig-name descname"><span class="pre">parse_asn1</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.pem.parse_asn1" title="Link to this definition">¶</a></dt>
+<dd><p>Parse ASN.1 data
+Recursive for SEQUENCE (OF) tag</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.pem.parse_asn1_value">
+<span class="sig-prename descclassname"><span class="pre">bits.pem.</span></span><span class="sig-name descname"><span class="pre">parse_asn1_value</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tag</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.pem.parse_asn1_value" title="Link to this definition">¶</a></dt>
+<dd><p>Parse ASN.1 tag’s value</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.pem.parse_oid">
+<span class="sig-prename descclassname"><span class="pre">bits.pem.</span></span><span class="sig-name descname"><span class="pre">parse_oid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#bits.pem.parse_oid" title="Link to this definition">¶</a></dt>
+<dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">parse_oid</span><span class="p">(</span><span class="nb">bytes</span><span class="o">.</span><span class="n">fromhex</span><span class="p">(</span><span class="s2">&quot;2a8648ce3d0201&quot;</span><span class="p">))</span>
+<span class="go">&#39;1.2.840.10045.2.1&#39;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">parse_oid</span><span class="p">(</span><span class="nb">bytes</span><span class="o">.</span><span class="n">fromhex</span><span class="p">(</span><span class="s2">&quot;2b8104000a&quot;</span><span class="p">))</span>
+<span class="go">&#39;1.3.132.0.10&#39;</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</section>
+<section id="module-bits.rpc">
+<span id="bits-rpc"></span><h2>bits.rpc<a class="headerlink" href="#module-bits.rpc" title="Link to this heading">¶</a></h2>
+<p>RPC</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.rpc.rpc_method">
+<span class="sig-prename descclassname"><span class="pre">bits.rpc.</span></span><span class="sig-name descname"><span class="pre">rpc_method</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">method</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_url</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_user</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_password</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_datadir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span></span><a class="headerlink" href="#bits.rpc.rpc_method" title="Link to this definition">¶</a></dt>
+<dd><p>Call a method (w/ params) to bitcoind node</p>
+</dd></dl>
+
+</section>
+<section id="module-bits.tx">
+<span id="bits-tx"></span><h2>bits.tx<a class="headerlink" href="#module-bits.tx" title="Link to this heading">¶</a></h2>
+<p>Utilities for transactions</p>
+<p><a class="reference external" href="https://developer.bitcoin.org/reference/transactions.html">https://developer.bitcoin.org/reference/transactions.html</a></p>
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.tx.coinbase_tx">
+<span class="sig-prename descclassname"><span class="pre">bits.tx.</span></span><span class="sig-name descname"><span class="pre">coinbase_tx</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">coinbase_script</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">script_pubkey</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_reward</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_height</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">regtest</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">witness_merkle_root_hash</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.tx.coinbase_tx" title="Link to this definition">¶</a></dt>
+<dd><p>Create coinbase transaction by supplying arbitrary transaction input coinbase
+scriptsig and transaction output spending scriptpubkey.</p>
+<p>Optional block height (for version 2 blocks per BIP34) and block reward arguments
+may be provided. If block height is specified, the block reward must be &lt;= max reward,
+and will be inferred to be == max reward if left unspecified.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>coinbase_script</strong> – bytes, txin scriptsig of arbitrary data not exceeding 100 bytes</p></li>
+<li><p><strong>script_pubkey</strong> – bytes, txout scriptpubkey</p></li>
+<li><p><strong>block_reward</strong> – Optional[int], txout value in satoshis</p></li>
+<li><p><strong>block_height</strong> – Optional[int], block height per BIP34</p></li>
+<li><p><strong>regtest</strong> – bool, set True for regtest to calculate blocks per halving correctly</p></li>
+<li><p><strong>witness_merkle_root_hash</strong> – Optional[bytes], per BIP141 specify witness merkle root,
+to be committed in a txout of the coinbase transaction</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>coinbase tx</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.tx.coinbase_txin">
+<span class="sig-prename descclassname"><span class="pre">bits.tx.</span></span><span class="sig-name descname"><span class="pre">coinbase_txin</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">coinbase_script</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sequence</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">b'\xff\xff\xff\xff'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_height</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.tx.coinbase_txin" title="Link to this definition">¶</a></dt>
+<dd><p>Create coinbase txin</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>coinbase_script</strong> – bytes, arbitrary data not exceeding 100 bytes</p></li>
+<li><p><strong>block_height</strong> – bytes, block height of this block in script language
+(now required per BIP34)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.tx.outpoint">
+<span class="sig-prename descclassname"><span class="pre">bits.tx.</span></span><span class="sig-name descname"><span class="pre">outpoint</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">txid_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.tx.outpoint" title="Link to this definition">¶</a></dt>
+<dd><p># <a class="reference external" href="https://developer.bitcoin.org/reference/transactions.html#outpoint-the-specific-part-of-a-specific-output">https://developer.bitcoin.org/reference/transactions.html#outpoint-the-specific-part-of-a-specific-output</a></p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>txid</strong> – bytes, txid in internal byte order</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.tx.send_tx">
+<span class="sig-prename descclassname"><span class="pre">bits.tx.</span></span><span class="sig-name descname"><span class="pre">send_tx</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sender_addr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">recipient_addr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">change_addr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sender_keys</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">[]</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sighash_flag</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">send_fraction</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">miner_fee</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">version</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">locktime</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_url</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_datadir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_user</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rpc_password</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.tx.send_tx" title="Link to this definition">¶</a></dt>
+<dd><p>Create raw transaction which sends funds from addr to addr, with optional change address.
+Depends on configured Bitcoin Core RPC node for UTXO discovery.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>sender_addr</strong> – bytes, send from this address</p></li>
+<li><p><strong>recipient_addr</strong> – bytes, send to this address</p></li>
+<li><p><strong>change_addr</strong> – Optional[bytes], send change to this address</p></li>
+<li><p><strong>sender_keys</strong> – List[bytes], unlocking WIF key(s) corresponding to sender_addr
+Using this causes signature operations to occur.
+Omit to return the unsigned transaction</p></li>
+<li><p><strong>sighash_flag</strong> – Optional[int], sighash_flag, required if providing sender_keys</p></li>
+<li><p><strong>send_fraction</strong> – float, fraction of UTXO value to send to recipient, leftover is
+sent to change_addr if present, else returned to sender_addr</p></li>
+<li><p><strong>miner_fee</strong> – int, amount (in satoshis) to include as miner fee</p></li>
+<li><p><strong>version</strong> – int, transaction version</p></li>
+<li><p><strong>locktime</strong> – int, transaction locktime</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.tx.tx">
+<span class="sig-prename descclassname"><span class="pre">bits.tx.</span></span><span class="sig-name descname"><span class="pre">tx</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">txins</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">txouts</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">version</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">locktime</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">script_witnesses</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">[]</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.tx.tx" title="Link to this definition">¶</a></dt>
+<dd><p>Transaction serialization, optional SegWit per BIP 141</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.tx.tx_deser">
+<span class="sig-prename descclassname"><span class="pre">bits.tx.</span></span><span class="sig-name descname"><span class="pre">tx_deser</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tx_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">include_raw</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">dict</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bits.tx.tx_deser" title="Link to this definition">¶</a></dt>
+<dd><p>Deserialize tx data</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>tx</strong> – bytes, tx data</p></li>
+<li><p><strong>include_raw</strong> – bool, if True, include raw hex transaction in dict</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>tuple, (deserialized tx, leftove )</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.tx.txid">
+<span class="sig-prename descclassname"><span class="pre">bits.tx.</span></span><span class="sig-name descname"><span class="pre">txid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">internal</span> <span class="pre">byte</span> <span class="pre">order</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.tx.txid" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.tx.txin">
+<span class="sig-prename descclassname"><span class="pre">bits.tx.</span></span><span class="sig-name descname"><span class="pre">txin</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">prev_outpoint</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">script_sig</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sequence</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">b'\xff\xff\xff\xff'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.tx.txin" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.tx.txin_deser">
+<span class="sig-prename descclassname"><span class="pre">bits.tx.</span></span><span class="sig-name descname"><span class="pre">txin_deser</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">txin_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">dict</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bits.tx.txin_deser" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.tx.txout">
+<span class="sig-prename descclassname"><span class="pre">bits.tx.</span></span><span class="sig-name descname"><span class="pre">txout</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">script_pubkey</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.tx.txout" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.tx.txout_deser">
+<span class="sig-prename descclassname"><span class="pre">bits.tx.</span></span><span class="sig-name descname"><span class="pre">txout_deser</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">txout_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">dict</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bits.tx.txout_deser" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</section>
+<section id="module-bits.utils">
+<span id="bits-utils"></span><h2>bits.utils<a class="headerlink" href="#module-bits.utils" title="Link to this heading">¶</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.assert_addr">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">assert_addr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">addr_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="headerlink" href="#bits.utils.assert_addr" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.assert_valid_segwit">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">assert_valid_segwit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hrp</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">witness_version</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">witness_program</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="headerlink" href="#bits.utils.assert_valid_segwit" title="Link to this definition">¶</a></dt>
+<dd><p>Assert valid SegWit address per BIP173</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.compact_size_uint">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">compact_size_uint</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">integer</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.utils.compact_size_uint" title="Link to this definition">¶</a></dt>
+<dd><p><a class="reference external" href="https://developer.bitcoin.org/reference/transactions.html#compactsize-unsigned-integers">https://developer.bitcoin.org/reference/transactions.html#compactsize-unsigned-integers</a></p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.compressed_pubkey">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">compressed_pubkey</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pubkey_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.utils.compressed_pubkey" title="Link to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>compressed pubkey from (un)compressed pubkey</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.compute_point">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">compute_point</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">privkey_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bits.utils.compute_point" title="Link to this definition">¶</a></dt>
+<dd><p>Compute (x, y) public key point from private key</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">compute_point</span><span class="p">(</span><span class="nb">bytes</span><span class="o">.</span><span class="n">fromhex</span><span class="p">(</span><span class="s1">&#39;c3e7b149ad167dc83a5653a9eaae1cc50b36793bfdc050d8efab831d04b876a7&#39;</span><span class="p">))</span>
+<span class="go">(88828742484815144809405969644853584197652586004550817561544596238129398385750, 53299775652378523772666068229018059902560429447534834823349875811815397393717)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.decode_segwit_addr">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">decode_segwit_addr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">addr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">__support_bip350</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bits.utils.decode_segwit_addr" title="Link to this definition">¶</a></dt>
+<dd><p>Decode SegWit address. See BIP173 and BIP350</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.der_decode_sig">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">der_decode_sig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">der</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bits.utils.der_decode_sig" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.der_encode_sig">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">der_encode_sig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">r</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.utils.der_encode_sig" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.ensure_sig_low_s">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">ensure_sig_low_s</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sig_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.utils.ensure_sig_low_s" title="Link to this definition">¶</a></dt>
+<dd><p>Ensure DER encoded signature has low enough s value
+<a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki#low-s-values-in-signatures">https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki#low-s-values-in-signatures</a></p>
+<p>OpenSSL does not ensure this by default
+<a class="reference external" href="https://bitcoin.stackexchange.com/a/59826/135678">https://bitcoin.stackexchange.com/a/59826/135678</a>
+Apparently, Bitcoin Core used to do this to get around it
+<a class="reference external" href="https://github.com/bitcoin/bitcoin/blob/v0.9.0/src/key.cpp#L204L224">https://github.com/bitcoin/bitcoin/blob/v0.9.0/src/key.cpp#L204L224</a></p>
+<p>Essentially just use s = N - s if s &gt; N / 2</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.is_addr">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">is_addr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">addr_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="headerlink" href="#bits.utils.is_addr" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.is_point">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">is_point</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pubkey_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.utils.is_point" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.is_segwit_addr">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">is_segwit_addr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">addr_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="headerlink" href="#bits.utils.is_segwit_addr" title="Link to this definition">¶</a></dt>
+<dd><p>Alterative to assert_valid_segwit that catches potential error
+:returns: bool, True if valid segwit address else False</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.parse_compact_size_uint">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">parse_compact_size_uint</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bits.utils.parse_compact_size_uint" title="Link to this definition">¶</a></dt>
+<dd><p>This function expects a compact size uint at the beginning of payload.
+Since compact size uints are variable in size, this function
+will observe the first byte, parse the necessary subsequent bytes,
+and return, as a tuple, the parsed integer followed by the rest of the
+payload (i.e. the remaining unparsed payload)</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.pem_decode_key">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">pem_decode_key</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pem_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bits.utils.pem_decode_key" title="Link to this definition">¶</a></dt>
+<dd><p>Decode from pem / der encoded EC private / public key
+:returns: (privkey, pubkey) or pubkey, respectively</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.pem_encode_key">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">pem_encode_key</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.utils.pem_encode_key" title="Link to this definition">¶</a></dt>
+<dd><p>Encode (pub)key as pem</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.point">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">point</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pubkey_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bits.utils.point" title="Link to this definition">¶</a></dt>
+<dd><p>Return (x, y) point from SEC1 public key</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">point</span><span class="p">(</span><span class="nb">bytes</span><span class="o">.</span><span class="n">fromhex</span><span class="p">(</span><span class="s1">&#39;03c463495bd336bc29636ed6d8c1cf162b45d76adda4df9499370dded242758c56&#39;</span><span class="p">))</span>
+<span class="go">(88828742484815144809405969644853584197652586004550817561544596238129398385750, 53299775652378523772666068229018059902560429447534834823349875811815397393717)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.privkey_int">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">privkey_int</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">privkey_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">int</span></span></span><a class="headerlink" href="#bits.utils.privkey_int" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.pubkey">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">pubkey</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">compressed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.utils.pubkey" title="Link to this definition">¶</a></dt>
+<dd><p>Returns SEC1 pubkey from point (x, y)</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">pubkey</span><span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="mi">88828742484815144809405969644853584197652586004550817561544596238129398385750</span><span class="p">,</span> <span class="mi">53299775652378523772666068229018059902560429447534834823349875811815397393717</span><span class="p">),</span> <span class="n">compressed</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">hex</span><span class="p">()</span>
+<span class="go">&#39;03c463495bd336bc29636ed6d8c1cf162b45d76adda4df9499370dded242758c56&#39;</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.pubkey_from_pem">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">pubkey_from_pem</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pem_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.utils.pubkey_from_pem" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.pubkey_hash">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">pubkey_hash</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pubkey_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.utils.pubkey_hash" title="Link to this definition">¶</a></dt>
+<dd><p>Returns pubkeyhash as used in P2PKH scriptPubKey
+e.g. RIPEMD160(SHA256(pubkey))</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.script_hash">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">script_hash</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">redeem_script</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.utils.script_hash" title="Link to this definition">¶</a></dt>
+<dd><p>HASH160(redeem_script)</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.segwit_addr">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">segwit_addr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">witness_version</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">network</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'mainnet'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.utils.segwit_addr" title="Link to this definition">¶</a></dt>
+<dd><p>Defined per BIP173 bech32
+<a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#segwit-address-format">https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#segwit-address-format</a>
+and bech32m per BIP350
+<a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki">https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki</a></p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.sig">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">sig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">msg</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sighash_flag</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">msg_preimage</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.utils.sig" title="Link to this definition">¶</a></dt>
+<dd><p>Create DER encoded Bitcoin signature from message, optional sighash_flag</p>
+<dl class="simple">
+<dt>Sighash_flag gets appended to msg, this data is then hashed with HASH256,</dt><dd><p>signed, and DER-encoded</p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>key</strong> – bytes, private key</p></li>
+<li><p><strong>msg</strong> – bytes,</p></li>
+<li><p><strong>sighash_flag</strong> – Optional[int], appended to msg before HASH256</p></li>
+<li><p><strong>msg_preimage</strong> – whether msg is pre-image or not
+pre-image already has 4 byte sighash flag appended
+if msg_preimage, msg is still hashed, and 1 byte sighash_flag still appended
+after signing/der-encoding</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>bytes, signature(HASH256(msg + sighash_flag))</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.sig_verify">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">sig_verify</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sig_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pubkey_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">msg</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">msg_preimage</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#bits.utils.sig_verify" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.to_bitcoin_address">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">to_bitcoin_address</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">payload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">addr_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'p2pkh'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">network</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'mainnet'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">witness_version</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.utils.to_bitcoin_address" title="Link to this definition">¶</a></dt>
+<dd><p>Encode payload as bitcoin address invoice (optional segwit)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>payload</strong> – bytes, pubkey_hash or script_hash</p></li>
+<li><p><strong>addr_type</strong> – str, address type, “p2pkh” or “p2sh”.
+results in p2wpkh or p2wsh, respectively when combined with witness_version</p></li>
+<li><p><strong>network</strong> – str, mainnet, testnet, or regtest</p></li>
+<li><p><strong>witness_version</strong> – Optional[int], witness version for native segwit addresses
+usage implies p2wpkh or p2wsh, accordingly</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>base58 (or bech32 segwit) encoded bitcoin address</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.wif_decode">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">wif_decode</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wif_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_dict</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">bytes</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bytes</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bytes</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">dict</span></span></span><a class="headerlink" href="#bits.utils.wif_decode" title="Link to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>version, key, data</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.wif_encode">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">wif_encode</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">privkey_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">addr_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'p2pkh'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">network</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'mainnet'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">b''</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.utils.wif_encode" title="Link to this definition">¶</a></dt>
+<dd><p>WIF encoding
+<a class="reference external" href="https://en.bitcoin.it/wiki/Wallet_import_format">https://en.bitcoin.it/wiki/Wallet_import_format</a></p>
+<dl class="simple">
+<dt>** Extended WIF spec to include redeemscript or other script data</dt><dd><p>at suffix</p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>privkey</strong> – bytes, private key</p></li>
+<li><p><strong>addr_type</strong> – str, address type. choices =&gt; [“p2pkh”, “p2wpkh”, “p2sh-p2wpkh”, “p2pk”, “multisig”, “p2sh”, “p2wsh”, “p2sh-p2wsh”]</p></li>
+<li><p><strong>network</strong> – str, e.g. mainnet, testnet, or regtest</p></li>
+<li><p><strong>data</strong> – bytes, appended to key prior to base58check encoding.
+For p2(w)sh address types, supply redeem script.
+For p2pk(h) address types, use 0x01 to associate WIF key with a compressed pubkey, omit for uncompressed pubkey.
+For multsig, supply redeem script
+For p2wpkh &amp; p2sh-p2wpkh, data shall be omitted since compressed pubkey (and redeem_script) are implied
+For p2sh-p2wsh, supply witness_script</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.utils.witness_script_hash">
+<span class="sig-prename descclassname"><span class="pre">bits.utils.</span></span><span class="sig-name descname"><span class="pre">witness_script_hash</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">witness_script</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.utils.witness_script_hash" title="Link to this definition">¶</a></dt>
+<dd><p>SHA256(witness_script)</p>
+</dd></dl>
+
+</section>
+<section id="module-bits">
+<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-bits" title="Link to this heading">¶</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.init_logging">
+<span class="sig-prename descclassname"><span class="pre">bits.</span></span><span class="sig-name descname"><span class="pre">init_logging</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bitsconfig</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">{}</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.init_logging" title="Link to this definition">¶</a></dt>
+<dd><p>Initialize logging</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.read_bytes">
+<span class="sig-prename descclassname"><span class="pre">bits.</span></span><span class="sig-name descname"><span class="pre">read_bytes</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">file_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">IO</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">input_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'raw'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytes</span></span></span><a class="headerlink" href="#bits.read_bytes" title="Link to this definition">¶</a></dt>
+<dd><p>Read from optional file or stdin and convert to bytes</p>
+<p>Any newlines will be stripped from beginning / end for hex and bin, only.
+Raw is read without any additional processing.</p>
+<p>Furthermore, hex and bin will be left-zero-padded to the nearest byte, if they are
+not provided in 8-bit multiples.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>file</strong> – Optional[IO], optional file object - otherwise stdin is used</p></li>
+<li><p><strong>input_format</strong> – str, “raw”, “hex”, or “bin”</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>data as bytes</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.set_log_level">
+<span class="sig-prename descclassname"><span class="pre">bits.</span></span><span class="sig-name descname"><span class="pre">set_log_level</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">log_level</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.set_log_level" title="Link to this definition">¶</a></dt>
+<dd><p>Set log level on all handlers</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bits.write_bytes">
+<span class="sig-prename descclassname"><span class="pre">bits.</span></span><span class="sig-name descname"><span class="pre">write_bytes</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">file_</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">IO</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'raw'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bits.write_bytes" title="Link to this definition">¶</a></dt>
+<dd><p>Write bytes to file or stdout. bin/hex output format will have newline appended</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>data</strong> – bytes, bytes to print</p></li>
+<li><p><strong>file</strong> – Optional[IO], file object to write to, if None uses stdout</p></li>
+<li><p><strong>output_format</strong> – str, ‘raw’, ‘bin’, or ‘hex’</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">bits</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Table of Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+  <li><a href="api.html">API Reference</a><ul>
+      <li>Previous: <a href="api.html" title="previous chapter">API Reference</a></li>
+      <li>Next: <a href="bits.script.html" title="next chapter">bits.script package</a></li>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Jason Traub.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/bits.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

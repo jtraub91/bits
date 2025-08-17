@@ -1,0 +1,1266 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>CLI Reference &#8212; bits 0.2.2 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=000c92bf"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="API Reference" href="api.html" />
+    <link rel="prev" title="bits" href="index.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="cli-reference">
+<h1>CLI Reference<a class="headerlink" href="#cli-reference" title="Link to this heading">¶</a></h1>
+<p><p>bits is a cli tool and pure Python library for Bitcoin.</p>
+<p>See subcommands below for managing crypto, or use base command as follows.</p>
+<p>Convert input bits to bytes.</p>
+<p>Input and output formats can be specified independently, such that this command may 
+be used as a converter between formats.</p>
+<dl>
+<dt>Examples:</dt><dd><p>$ head -c 8 /dev/urandom | bits -1 -0x</p>
+<p>$ echo 1001 | bits -1b -0b</p>
+<p>$ echo hello world | bits -1 -0</p>
+</dd>
+</dl>
+</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">usage</span><span class="p">:</span> <span class="n">bits</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">v</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">config</span><span class="o">-</span><span class="nb">dir</span> <span class="n">CONFIG_DIR</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span>
+            <span class="p">[</span><span class="o">--</span><span class="ow">in</span><span class="o">-</span><span class="n">file</span> <span class="n">IN_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">1</span> <span class="p">[</span><span class="n">INPUT_FORMAT</span><span class="p">]]</span> <span class="p">[</span><span class="o">--</span><span class="n">out</span><span class="o">-</span><span class="n">file</span> <span class="n">OUT_FILE</span><span class="p">]</span>
+            <span class="p">[</span><span class="o">-</span><span class="mi">0</span> <span class="p">[</span><span class="n">OUTPUT_FORMAT</span><span class="p">]]</span>
+            <span class="p">[</span><span class="n">subcommand</span><span class="p">]</span> <span class="o">...</span>
+</pre></div>
+</div>
+<section id="bits.__main__-setup_parser-named-arguments">
+<h2>Named Arguments<a class="headerlink" href="#bits.__main__-setup_parser-named-arguments" title="Link to this heading">¶</a></h2>
+<dl class="option-list">
+<dt><kbd>-v, -V, --version</kbd></dt>
+<dd><p>show program’s version number and exit</p>
+</dd>
+<dt><kbd>--config-dir</kbd></dt>
+<dd><p>Directory to look for optional config file (config.toml or config.json). TOML will take precedence over JSON if both files are defined, but TOML is only available for python 3.11+</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'/home/runner/.bits'</span></code></p>
+</dd>
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--in-file, -in, -i</kbd></dt>
+<dd><p>input data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-1, --input-format</kbd></dt>
+<dd><p>raw binary (-1), binary string (-1b), or hexadecimal string (-1x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+<dt><kbd>--out-file, -out, -o</kbd></dt>
+<dd><p>output data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-0, --output-format</kbd></dt>
+<dd><p>raw binary (-0), binary string (-0b), or hexadecimal string (-0x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+</dl>
+</section>
+<section id="bits.__main__-setup_parser-subcommands">
+<h2>subcommands<a class="headerlink" href="#bits.__main__-setup_parser-subcommands" title="Link to this heading">¶</a></h2>
+<p>Use bits &lt;subcommand&gt; -h for help on each command</p>
+<dl class="option-list">
+<dt><kbd>[subcommand]</kbd></dt>
+<dd><p>Possible choices: key, pubkey, wif, addr, mnemonic, hd, script, sig, ripemd160, sha256, hash160, hash256, base58, bech32, tx, send, p2p, blockchain, mine, rpc</p>
+</dd>
+</dl>
+</section>
+<section id="Sub-commands">
+<h2>Sub-commands<a class="headerlink" href="#Sub-commands" title="Link to this heading">¶</a></h2>
+<section id="key">
+<h3>key<a class="headerlink" href="#key" title="Link to this heading">¶</a></h3>
+<p>Generate Bitcoin private key integer.</p>
+<p>This command support PEM encoded EC private key output, via the –output-format argument,
+for compatibility with external tools, e.g. openssl, if needed.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">key</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">out</span><span class="o">-</span><span class="n">file</span> <span class="n">OUT_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">0</span> <span class="p">[</span><span class="n">OUTPUT_FORMAT</span><span class="p">]]</span>
+</pre></div>
+</div>
+<section id="named-arguments">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--out-file, -out, -o</kbd></dt>
+<dd><p>output data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-0, --output-format</kbd></dt>
+<dd><p>raw binary (-0), binary string (-0b), hexadecimal string (-0x), or PEM-encoded private key (-0pem)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="pubkey">
+<h3>pubkey<a class="headerlink" href="#pubkey" title="Link to this heading">¶</a></h3>
+<p>Calculate public key from private key integer. If the public key is provided as input, this
+sub-command may be used to compress / un-compress the key via the use of the -X flag.</p>
+<p>This command support PEM encoded EC public key output, via the –output-format argument,
+for compatibility with external tools, e.g. openssl, if needed.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">pubkey</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">X</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="ow">in</span><span class="o">-</span><span class="n">file</span> <span class="n">IN_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">1</span> <span class="p">[</span><span class="n">INPUT_FORMAT</span><span class="p">]]</span>
+            <span class="p">[</span><span class="o">--</span><span class="n">out</span><span class="o">-</span><span class="n">file</span> <span class="n">OUT_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">0</span> <span class="p">[</span><span class="n">OUTPUT_FORMAT</span><span class="p">]]</span>
+</pre></div>
+</div>
+<section id="named-arguments_repeat1">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat1" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>-X, --compressed</kbd></dt>
+<dd><p>output compressed pubkey</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--in-file, -in, -i</kbd></dt>
+<dd><p>input data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-1, --input-format</kbd></dt>
+<dd><p>raw binary (-1), binary string (-1b), or hexadecimal string (-1x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+<dt><kbd>--out-file, -out, -o</kbd></dt>
+<dd><p>output data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-0, --output-format</kbd></dt>
+<dd><p>raw binary (-0), binary string (-0b), hexadecimal string (-0x), or PEM-encoded public key (-0pem)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="wif">
+<h3>wif<a class="headerlink" href="#wif" title="Link to this heading">¶</a></h3>
+<p>Encode (or decode) a private key in eWIF (extended wallet import format).</p>
+<p>This method builds upon extended WIF as seen in electrum wallet. The idea is that an
+eWIF indicates the corresponding address type, as well as, all information necessary to
+derive such, and, spend associated funds.</p>
+<p>Extended WIF is backwards compatible with normal WIF.</p>
+<p>Just as normal WIF is described as the base58check encoding of,</p>
+<blockquote>
+<div><p>version byte + private key + (optional 0x01 byte indicating a compressed pubkey)</p>
+</div></blockquote>
+<p>Extended WIF is defined as the base58check encoding of the following,</p>
+<blockquote>
+<div><p>(version byte + address type offset) + private key + (data)</p>
+</div></blockquote>
+<p>Byte definitions:</p>
+<blockquote>
+<div><p>version</p>
+<blockquote>
+<div><p>mainnet -&gt; 0x80
+testnet -&gt; 0xEF
+regtest -&gt; 0xEF</p>
+</div></blockquote>
+<p>address type offset</p>
+<blockquote>
+<div><p>p2pkh = 0,
+p2wpkh = 1
+p2sh-p2wpkh = 2
+p2pk = 3
+multisig = 4
+p2sh = 5
+p2wsh =  6
+p2sh-p2wsh = 7</p>
+</div></blockquote>
+<p>data</p>
+<blockquote>
+<div><p>p2pkh -&gt; 0x01 byte for compressed pubkey, omit for uncompressed
+p2wpkh -&gt; omit (compressed pubkey implied)
+p2sh-p2wpkh -&gt; omit (compressed pubkey implied)
+p2pk -&gt; 0x01 byte for compressed pubkey, omit for uncompressed
+multisig -&gt; redeem script
+p2sh -&gt; redeem script
+p2wsh -&gt; redeem script
+p2sh-p2wsh -&gt; witness script</p>
+</div></blockquote>
+</div></blockquote>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">wif</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">addr</span><span class="o">-</span><span class="nb">type</span> <span class="n">addr_type</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">data</span> <span class="n">DATA</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">decode</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="nb">print</span><span class="p">]</span>
+         <span class="p">[</span><span class="o">--</span><span class="n">network</span> <span class="n">NETWORK</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="ow">in</span><span class="o">-</span><span class="n">file</span> <span class="n">IN_FILE</span><span class="p">]</span>
+         <span class="p">[</span><span class="o">-</span><span class="mi">1</span> <span class="p">[</span><span class="n">INPUT_FORMAT</span><span class="p">]]</span> <span class="p">[</span><span class="o">--</span><span class="n">out</span><span class="o">-</span><span class="n">file</span> <span class="n">OUT_FILE</span><span class="p">]</span>
+</pre></div>
+</div>
+<section id="named-arguments_repeat2">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat2" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>--addr-type, -T</kbd></dt>
+<dd><p>Possible choices: p2pkh, p2wpkh, p2pk, multisig, p2sh-p2wpkh, p2sh, p2wsh, p2sh-p2wsh</p>
+<p>Address type</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'p2pkh'</span></code></p>
+</dd>
+<dt><kbd>--data, -D</kbd></dt>
+<dd><p>additional data (hex) to append to WIF key before base58check encoding</p>
+</dd>
+<dt><kbd>--decode</kbd></dt>
+<dd><p>decode wif</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--print, -P</kbd></dt>
+<dd><p>print newline at end</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--network, -N</kbd></dt>
+<dd><p>Possible choices: mainnet, testnet, regtest</p>
+<p>network, e.g. ‘mainnet’, ‘testnet’, or ‘regtest’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'mainnet'</span></code></p>
+</dd>
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--in-file, -in, -i</kbd></dt>
+<dd><p>input private key data</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-1, --input-format</kbd></dt>
+<dd><p>raw binary (-1), binary string (-1b), or hexadecimal string (-1x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+<dt><kbd>--out-file, -out, -o</kbd></dt>
+<dd><p>output data file - raw binary</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="addr">
+<h3>addr<a class="headerlink" href="#addr" title="Link to this heading">¶</a></h3>
+<p>Encode Legacy or Segwit Bitcoin addresses from input payload. For p2pkh and p2sh, the
+input payload shall be the pubkeyhash (i.e. hash160(pubkey)) or scripthash (i.e. hash160(script)),
+respectively. Likewise, for witness v0 p2wpkh and p2wsh the input payload shall be pubkeyhash
+(i.e. hash160(pubkey)) or witness scripthash (i.e. hash256(script)), respectively.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">addr</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">T</span> <span class="n">addr_type</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">witness</span><span class="o">-</span><span class="n">version</span> <span class="n">witness_version</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="nb">print</span><span class="p">]</span>
+          <span class="p">[</span><span class="o">--</span><span class="n">network</span> <span class="n">NETWORK</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="ow">in</span><span class="o">-</span><span class="n">file</span> <span class="n">IN_FILE</span><span class="p">]</span>
+          <span class="p">[</span><span class="o">-</span><span class="mi">1</span> <span class="p">[</span><span class="n">INPUT_FORMAT</span><span class="p">]]</span> <span class="p">[</span><span class="o">--</span><span class="n">out</span><span class="o">-</span><span class="n">file</span> <span class="n">OUT_FILE</span><span class="p">]</span>
+</pre></div>
+</div>
+<section id="named-arguments_repeat3">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat3" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>-T, --type</kbd></dt>
+<dd><p>Possible choices: p2pkh, p2sh</p>
+<p>Address type. Valid choices are p2pkh or p2sh. Ignored when –witness-version is present.</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'p2pkh'</span></code></p>
+</dd>
+<dt><kbd>--witness-version, --wv</kbd></dt>
+<dd><p>Possible choices: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16</p>
+<p>Witness version for native Segwit addresses.
+Use of this option implies a Segwit address and addr_type (-T) is ignored.</p>
+</dd>
+<dt><kbd>--print, -P</kbd></dt>
+<dd><p>print newline at end</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--network, -N</kbd></dt>
+<dd><p>Possible choices: mainnet, testnet, regtest</p>
+<p>network, e.g. ‘mainnet’, ‘testnet’, or ‘regtest’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'mainnet'</span></code></p>
+</dd>
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--in-file, -in, -i</kbd></dt>
+<dd><p>input data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-1, --input-format</kbd></dt>
+<dd><p>raw binary (-1), binary string (-1b), or hexadecimal string (-1x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+<dt><kbd>--out-file, -out, -o</kbd></dt>
+<dd><p>output data file - raw binary</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="mnemonic">
+<h3>mnemonic<a class="headerlink" href="#mnemonic" title="Link to this heading">¶</a></h3>
+<p>Generate (or convert) mnemonic phrase.</p>
+<p>This command with no further options will generate a new mnemonic seed phrase.
+When operating in this mode, the –strength (-S) argument can be used to specify the
+desired entropy strength, in bits. Alternatively, you may provide entropy bytes as input
+when using the –from-entropy flag. The –to-entropy flag can be used to translate the
+mnemonic back to its orginal entropy. The –to-seed and –to-master-key flags can be
+used to convert the mnemonic phrase to the seed or master key, per BIP39 / BIP32, respectively.</p>
+<p>Examples:</p>
+<blockquote>
+<div><ol class="arabic">
+<li><p>Generate a mnemonic</p>
+<blockquote>
+<div><p>$ bits mnemonic</p>
+</div></blockquote>
+</li>
+<li><p>Generate a mnemonic (specify entropy strength in bits)</p>
+<blockquote>
+<div><p>$ bits mnemonic -S 256</p>
+</div></blockquote>
+</li>
+<li><p>Generate a mnemonic from provided entropy</p>
+<blockquote>
+<div><p>$ head -c 32 /dev/urandom | bits mnemonic -1 –from-entropy</p>
+</div></blockquote>
+</li>
+<li><p>Retrieve original entropy</p>
+<blockquote>
+<div><p>$ echo &lt;mnemonic-phrase&gt; | bits mnemonic –to-entropy</p>
+</div></blockquote>
+</li>
+<li><p>Convert mnemonic to seed</p>
+<blockquote>
+<div><p>$ echo &lt;mnemonic-phrase&gt; | bits mnemonic –to-seed</p>
+</div></blockquote>
+</li>
+<li><p>Convert mnemonic to master key</p>
+<blockquote>
+<div><p>$ echo &lt;mnemonic-phrase&gt; | bits mnemonic –to-master-key</p>
+</div></blockquote>
+</li>
+</ol>
+</div></blockquote>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">mnemonic</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">strength</span> <span class="n">STRENGTH</span><span class="p">]</span>
+              <span class="p">[</span><span class="o">--</span><span class="n">from</span><span class="o">-</span><span class="n">entropy</span> <span class="o">|</span> <span class="o">--</span><span class="n">to</span><span class="o">-</span><span class="n">entropy</span> <span class="o">|</span> <span class="o">--</span><span class="n">to</span><span class="o">-</span><span class="n">seed</span> <span class="o">|</span> <span class="o">--</span><span class="n">to</span><span class="o">-</span><span class="n">master</span><span class="o">-</span><span class="n">key</span><span class="p">]</span>
+              <span class="p">[</span><span class="o">--</span><span class="nb">print</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">network</span> <span class="n">NETWORK</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="ow">in</span><span class="o">-</span><span class="n">file</span> <span class="n">IN_FILE</span><span class="p">]</span>
+              <span class="p">[</span><span class="o">-</span><span class="mi">1</span> <span class="p">[</span><span class="n">INPUT_FORMAT</span><span class="p">]]</span> <span class="p">[</span><span class="o">--</span><span class="n">out</span><span class="o">-</span><span class="n">file</span> <span class="n">OUT_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">0</span> <span class="p">[</span><span class="n">OUTPUT_FORMAT</span><span class="p">]]</span>
+</pre></div>
+</div>
+<section id="named-arguments_repeat4">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat4" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>--strength, -S</kbd></dt>
+<dd><p>Possible choices: 128, 160, 192, 224, 256</p>
+<p>entropy strenghth (in bits) for mnemonic generation</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">256</span></code></p>
+</dd>
+<dt><kbd>--from-entropy</kbd></dt>
+<dd><blockquote>
+<div><dl class="simple">
+<dt>When this flag is present, converts entropy to mnemonic phrase.</dt><dd><p>Note: in_file is entropy bytes and stdin may be used.</p>
+</dd>
+</dl>
+</div></blockquote>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--to-entropy</kbd></dt>
+<dd><blockquote>
+<div><dl class="simple">
+<dt>When this flag is present, converts mnemonic phrase back to original entropy.</dt><dd><p>Note: in_file is mnemonic phrase and stdin may be used.</p>
+</dd>
+</dl>
+</div></blockquote>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--to-seed</kbd></dt>
+<dd><blockquote>
+<div><dl class="simple">
+<dt>When this flag is present, converts mnemonic to seed per BIP39.</dt><dd><p>Note: in_file is mnemonic phrase and stdin may be used.</p>
+</dd>
+</dl>
+</div></blockquote>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--to-master-key</kbd></dt>
+<dd><blockquote>
+<div><dl class="simple">
+<dt>When this flag is present, converts mnemonic (to seed, and then) to master key per BIP32.</dt><dd><p>Note: in_file is mnemonic phrase and stdin may be used.</p>
+</dd>
+</dl>
+</div></blockquote>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--print, -P</kbd></dt>
+<dd><p>print newline at end</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--network, -N</kbd></dt>
+<dd><p>Possible choices: mainnet, testnet, regtest</p>
+<p>network, e.g. ‘mainnet’, ‘testnet’, or ‘regtest’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'mainnet'</span></code></p>
+</dd>
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--in-file, -in, -i</kbd></dt>
+<dd><p>input data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-1, --input-format</kbd></dt>
+<dd><p>raw binary (-1), binary string (-1b), or hexadecimal string (-1x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+<dt><kbd>--out-file, -out, -o</kbd></dt>
+<dd><p>output data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-0, --output-format</kbd></dt>
+<dd><p>raw binary (-0), binary string (-0b), or hexadecimal string (-0x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="hd">
+<h3>hd<a class="headerlink" href="#hd" title="Link to this heading">¶</a></h3>
+<p>Derive extended keys at a particular path, e.g “m/0’/1” or “M/0/0”.</p>
+<p>The leading m/ or M/ in path indicate private or public derivation, respectively.
+The extended key at which derivation starts need not be the root/master key.</p>
+<p>Use –dump to deserialize &amp; decode the derived key, and output json object to stderr.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">hd</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">xpub</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">dump</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="nb">print</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="ow">in</span><span class="o">-</span><span class="n">file</span> <span class="n">IN_FILE</span><span class="p">]</span>
+        <span class="n">path</span>
+</pre></div>
+</div>
+<section id="positional-arguments">
+<h4>Positional Arguments<a class="headerlink" href="#positional-arguments" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>path</kbd></dt>
+<dd><p>path to extended key, e.g. m/0’/1 or M/0’/1</p>
+</dd>
+</dl>
+</section>
+<section id="named-arguments_repeat5">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat5" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>--xpub, -xpub</kbd></dt>
+<dd><p>Use this flag to output the extended public key</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--dump</kbd></dt>
+<dd><p>Deserialize extended key and decode as json. Write to stderr.</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--print, -P</kbd></dt>
+<dd><p>print newline at end</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--in-file, -in, -i</kbd></dt>
+<dd><p>input data file - raw binary</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="script">
+<h3>script<a class="headerlink" href="#script" title="Link to this heading">¶</a></h3>
+<p>Encode (or decode) arbitrary Bitcoin Script.</p>
+<p>For encoding, script_args shall either be OP_* or data. The script
+will be properly encoded with data push opcodes, as necessary, but since these are implied,
+they should not be specified in script_args.</p>
+<p>For decoding, use the –decode flag. In this mode, script_args shall be any number of
+hex-encoded scripts, and will be decoded to to opcodes / data.</p>
+<p>Use –witness to indicate witness script encoding / decoding and to follow witness
+script semantics (i.e. include stack size push and difference in handling data push bytes)</p>
+<dl class="simple">
+<dt>Standard transaction scripts:</dt><dd><dl class="simple">
+<dt>P2PK:</dt><dd><p>scriptPubkey: &lt;pubkey&gt; OP_CHECKSIG
+scriptSig: &lt;sig&gt;</p>
+</dd>
+<dt>P2PKH:</dt><dd><p>scriptPubkey: OP_DUP OP_HASH160 &lt;pubkeyhash&gt; OP_EQUALVERIFY OP_CHECKSIG
+scriptSig: &lt;sig&gt; &lt;pubkey&gt;</p>
+</dd>
+<dt>P2SH:</dt><dd><p>scriptPubkey: OP_HASH160 &lt;scripthash&gt; OP_EQUAL
+scriptSig: &lt;sig&gt; … &lt;redeemScript&gt;</p>
+</dd>
+<dt>Multisig:</dt><dd><p>scriptPubkey: OP_M &lt;pubkey&gt; … OP_N OP_CHECKMULTISIG
+scriptSig: OP_0 &lt;sig&gt; …</p>
+</dd>
+<dt>Null:</dt><dd><p>scriptPubkey: OP_RETURN &lt;data&gt;</p>
+</dd>
+<dt>P2WPKH:</dt><dd><p>scriptPubkey: OP_0 &lt;20-byte-pubkeyhash&gt;
+scriptSig: (empty)
+witness: &lt;sig&gt; &lt;pubkey&gt;</p>
+</dd>
+<dt>P2WSH:</dt><dd><p>scriptPubkey: OP_0 &lt;32-byte-scripthash&gt;
+scriptSig: (empty)
+witness: &lt;redeem-script&gt;</p>
+</dd>
+<dt>P2SH-P2WPKH:</dt><dd><p>scriptPubkey: OP_HASH160 &lt;20-byte-script-hash&gt; OP_EQUAL
+scriptSig: Script(OP_0 &lt;20-byte-pubkeyhash&gt;)
+witness: &lt;sig&gt; &lt;pubkey&gt;</p>
+</dd>
+<dt>P2SH-P2WSH:</dt><dd><p>scriptPubkey: OP_HASH160 &lt;20-byte-script-hash&gt; OP_EQUAL
+scriptSig: Script(OP_0 &lt;32-byte-script-hash&gt;)
+witness: &lt;redeem-script&gt;</p>
+</dd>
+</dl>
+</dd>
+</dl>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">script</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">decode</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">witness</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span> <span class="p">[</span><span class="n">script_args</span> <span class="o">...</span><span class="p">]</span>
+</pre></div>
+</div>
+<section id="positional-arguments_repeat1">
+<h4>Positional Arguments<a class="headerlink" href="#positional-arguments_repeat1" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>script_args</kbd></dt>
+<dd><p>Script arguments, e.g. OP_* or &lt;data&gt;. Or, hex-encoded script(s) when using –decode</p>
+</dd>
+</dl>
+</section>
+<section id="named-arguments_repeat6">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat6" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>--decode</kbd></dt>
+<dd><p>Use this flag to decode hex-encoded script to opcodes / data.</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--witness</kbd></dt>
+<dd><p>Use this flag to indicate this is a witness script and to follow witness script encoding / decoding semantics.</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="sig">
+<h3>sig<a class="headerlink" href="#sig" title="Link to this heading">¶</a></h3>
+<p>Create or verify Bitcoin signature</p>
+<p>For signing, the input file shall be the private key. For verifying, the input file shall
+be the public key.</p>
+<p>A signature (sig) is created by taking the provided msg argument (msg shall be provided
+as a hex string), appending a 4-byte SIGHASH flag, hashing, signing, and appending the
+single byte SIGHASH.</p>
+<p>The –msg-preimage flag can be used, to signify that the msg is the preimage and already
+has the SIGHASH flag appended. The msg is still hashed, signed, and a single byte SIGHASH
+appended.</p>
+<dl>
+<dt>Examples:</dt><dd><p>$ bits sig -i &lt;privatekey&gt; &lt;msg&gt; –sighash all</p>
+<p>$ bits sig –verify -i &lt;publickey&gt; &lt;msg&gt; –signature &lt;sig&gt;</p>
+</dd>
+</dl>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">sig</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">sighash</span> <span class="p">{</span><span class="nb">all</span><span class="p">,</span><span class="n">none</span><span class="p">,</span><span class="n">single</span><span class="p">}]</span> <span class="p">[</span><span class="o">--</span><span class="n">anyone</span><span class="o">-</span><span class="n">can</span><span class="o">-</span><span class="n">pay</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">verify</span><span class="p">]</span>
+         <span class="p">[</span><span class="o">--</span><span class="n">signature</span> <span class="n">SIGNATURE</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">msg</span><span class="o">-</span><span class="n">preimage</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span>
+         <span class="p">[</span><span class="o">--</span><span class="ow">in</span><span class="o">-</span><span class="n">file</span> <span class="n">IN_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">1</span> <span class="p">[</span><span class="n">INPUT_FORMAT</span><span class="p">]]</span> <span class="p">[</span><span class="o">--</span><span class="n">out</span><span class="o">-</span><span class="n">file</span> <span class="n">OUT_FILE</span><span class="p">]</span>
+         <span class="p">[</span><span class="o">-</span><span class="mi">0</span> <span class="p">[</span><span class="n">OUTPUT_FORMAT</span><span class="p">]]</span>
+         <span class="n">msg</span>
+</pre></div>
+</div>
+<section id="positional-arguments_repeat2">
+<h4>Positional Arguments<a class="headerlink" href="#positional-arguments_repeat2" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>msg</kbd></dt>
+<dd><p>message data to hash and sign (before sighash append)</p>
+</dd>
+</dl>
+</section>
+<section id="named-arguments_repeat7">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat7" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>--sighash</kbd></dt>
+<dd><p>Possible choices: all, none, single</p>
+<blockquote>
+<div><p>Sighash type to append to msg before HASH256</p>
+</div></blockquote>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'all'</span></code></p>
+</dd>
+<dt><kbd>--anyone-can-pay</kbd></dt>
+<dd><p>If present, ORs –sighash flag with SIGHASH_ANYONECANPAY</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--verify</kbd></dt>
+<dd><p>verfiy signature</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--signature</kbd></dt>
+<dd><p>signature in hex format</p>
+</dd>
+<dt><kbd>--msg-preimage</kbd></dt>
+<dd><p>indicates msg is pre-image, i.e. already has 4-byte sighash_flag appended. msg is still hashed, signed, then single-byte sighash_flag appended</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--in-file, -in, -i</kbd></dt>
+<dd><p>input data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-1, --input-format</kbd></dt>
+<dd><p>raw binary (-1), binary string (-1b), or hexadecimal string (-1x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+<dt><kbd>--out-file, -out, -o</kbd></dt>
+<dd><p>output data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-0, --output-format</kbd></dt>
+<dd><p>raw binary (-0), binary string (-0b), or hexadecimal string (-0x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="ripemd160">
+<h3>ripemd160<a class="headerlink" href="#ripemd160" title="Link to this heading">¶</a></h3>
+<p>Calculate ripemd160 of input data</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">ripemd160</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="ow">in</span><span class="o">-</span><span class="n">file</span> <span class="n">IN_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">1</span> <span class="p">[</span><span class="n">INPUT_FORMAT</span><span class="p">]]</span>
+               <span class="p">[</span><span class="o">--</span><span class="n">out</span><span class="o">-</span><span class="n">file</span> <span class="n">OUT_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">0</span> <span class="p">[</span><span class="n">OUTPUT_FORMAT</span><span class="p">]]</span>
+</pre></div>
+</div>
+<section id="named-arguments_repeat8">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat8" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--in-file, -in, -i</kbd></dt>
+<dd><p>input data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-1, --input-format</kbd></dt>
+<dd><p>raw binary (-1), binary string (-1b), or hexadecimal string (-1x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+<dt><kbd>--out-file, -out, -o</kbd></dt>
+<dd><p>output data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-0, --output-format</kbd></dt>
+<dd><p>raw binary (-0), binary string (-0b), or hexadecimal string (-0x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="sha256">
+<h3>sha256<a class="headerlink" href="#sha256" title="Link to this heading">¶</a></h3>
+<p>Calculate sha256 of input data</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">sha256</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="ow">in</span><span class="o">-</span><span class="n">file</span> <span class="n">IN_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">1</span> <span class="p">[</span><span class="n">INPUT_FORMAT</span><span class="p">]]</span>
+            <span class="p">[</span><span class="o">--</span><span class="n">out</span><span class="o">-</span><span class="n">file</span> <span class="n">OUT_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">0</span> <span class="p">[</span><span class="n">OUTPUT_FORMAT</span><span class="p">]]</span>
+</pre></div>
+</div>
+<section id="named-arguments_repeat9">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat9" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--in-file, -in, -i</kbd></dt>
+<dd><p>input data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-1, --input-format</kbd></dt>
+<dd><p>raw binary (-1), binary string (-1b), or hexadecimal string (-1x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+<dt><kbd>--out-file, -out, -o</kbd></dt>
+<dd><p>output data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-0, --output-format</kbd></dt>
+<dd><p>raw binary (-0), binary string (-0b), or hexadecimal string (-0x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="hash160">
+<h3>hash160<a class="headerlink" href="#hash160" title="Link to this heading">¶</a></h3>
+<p>Calculate HASH160 of input data, i.e. ripemd160(sha256(data))</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">hash160</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="ow">in</span><span class="o">-</span><span class="n">file</span> <span class="n">IN_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">1</span> <span class="p">[</span><span class="n">INPUT_FORMAT</span><span class="p">]]</span>
+             <span class="p">[</span><span class="o">--</span><span class="n">out</span><span class="o">-</span><span class="n">file</span> <span class="n">OUT_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">0</span> <span class="p">[</span><span class="n">OUTPUT_FORMAT</span><span class="p">]]</span>
+</pre></div>
+</div>
+<section id="named-arguments_repeat10">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat10" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--in-file, -in, -i</kbd></dt>
+<dd><p>input data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-1, --input-format</kbd></dt>
+<dd><p>raw binary (-1), binary string (-1b), or hexadecimal string (-1x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+<dt><kbd>--out-file, -out, -o</kbd></dt>
+<dd><p>output data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-0, --output-format</kbd></dt>
+<dd><p>raw binary (-0), binary string (-0b), or hexadecimal string (-0x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="hash256">
+<h3>hash256<a class="headerlink" href="#hash256" title="Link to this heading">¶</a></h3>
+<p>Calculate HASH256 of input data, i.e. sha256(sha256(data))</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">hash256</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="ow">in</span><span class="o">-</span><span class="n">file</span> <span class="n">IN_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">1</span> <span class="p">[</span><span class="n">INPUT_FORMAT</span><span class="p">]]</span>
+             <span class="p">[</span><span class="o">--</span><span class="n">out</span><span class="o">-</span><span class="n">file</span> <span class="n">OUT_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">0</span> <span class="p">[</span><span class="n">OUTPUT_FORMAT</span><span class="p">]]</span>
+</pre></div>
+</div>
+<section id="named-arguments_repeat11">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat11" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--in-file, -in, -i</kbd></dt>
+<dd><p>input data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-1, --input-format</kbd></dt>
+<dd><p>raw binary (-1), binary string (-1b), or hexadecimal string (-1x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+<dt><kbd>--out-file, -out, -o</kbd></dt>
+<dd><p>output data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-0, --output-format</kbd></dt>
+<dd><p>raw binary (-0), binary string (-0b), or hexadecimal string (-0x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="base58">
+<h3>base58<a class="headerlink" href="#base58" title="Link to this heading">¶</a></h3>
+<blockquote>
+<div><p>Base58(/check) encode (or decode) input data.</p>
+</div></blockquote>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">base58</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">check</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">decode</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="nb">print</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span>
+            <span class="p">[</span><span class="o">--</span><span class="ow">in</span><span class="o">-</span><span class="n">file</span> <span class="n">IN_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">1</span> <span class="p">[</span><span class="n">INPUT_FORMAT</span><span class="p">]]</span> <span class="p">[</span><span class="o">--</span><span class="n">out</span><span class="o">-</span><span class="n">file</span> <span class="n">OUT_FILE</span><span class="p">]</span>
+</pre></div>
+</div>
+<section id="named-arguments_repeat12">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat12" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>--check</kbd></dt>
+<dd><p>base58check</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--decode</kbd></dt>
+<dd><p>decode base58(check) input</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--print, -P</kbd></dt>
+<dd><p>print newline at end</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--in-file, -in, -i</kbd></dt>
+<dd><p>input data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-1, --input-format</kbd></dt>
+<dd><p>raw binary (-1), binary string (-1b), or hexadecimal string (-1x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+<dt><kbd>--out-file, -out, -o</kbd></dt>
+<dd><p>output data file - raw binary</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="bech32">
+<h3>bech32<a class="headerlink" href="#bech32" title="Link to this heading">¶</a></h3>
+<p>Encode (or decode) bech32 or segwit data</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">bech32</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">hrp</span> <span class="n">HRP</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">witness</span><span class="o">-</span><span class="n">version</span> <span class="n">WITNESS_VERSION</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">decode</span><span class="p">]</span>
+            <span class="p">[</span><span class="o">--</span><span class="nb">print</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="ow">in</span><span class="o">-</span><span class="n">file</span> <span class="n">IN_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">1</span> <span class="p">[</span><span class="n">INPUT_FORMAT</span><span class="p">]]</span>
+            <span class="p">[</span><span class="o">--</span><span class="n">out</span><span class="o">-</span><span class="n">file</span> <span class="n">OUT_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">0</span> <span class="p">[</span><span class="n">OUTPUT_FORMAT</span><span class="p">]]</span>
+</pre></div>
+</div>
+<section id="named-arguments_repeat13">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat13" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>--hrp</kbd></dt>
+<dd><p>human readable part for bech32 encoding</p>
+</dd>
+<dt><kbd>--witness-version, --wv</kbd></dt>
+<dd><p>witness version, if encoding a segwit address</p>
+</dd>
+<dt><kbd>--decode</kbd></dt>
+<dd><p>Decode input data</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--print, -P</kbd></dt>
+<dd><p>print newline at end</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--in-file, -in, -i</kbd></dt>
+<dd><p>input data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-1, --input-format</kbd></dt>
+<dd><p>raw binary (-1), binary string (-1b), or hexadecimal string (-1x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+<dt><kbd>--out-file, -out, -o</kbd></dt>
+<dd><p>output data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-0, --output-format</kbd></dt>
+<dd><p>raw binary (-0), binary string (-0b), or hexadecimal string (-0x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="tx">
+<h3>tx<a class="headerlink" href="#tx" title="Link to this heading">¶</a></h3>
+<p>Create (or decode) raw transactions.</p>
+<p>Examples:</p>
+<blockquote>
+<div><ol class="arabic">
+<li><p>Create raw transaction</p>
+<blockquote>
+<div><p>$ bits tx -txin ‘{“txid”: “&lt;txid&gt;”, “vout”: &lt;vout&gt;, “scriptsig”: “&lt;scriptsig&gt;”}’ -txout ‘{“satoshis”: &lt;satoshis&gt;, “scriptpubkey”: “&lt;scriptpubkey&gt;”}’</p>
+</div></blockquote>
+</li>
+<li><p>Decode raw transaction</p>
+<blockquote>
+<div><p>$ echo &lt;rawtx&gt; | bits tx –decode</p>
+</div></blockquote>
+</li>
+</ol>
+</div></blockquote>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">tx</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">txin</span> <span class="n">TXINS</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">txout</span> <span class="n">TXOUTS</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">v</span> <span class="n">VERSION</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">l</span> <span class="n">LOCKTIME</span><span class="p">]</span>
+        <span class="p">[</span><span class="o">--</span><span class="n">script</span><span class="o">-</span><span class="n">witness</span> <span class="n">SCRIPT_WITNESSES</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">decode</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span>
+        <span class="p">[</span><span class="o">--</span><span class="ow">in</span><span class="o">-</span><span class="n">file</span> <span class="n">IN_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">1</span> <span class="p">[</span><span class="n">INPUT_FORMAT</span><span class="p">]]</span> <span class="p">[</span><span class="o">--</span><span class="n">out</span><span class="o">-</span><span class="n">file</span> <span class="n">OUT_FILE</span><span class="p">]</span>
+        <span class="p">[</span><span class="o">-</span><span class="mi">0</span> <span class="p">[</span><span class="n">OUTPUT_FORMAT</span><span class="p">]]</span>
+</pre></div>
+</div>
+<section id="named-arguments_repeat14">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat14" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>-txin, --txin</kbd></dt>
+<dd><blockquote>
+<div><p>Transaction input data provided as a dictionary with the following keys: txid, vout, scriptsig.</p>
+</div></blockquote>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">[]</span></code></p>
+</dd>
+<dt><kbd>-txout, --txout</kbd></dt>
+<dd><p>Transaction output data provided as a dictionary with the following keys: satoshis, scriptpubkey</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">[]</span></code></p>
+</dd>
+<dt><kbd>-v, --version</kbd></dt>
+<dd><p>transaction version</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">1</span></code></p>
+</dd>
+<dt><kbd>-l, --locktime</kbd></dt>
+<dd><p>transaction locktime</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">0</span></code></p>
+</dd>
+<dt><kbd>--script-witness</kbd></dt>
+<dd><p>witness script. This argument can be specified multiple times, but must appear in order corresponding to txins</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">[]</span></code></p>
+</dd>
+<dt><kbd>--decode</kbd></dt>
+<dd><p>decode raw tx to JSON from input file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--in-file, -in, -i</kbd></dt>
+<dd><p>input data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-1, --input-format</kbd></dt>
+<dd><p>raw binary (-1), binary string (-1b), or hexadecimal string (-1x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+<dt><kbd>--out-file, -out, -o</kbd></dt>
+<dd><p>output data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-0, --output-format</kbd></dt>
+<dd><p>raw binary (-0), binary string (-0b), or hexadecimal string (-0x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="send">
+<h3>send<a class="headerlink" href="#send" title="Link to this heading">¶</a></h3>
+<p>Utility  for creating a send transaction, sending funds from sender address to recipient address,
+with optional change address.</p>
+<p>Depends on a configured Bitcoin Core RPC node.</p>
+<p>This command will, by default, send all funds associated with the sender address to the recipient address.
+If a –send-fraction is provided, only the fractional amount will be sent (minus –miner-fee).
+If a fractional amount is sent, and –change-address is not provided, the leftover amount, i.e.
+total amount - fractional amount, will be returned to the sender address.
+If –change-address is provided, the leftover amount will be sent here instead.</p>
+<p>This utility provides convenience by forming (and optionally signing) the transaction from
+the arguments provided. It works by inferring the transaction semantics from the address type
+of sender_addr and recipient_addr, respectively, which may be either a pubkey, legacy address,
+segwit address, or raw scriptpubkey. The presence of the –sighash option implies that the
+transaction shall be signed and note that signature operations will occur. To unlock the funds
+sent from the sender address, the necessary WIF key(s) must be provided via IN_FILE.
+If multiple keys are needed to unlock funds, they can be specified, ordered, and separated
+by whitespace, in IN_FILE.</p>
+<p>See “bits wif -h” for help on creating WIF-encoded keys.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">send</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">change</span><span class="o">-</span><span class="n">addr</span> <span class="n">CHANGE_ADDR</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">send</span><span class="o">-</span><span class="n">fraction</span> <span class="n">SEND_FRACTION</span><span class="p">]</span>
+          <span class="p">[</span><span class="o">--</span><span class="n">miner</span><span class="o">-</span><span class="n">fee</span> <span class="n">MINER_FEE</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">version</span> <span class="n">VERSION</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">locktime</span> <span class="n">LOCKTIME</span><span class="p">]</span>
+          <span class="p">[</span><span class="o">--</span><span class="n">sighash</span> <span class="p">{</span><span class="nb">all</span><span class="p">,</span><span class="n">none</span><span class="p">,</span><span class="n">single</span><span class="p">}]</span> <span class="p">[</span><span class="o">--</span><span class="n">anyone</span><span class="o">-</span><span class="n">can</span><span class="o">-</span><span class="n">pay</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span>
+          <span class="p">[</span><span class="o">--</span><span class="ow">in</span><span class="o">-</span><span class="n">file</span> <span class="n">IN_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">out</span><span class="o">-</span><span class="n">file</span> <span class="n">OUT_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">0</span> <span class="p">[</span><span class="n">OUTPUT_FORMAT</span><span class="p">]]</span>
+          <span class="n">sender_addr</span> <span class="n">recipient_addr</span>
+</pre></div>
+</div>
+<section id="positional-arguments_repeat3">
+<h4>Positional Arguments<a class="headerlink" href="#positional-arguments_repeat3" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>sender_addr</kbd></dt>
+<dd><p>Sender address</p>
+</dd>
+<dt><kbd>recipient_addr</kbd></dt>
+<dd><p>Recipient address</p>
+</dd>
+</dl>
+</section>
+<section id="named-arguments_repeat15">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat15" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>--change-addr</kbd></dt>
+<dd><p>Change address</p>
+</dd>
+<dt><kbd>--send-fraction</kbd></dt>
+<dd><p>fraction of sender address’s UTXO value to send</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">1.0</span></code></p>
+</dd>
+<dt><kbd>--miner-fee</kbd></dt>
+<dd><p>satoshis to include as miner fee</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">1000</span></code></p>
+</dd>
+<dt><kbd>--version, -v</kbd></dt>
+<dd><p>transaction version</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">1</span></code></p>
+</dd>
+<dt><kbd>--locktime</kbd></dt>
+<dd><p>transaction locktime</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">0</span></code></p>
+</dd>
+<dt><kbd>--sighash</kbd></dt>
+<dd><p>Possible choices: all, none, single</p>
+<p>SIGHASH flag to use for signing (if key(s) are provided)</p>
+</dd>
+<dt><kbd>--anyone-can-pay</kbd></dt>
+<dd><p>If present, ORs SIGHASH_FLAG with SIGHASH_ANYONECANPAY</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--in-file, -in, -i</kbd></dt>
+<dd><p>WIF unlocking key(s) for sender address</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>--out-file, -out, -o</kbd></dt>
+<dd><p>output data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-0, --output-format</kbd></dt>
+<dd><p>raw binary (-0), binary string (-0b), or hexadecimal string (-0x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="p2p">
+<h3>p2p<a class="headerlink" href="#p2p" title="Link to this heading">¶</a></h3>
+<p>start p2p node</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">p2p</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">seeds</span> <span class="n">SEEDS</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">network</span> <span class="n">NETWORK</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span>
+</pre></div>
+</div>
+<section id="named-arguments_repeat16">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat16" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>--seeds</kbd></dt>
+<dd><p>comma separated list of seed nodes</p>
+</dd>
+<dt><kbd>--network, -N</kbd></dt>
+<dd><p>Possible choices: mainnet, testnet, regtest</p>
+<p>network, e.g. ‘mainnet’, ‘testnet’, or ‘regtest’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'mainnet'</span></code></p>
+</dd>
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="blockchain">
+<h3>blockchain<a class="headerlink" href="#blockchain" title="Link to this heading">¶</a></h3>
+<p>Blockchain lulz</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">blockchain</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">header</span><span class="o">-</span><span class="n">only</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">decode</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">network</span> <span class="n">NETWORK</span><span class="p">]</span>
+                <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="ow">in</span><span class="o">-</span><span class="n">file</span> <span class="n">IN_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">1</span> <span class="p">[</span><span class="n">INPUT_FORMAT</span><span class="p">]]</span>
+                <span class="p">[</span><span class="o">--</span><span class="n">out</span><span class="o">-</span><span class="n">file</span> <span class="n">OUT_FILE</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="mi">0</span> <span class="p">[</span><span class="n">OUTPUT_FORMAT</span><span class="p">]]</span>
+                <span class="p">[</span><span class="n">blockheight</span><span class="p">]</span>
+</pre></div>
+</div>
+<section id="positional-arguments_repeat4">
+<h4>Positional Arguments<a class="headerlink" href="#positional-arguments_repeat4" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>blockheight</kbd></dt>
+<dd><p>block height</p>
+</dd>
+</dl>
+</section>
+<section id="named-arguments_repeat17">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat17" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>--header-only, -H</kbd></dt>
+<dd><p>output block header only</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--decode</kbd></dt>
+<dd><p>decode block provided via in_file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">False</span></code></p>
+</dd>
+<dt><kbd>--network, -N</kbd></dt>
+<dd><p>Possible choices: mainnet, testnet, regtest</p>
+<p>network, e.g. ‘mainnet’, ‘testnet’, or ‘regtest’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'mainnet'</span></code></p>
+</dd>
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+<dt><kbd>--in-file, -in, -i</kbd></dt>
+<dd><p>input data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-1, --input-format</kbd></dt>
+<dd><p>raw binary (-1), binary string (-1b), or hexadecimal string (-1x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+<dt><kbd>--out-file, -out, -o</kbd></dt>
+<dd><p>output data file</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">-</span></code></p>
+</dd>
+<dt><kbd>-0, --output-format</kbd></dt>
+<dd><p>raw binary (-0), binary string (-0b), or hexadecimal string (-0x)</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">hex</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="mine">
+<h3>mine<a class="headerlink" href="#mine" title="Link to this heading">¶</a></h3>
+<p>Mine blocks.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">mine</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="o">--</span><span class="n">recv</span><span class="o">-</span><span class="n">addr</span> <span class="n">RECV_ADDR</span> <span class="p">[</span><span class="o">--</span><span class="n">limit</span> <span class="n">LIMIT</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span>
+</pre></div>
+</div>
+<section id="named-arguments_repeat18">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat18" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>--recv-addr</kbd></dt>
+<dd><p>Address to send block reward to.</p>
+</dd>
+<dt><kbd>--limit</kbd></dt>
+<dd><p>Set a limit of the number of blocks to mine before exit. Useful in regtest mode for generating a set number of blocks</p>
+</dd>
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="rpc">
+<h3>rpc<a class="headerlink" href="#rpc" title="Link to this heading">¶</a></h3>
+<p>Send command to RPC node</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bits</span> <span class="n">rpc</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">rpc</span><span class="o">-</span><span class="n">url</span> <span class="n">RPC_URL</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">rpc</span><span class="o">-</span><span class="n">user</span> <span class="n">RPC_USER</span><span class="p">]</span>
+         <span class="p">[</span><span class="o">-</span><span class="n">rpc</span><span class="o">-</span><span class="n">password</span> <span class="n">RPC_PASSWORD</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">rpc</span><span class="o">-</span><span class="n">datadir</span> <span class="n">RPC_DATADIR</span><span class="p">]</span>
+         <span class="p">[</span><span class="o">--</span><span class="n">network</span> <span class="n">NETWORK</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">L</span> <span class="n">LOG_LEVEL</span><span class="p">]</span>
+         <span class="n">rpc_command</span> <span class="p">[</span><span class="n">params</span> <span class="o">...</span><span class="p">]</span>
+</pre></div>
+</div>
+<section id="positional-arguments_repeat5">
+<h4>Positional Arguments<a class="headerlink" href="#positional-arguments_repeat5" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>rpc_command</kbd></dt>
+<dd><p>rpc command</p>
+</dd>
+<dt><kbd>params</kbd></dt>
+<dd><p>params for rpc_command</p>
+</dd>
+</dl>
+</section>
+<section id="named-arguments_repeat19">
+<h4>Named Arguments<a class="headerlink" href="#named-arguments_repeat19" title="Link to this heading">¶</a></h4>
+<dl class="option-list">
+<dt><kbd>-rpc-url, --rpc-url</kbd></dt>
+<dd><p>rpc url</p>
+</dd>
+<dt><kbd>-rpc-user, --rpc-user</kbd></dt>
+<dd><p>rpc user</p>
+</dd>
+<dt><kbd>-rpc-password, --rpc-password</kbd></dt>
+<dd><p>rpc password</p>
+</dd>
+<dt><kbd>-rpc-datadir, --rpc-datadir</kbd></dt>
+<dd><p>For cookie based rpc auth, supply rpc datadir.</p>
+</dd>
+<dt><kbd>--network, -N</kbd></dt>
+<dd><p>Possible choices: mainnet, testnet, regtest</p>
+<p>network, e.g. ‘mainnet’, ‘testnet’, or ‘regtest’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'mainnet'</span></code></p>
+</dd>
+<dt><kbd>-L, --log-level</kbd></dt>
+<dd><p>Possible choices: info, debug, warning, error</p>
+<p>log level, e.g. ‘info’, ‘debug’, ‘warning’, or ‘error’</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">'error'</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">bits</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Table of Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">CLI Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#bits.__main__-setup_parser-named-arguments">Named Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#bits.__main__-setup_parser-subcommands">subcommands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#Sub-commands">Sub-commands</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="index.html" title="previous chapter">bits</a></li>
+      <li>Next: <a href="api.html" title="next chapter">API Reference</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Jason Traub.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/cli.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
