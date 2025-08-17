@@ -2127,6 +2127,9 @@ class Node:
         current_block_index_data = self.db.get_block(blockheight=current_blockheight)
 
         proposed_blockheight = current_blockheight + 1
+        if proposed_blockheight >= bits.constants.SEGWIT_ACTIVATION_HEIGHT:
+            raise NotImplementedError("segwit not implemented")
+
         proposed_block = Block(block)
         if not bits.blockchain.check_block(proposed_block, network=self.network):
             raise CheckBlockError(

@@ -9,9 +9,7 @@ import typing
 
 import bits.base58
 import bits.constants
-import bits.crypto
 import bits.ecmath
-import bits.keys
 from bits.bips import bip173
 from bits.bips.bip350 import BECH32M_CONST
 
