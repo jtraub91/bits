@@ -13,7 +13,7 @@ Subpackages
 Submodules
 ----------
 
-bits.base58 module
+bits.base58
 ------------------
 
 .. automodule:: bits.base58
@@ -21,7 +21,7 @@ bits.base58 module
    :show-inheritance:
    :undoc-members:
 
-bits.blockchain module
+bits.blockchain
 ----------------------
 
 .. automodule:: bits.blockchain
@@ -29,7 +29,7 @@ bits.blockchain module
    :show-inheritance:
    :undoc-members:
 
-bits.config module
+bits.config
 ------------------
 
 .. automodule:: bits.config
@@ -37,7 +37,7 @@ bits.config module
    :show-inheritance:
    :undoc-members:
 
-bits.constants module
+bits.constants
 ---------------------
 
 .. automodule:: bits.constants
@@ -45,7 +45,7 @@ bits.constants module
    :show-inheritance:
    :undoc-members:
 
-bits.crypto module
+bits.crypto
 ------------------
 
 .. automodule:: bits.crypto
@@ -53,7 +53,7 @@ bits.crypto module
    :show-inheritance:
    :undoc-members:
 
-bits.ecmath module
+bits.ecmath
 ------------------
 
 .. automodule:: bits.ecmath
@@ -61,7 +61,7 @@ bits.ecmath module
    :show-inheritance:
    :undoc-members:
 
-bits.integrations module
+bits.integrations
 ------------------------
 
 .. automodule:: bits.integrations
@@ -69,7 +69,7 @@ bits.integrations module
    :show-inheritance:
    :undoc-members:
 
-bits.keys module
+bits.keys
 ----------------
 
 .. automodule:: bits.keys
@@ -77,7 +77,7 @@ bits.keys module
    :show-inheritance:
    :undoc-members:
 
-bits.p2p module
+bits.p2p
 ---------------
 
 .. automodule:: bits.p2p
@@ -85,7 +85,7 @@ bits.p2p module
    :show-inheritance:
    :undoc-members:
 
-bits.pem module
+bits.pem
 ---------------
 
 .. automodule:: bits.pem
@@ -93,7 +93,7 @@ bits.pem module
    :show-inheritance:
    :undoc-members:
 
-bits.rpc module
+bits.rpc
 ---------------
 
 .. automodule:: bits.rpc
@@ -101,7 +101,7 @@ bits.rpc module
    :show-inheritance:
    :undoc-members:
 
-bits.tx module
+bits.tx
 --------------
 
 .. automodule:: bits.tx
@@ -109,7 +109,7 @@ bits.tx module
    :show-inheritance:
    :undoc-members:
 
-bits.utils module
+bits.utils
 -----------------
 
 .. automodule:: bits.utils
