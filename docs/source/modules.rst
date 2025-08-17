@@ -6,4 +6,3 @@ bits
 
    bits
    bits.wallet
-   bits.script

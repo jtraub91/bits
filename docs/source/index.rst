@@ -27,11 +27,11 @@ Install for development
    pre-commit install
 
 Configuration
-============
+==============
 
 A configuration file is not strictly necessary, but may be leveraged, nominally located at ``~/.bits/config.[toml|json]``, for overriding CLI defaults.
 
-See :doc:`conf/` for default configuration files.
+See `conf/` for default configuration files.
 
 Config file support
 -------------------
@@ -45,3 +45,4 @@ Config file support
 
    cli
    api
+   modules

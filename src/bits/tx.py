@@ -235,10 +235,12 @@ def coinbase_txin(
     Create coinbase txin with
         BIP34 blockheight prepended to coinbase script as minimally encoded serialized CScript,
         if blockheight is specified
+
     Args:
         coinbase_script: bytes, arbitrary data not exceeding 100 bytes
         sequence: bytes, sequence (little endian byte order)
         block_height: Optional[bytes], block height of this block
+
     """
     if block_height is not None:
         # "minimally encoded serialized CScript"
@@ -328,12 +330,13 @@ def coinbase_tx(
 
 def is_final(tx_: Union[bytes, dict], blockheight: int, blocktime: int) -> bool:
     """
-    Check if tx is final based on locktime and the blockheight / blocktime of the block
-        it is contained in
+    Check if tx is final based on locktime and the blockheight / blocktime of the block it is contained in
+
     Args:
         tx_: bytes | dict, transaction
         blockheight: int, block height of tx's block
         blocktime: int, timestamp of tx's block
+
     """
     # logic based on https://github.com/bitcoin/bitcoin/blob/v0.4.0/src/main.h#L435
     tx_dict = tx_deser(tx_) if type(tx_) is bytes else tx_
@@ -355,12 +358,16 @@ def is_final(tx_: Union[bytes, dict], blockheight: int, blocktime: int) -> bool:
 def assert_coinbase(tx_: Union[bytes, dict]) -> bool:
     """
     Assert tx is a coinbase transaction
+
     Args:
-        tx_: bytes | dict, transaction bytes or dictionary
+        tx: bytes | dict, transaction bytes or dictionary
+
     Returns:
         True is tx is coinbase transaction
+
     Throws:
         AssertionError if tx is not a coinbase transaction
+
     """
     coinbase_tx = bits.tx.tx_deser(tx_) if type(tx_) is bytes else tx_
     coinbase_tx_txins = coinbase_tx["txins"]
@@ -382,11 +389,14 @@ def assert_coinbase(tx_: Union[bytes, dict]) -> bool:
 def is_coinbase(tx_: Union[bytes, dict], log_error: bool = False) -> bool:
     """
     Test whether transaction is a coinbase tx
+
     Args:
-        tx_: bytes, transaction
+        tx: bytes | dict, transaction bytes or dictionary
         log_error: bool, set True to log assertion error, if any
+
     Returns:
         True if transaction is a coinbase transaction, else False
+
     """
     try:
         return assert_coinbase(tx_)

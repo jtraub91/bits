@@ -168,9 +168,11 @@ def chainwork(work_: int) -> str:
 def new_chainwork(prev_chainwork: str, nbits_: str) -> str:
     """
     Calculate new chainwork from previous chainwork and new nbits
+
     Args:
         prev_chainwork: str, previous chainwork (big endian)
         nbits_: str, nBits encoding of target threshold (big endian)
+
     """
     return chainwork(
         int(prev_chainwork, 16) + work(target_threshold(bytes.fromhex(nbits_)[::-1]))
@@ -395,15 +397,15 @@ def block_deser(block: bytes, json_serializable: bool = False) -> dict:
     """
     Deserialize block data
 
-    Includes BIP34 parsing of blockheight from coinbase tx txin scriptsig
-        for version 2 blocks
-    https://github.com/bitcoin/bips/blob/master/bip-0034.mediawiki
+    Includes BIP34 parsing of blockheight from coinbase tx txin scriptsig for version 2 blocks
 
     Args:
         block: bytes, block data
         json_serializable: bool, set True to return txin and txouts as dicts instead of TxIn and TxOut objects, respectively
+
     Returns:
         dict, block dictionary
+
     """
     header = block[:80]
     number_of_txns, block_prime = bits.parse_compact_size_uint(block[80:])

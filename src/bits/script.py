@@ -186,8 +186,7 @@ def p2wpkh_script_pubkey(pk_hash: bytes, witness_version: int = 0) -> bytes:
     Ex: (v0)
     witness: <sig> <pubkey>
     scriptSig: (empty)
-    scriptPubKey: 0 <20-byte-key-hash>
-                 (0x0014{20-byte-key-hash})
+    scriptPubKey: 0 <20-byte-key-hash>  (0x0014{20-byte-key-hash})
     """
     witness_version_opcode = getattr(bits.constants, f"OP_{witness_version}")
     return (
@@ -203,7 +202,7 @@ def p2wpkh_script_sig() -> bytes:
 
 def p2wsh_script_pubkey(witness_scripthash_: bytes, witness_version: int = 0) -> bytes:
     """
-    witness_scripthash_ must be 32 bytes for v0 native p2wsh
+    witness_scripthash must be 32 bytes for v0 native p2wsh
     """
     return p2wpkh_script_pubkey(witness_scripthash_, witness_version=witness_version)
 
@@ -344,14 +343,17 @@ def check_sig(
 ) -> bool:
     """
     Check signature
+
     Args:
         sig_: bytes, signature
         pubkey_: bytes, pubkey
         scriptcode_: bytes, scriptcode inserted
         tx_: bytes, transaction
         txin_n: int, index of input in transaction
+
     Returns:
         True if signature verification passes, else False
+
     """
     tx_dict, _ = bits.tx.tx_deser(tx_)
 
@@ -414,12 +416,15 @@ def eval_script(script_: bytes, tx_: bytes, txin_n: int) -> bool:
     """
     Evalute script for txin n in tx
     https://github.com/bitcoin/bitcoin/blob/v0.2.13/script.cpp#L44
+
     Arg:
-        script_: bytes, script
-        tx_: bytes, transaction
+        script: bytes, script
+        tx: bytes, transaction
         txin_n: int, txin index for which we are evaluating script for
+
     Returns:
         True if script succeeds, else False
+
     """
     scriptbytes = script_
     scriptbytes_index = 0
@@ -511,10 +516,12 @@ def find_and_delete(sig_: bytes, scriptcode_: bytes) -> bytes:
 
     Used during eval_script (OP_CHECKSIG)
     Args:
-        sig_: bytes, signature
-        scriptcode_: bytes, scriptcode
+        sig: bytes, signature
+        scriptcode: bytes, scriptcode
+
     Returns:
         bytes: scriptcode with signature and opcodes deleted
+
     """
 
     while scriptcode_.find(sig_) != -1:

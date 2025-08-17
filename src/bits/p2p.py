@@ -178,7 +178,7 @@ def version_payload(
     addr_recv_port: int,
     addr_trans_port: int,
     protocol_version: int = 60001,
-    services: int = NODE_NETWORK,
+    services: int = NODE_NETWORK | NODE_WITNESS,
     user_agent: bytes = BITS_USER_AGENT,
 ) -> bytes:
     """
@@ -383,11 +383,10 @@ def inv_payload(count: int, inventories: List[inventory]) -> bytes:
 def parse_inventory(inventory_: bytes) -> dict[str, str]:
     """
     Parse inventory data structure
+
     Returns:
-        {
-            "type_id": str, type of inventory item,
-            "hash": str, hash of inventory item (big endian)
-        }
+        dict, {"type_id": str, "hash": str}
+
     """
     assert len(inventory_) == 36
     type_id_integer = int.from_bytes(inventory_[:4], "little")
@@ -618,7 +617,7 @@ class Node:
         network: str,
         log_level: str = "debug",
         protocol_version: int = 60001,
-        services: int = NODE_NETWORK,
+        services: int = NODE_NETWORK | NODE_WITNESS,
         user_agent: bytes = BITS_USER_AGENT,
         max_incoming_peers: int = 3,
         max_outgoing_peers: int = 3,
@@ -1351,6 +1350,7 @@ class Node:
                         request_file,
                         loop,
                     )
+            log.trace("main loop sleep")
             await asyncio.sleep(0.5)
         log.trace("main loop exit")
 
@@ -1364,6 +1364,7 @@ class Node:
         and processed if the response does not already exist.
 
         Note: the requested method must return a json serializable type
+
         Args:
             request_filename: str, request json filename to be serviced from Node._requests_dir
             loop_: Optional[AbstractEventLoop], event loop to run in for async methods
@@ -1428,7 +1429,8 @@ class Node:
                     await loop.run_in_executor(
                         self._thread_pool_executor, handler, peer, command, payload
                     )
-            await asyncio.sleep(0)
+            log.trace("message handler loop sleep")
+            await asyncio.sleep(0.5)
         log.trace("message handler loop exited")
 
     # def accept_mempool_tx(self, tx_: Union[Tx, Bytes, bytes]):
@@ -1680,7 +1682,7 @@ class Node:
                 log.error(err)
                 log.error(traceback.format_exc())
                 self.exit_event.set()
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.5)
         log.trace("exit process_blocks")
 
     def process_block(self, block: Block):
@@ -2106,17 +2108,20 @@ class Node:
     ) -> bool:
         """
         Validate block as new tip and save block data and / or index and chainstate
+
         Args:
             block: Block | bytes, block data
+
         Returns:
             bool: True if block is accepted
+
         Throws:
             CheckBlockError: if block fails context indepedent checks
             AcceptBlockError: if block fails context dependent checks
             PossibleOrphanError: if block is potential orphan
             PossibleForkError: if block is part of a potential fork
-            ConnectBlockError: if error is thrown during full tx validation,
-                i.e. after block is saved to disk
+            ConnectBlockError: if error is thrown during full tx validation, i.e. after block is saved to disk
+
         """
         current_blockheight = self.db.get_blockchain_height()
         current_block_index_data = self.db.get_block(blockheight=current_blockheight)
@@ -2381,6 +2386,7 @@ class Node:
                 # evaluate tx_in unlocking script for its utxo
                 tx_in_scriptsig = tx_in["scriptsig"]
                 utxo_scriptpubkey = utxo["scriptpubkey"]
+                # TODO: upon activation, identify segwit transactions from the scriptpubkey and use appropriate evaluation method
                 script_ = bits.script.script(
                     [tx_in_scriptsig, "OP_CODESEPARATOR", utxo_scriptpubkey]
                 )
@@ -2474,6 +2480,9 @@ class Node:
                     else:
                         utxo_ordinal_ranges += [(start, end)]
                         value -= end - start + 1
+            log.trace(
+                f"adding tx output {vout} in coinbase txn of new block {current_blockheight} to utxoset..."
+            )
             with self._thread_lock:
                 self.db.add_to_utxoset(
                     coinbase_tx["txid"],
@@ -2485,7 +2494,7 @@ class Node:
                     in [91842, 91880],  # allow historic violations per BIP 30
                     cursor=cursor,
                 )
-
+        log.trace("committing transaction...")
         self.db._conn.commit()
         log.debug(
             f"processed all of {len(current_block['txns'])} txns in block {current_blockheight}."
@@ -2628,6 +2637,9 @@ class Db:
         self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute("PRAGMA foreign_keys=ON;")
         self._conn.execute("PRAGMA busy_timeout=1000;")
+        self._conn.execute("PRAGMA cache_size=-65536;")
+        self._conn.execute("PRAGMA temp_store=MEMORY;")
+        self._conn.execute("PRAGMA synchronous=NORMAL;")
 
     def __enter__(self):
         return self

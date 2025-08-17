@@ -1,15 +1,6 @@
 bits package
 ============
 
-Subpackages
------------
-
-.. toctree::
-   :maxdepth: 4
-
-   bits.script
-   bits.wallet
-
 Submodules
 ----------
 
@@ -61,18 +52,18 @@ bits.ecmath
    :show-inheritance:
    :undoc-members:
 
-bits.integrations
-------------------------
-
-.. automodule:: bits.integrations
-   :members:
-   :show-inheritance:
-   :undoc-members:
-
 bits.keys
 ----------------
 
 .. automodule:: bits.keys
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
+bits.ordinals
+----------------
+
+.. automodule:: bits.ordinals
    :members:
    :show-inheritance:
    :undoc-members:
@@ -93,10 +84,10 @@ bits.pem
    :show-inheritance:
    :undoc-members:
 
-bits.rpc
----------------
+bits.script
+--------------
 
-.. automodule:: bits.rpc
+.. automodule:: bits.script
    :members:
    :show-inheritance:
    :undoc-members:
@@ -105,22 +96,6 @@ bits.tx
 --------------
 
 .. automodule:: bits.tx
-   :members:
-   :show-inheritance:
-   :undoc-members:
-
-bits.utils
------------------
-
-.. automodule:: bits.utils
-   :members:
-   :show-inheritance:
-   :undoc-members:
-
-Module contents
----------------
-
-.. automodule:: bits
    :members:
    :show-inheritance:
    :undoc-members:
