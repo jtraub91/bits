@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bits"
-version = "0.2.2"
+version = "0.3.0"
 authors = [{name = "Jason Traub", email = "jtraub91@gmail.com"}]
 description = "bits is a pure Python implementation of Bitcoin"
 readme="README.md"
